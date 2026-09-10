@@ -1,0 +1,768 @@
+var settings = getDefaultSettings()
+var fvtt_tabs = []
+var custom_tabs = []
+var roll20_tabs = []
+var tabRemovalTimers = {};
+var currentPermissions = {origins: []};
+var openedChangelog = false;
+var webNavigationReady = false;
+const manifest = chrome.runtime.getManifest();
+// Manifest V3 uses action instead of browserAction
+const action = manifest.manifest_version >= 3 ? chrome.action : chrome.browserAction;
+
+function sendMessageWithLog(tabId, request) {
+    try {
+        const maybePromise = chrome.tabs.sendMessage(tabId, request);
+        if (maybePromise && typeof maybePromise.catch === "function") {
+            maybePromise.catch((error) => {
+                const message = String(error && error.message ? error.message : error || "");
+                if (message.includes("Receiving end does not exist") ||
+                    message.includes("message port closed before a response was received")) {
+                    return;
+                }
+                console.debug("WayBeyond20: sendMessage failed for tab " + tabId + ":", message);
+            });
+        }
+    } catch (error) {
+        const message = String(error && error.message ? error.message : error || "");
+        if (message.includes("Extension context invalidated")) return;
+        console.debug("WayBeyond20: sendMessage failed for tab " + tabId + ":", message);
+    }
+}
+
+let wayBeyond20DebugLogWriteQueue = Promise.resolve();
+
+function wayBeyond20AppendDebugLogEntry(entry, sender = null) {
+    if (!settings || !settings["waybeyond20-debug-log"]) return Promise.resolve(false);
+    const normalized = Object.assign({}, entry || {});
+    normalized.timestamp = normalized.timestamp || new Date().toISOString();
+    normalized.scope = String(normalized.scope || "WayBeyond20");
+    normalized.event = String(normalized.event || "event");
+    if (sender && sender.tab) {
+        normalized.tabId = sender.tab.id;
+        if (!normalized.page && sender.tab.url) {
+            try {
+                const url = new URL(sender.tab.url);
+                normalized.page = `${url.origin}${url.pathname}`;
+            } catch (error) {
+                normalized.page = sender.tab.url;
+            }
+        }
+    }
+
+    return new Promise(resolve => {
+        getStorage().get({ [WAYBEYOND20_DEBUG_LOG_STORAGE_KEY]: [] }, items => {
+            let entries = Array.isArray(items[WAYBEYOND20_DEBUG_LOG_STORAGE_KEY])
+                ? items[WAYBEYOND20_DEBUG_LOG_STORAGE_KEY].slice()
+                : [];
+            entries.push(normalized);
+            if (entries.length > WAYBEYOND20_DEBUG_LOG_MAX_ENTRIES) {
+                entries = entries.slice(entries.length - WAYBEYOND20_DEBUG_LOG_MAX_ENTRIES);
+            }
+            while (entries.length > 1 && JSON.stringify(entries).length > WAYBEYOND20_DEBUG_LOG_MAX_CHARACTERS) {
+                entries.shift();
+            }
+            getStorage().set({ [WAYBEYOND20_DEBUG_LOG_STORAGE_KEY]: entries }, () => resolve(!chrome.runtime.lastError));
+        });
+    });
+}
+
+function wayBeyond20QueueDebugLogEntry(entry, sender = null) {
+    wayBeyond20DebugLogWriteQueue = wayBeyond20DebugLogWriteQueue
+        .then(() => wayBeyond20AppendDebugLogEntry(entry, sender))
+        .catch(error => console.debug("WayBeyond20: Debug log write failed", error));
+}
+
+function wayBeyond20BackgroundDebug(event, details = null) {
+    if (!settings || !settings["waybeyond20-debug-log"]) return;
+    wayBeyond20QueueDebugLogEntry({
+        timestamp: new Date().toISOString(),
+        scope: "Background",
+        event,
+        details: wayBeyond20DebugSafeValue(details)
+    });
+}
+
+function wayBeyond20CloneForVTT(request) {
+    try {
+        return JSON.parse(JSON.stringify(request));
+    } catch (err) {
+        console.warn("WayBeyond20: Unable to clone VTT request for target-specific transforms", err);
+        return request;
+    }
+}
+
+function wayBeyond20SavageFormulaForTarget(formula, target) {
+    const syntax = target === "roll20" ? "dl" : "kh";
+    return String(formula || "").replace(/(\d*)d(\d+)((?:ro<=\d+|min\d+)*)/gi, (match, amount, faces, modifiers) => {
+        const count = parseInt(amount || "1");
+        if (!Number.isFinite(count) || count <= 0) return match;
+        const doubled = count * 2;
+        if (syntax === "dl") return `${doubled}d${faces}${modifiers || ""}dl${count}`;
+        return `${doubled}d${faces}${modifiers || ""}kh${count}`;
+    });
+}
+
+function wayBeyond20BedsideFormulaForTarget(formula, target) {
+    const syntax = target === "roll20" ? "dl" : "kh";
+    let changed = false;
+    return String(formula || "").replace(/(\d*)d(\d+)((?:ro<=\d+|min\d+)*)/i, (match, amount, faces, modifiers) => {
+        if (changed) return match;
+        const count = parseInt(amount || "1");
+        if (!Number.isFinite(count) || count <= 0) return match;
+        changed = true;
+        const rolled = count + 1;
+        if (syntax === "dl") return `${rolled}d${faces}${modifiers || ""}dl1`;
+        return `${rolled}d${faces}${modifiers || ""}kh${count}`;
+    });
+}
+
+function wayBeyond20ApplyBedsideMannerTransform(request, target) {
+    const bedside = request && request["waybeyond20-bedside-manner"];
+    if (!bedside || bedside.mode !== "extra-die-drop-lowest") return request;
+
+    const changed = [];
+    if (bedside.field === "hit-dice") {
+        const original = bedside.original || request["hit-dice"];
+        const replacement = wayBeyond20BedsideFormulaForTarget(original, target);
+        if (replacement !== original) {
+            request["hit-dice"] = replacement;
+            changed.push({ field: "hit-dice", from: original, to: replacement });
+        }
+    } else if (Array.isArray(request.damages)) {
+        const selected = [...new Set(Array.isArray(bedside.selectedHealingIndexes) ? bedside.selectedHealingIndexes : [])]
+            .filter(idx => Number.isFinite(idx) && idx >= 0 && idx < request.damages.length)
+            .sort((a, b) => a - b);
+        for (const idx of selected) {
+            const recorded = Array.isArray(bedside.originalHealing)
+                ? bedside.originalHealing.find(entry => entry && entry.index === idx)
+                : null;
+            const original = recorded ? recorded.formula : request.damages[idx];
+            const replacement = wayBeyond20BedsideFormulaForTarget(original, target);
+            if (replacement !== original) {
+                request.damages[idx] = replacement;
+                changed.push({
+                    index: idx,
+                    from: original,
+                    to: replacement,
+                    type: Array.isArray(request["damage-types"]) ? request["damage-types"][idx] || "Healing" : "Healing"
+                });
+            }
+        }
+    }
+
+    request["waybeyond20-bedside-manner"] = {
+        ...bedside,
+        renderedTarget: target,
+        changed
+    };
+    return request;
+}
+
+function wayBeyond20ApplySavageAttackerTransform(request, target) {
+    if (!request || !Array.isArray(request.damages)) return request;
+    const savage = request["waybeyond20-savage-attacker"];
+    if (!savage || savage.mode !== "double-dice-drop-lowest") return request;
+
+    let selected = Array.isArray(savage.selectedDamageIndexes) ? savage.selectedDamageIndexes : [];
+    if (selected.length === 0 && Array.isArray(savage.selected) && Array.isArray(request["waybeyond20-action-pool"])) {
+        selected = request["waybeyond20-action-pool"]
+            .filter(row => row && savage.selected.includes(row.id))
+            .map(row => parseInt(String(row.id || "").replace(/^d/, "")))
+            .filter(idx => Number.isFinite(idx));
+    }
+    selected = [...new Set(selected)].filter(idx => idx >= 0 && idx < request.damages.length).sort((a, b) => a - b);
+    if (selected.length === 0) return request;
+
+    const changed = [];
+    for (const idx of selected) {
+        const original = request.damages[idx];
+        const replacement = wayBeyond20SavageFormulaForTarget(original, target);
+        if (replacement !== original) {
+            request.damages[idx] = replacement;
+            changed.push({
+                index: idx,
+                from: original,
+                to: replacement,
+                type: Array.isArray(request["damage-types"]) ? request["damage-types"][idx] || "" : ""
+            });
+        }
+    }
+
+    request["waybeyond20-savage-attacker"] = {
+        ...savage,
+        renderedTarget: target,
+        changed
+    };
+    return request;
+}
+
+function wayBeyond20ApplyTargetTransforms(request, target) {
+    if (!request) return request;
+    wayBeyond20ApplyBedsideMannerTransform(request, target);
+    wayBeyond20ApplySavageAttackerTransform(request, target);
+    return request;
+}
+
+function wayBeyond20PrepareRequestForTarget(request, target) {
+    const cloned = wayBeyond20CloneForVTT(request);
+    return wayBeyond20ApplyTargetTransforms(cloned, target);
+}
+
+function updateSettings(new_settings = null) {
+    if (new_settings) {
+        settings = new_settings
+    } else {
+        getStoredSettings((saved_settings) => {
+            updateSettings(saved_settings);
+        })
+    }
+}
+
+function sendMessageTo(url, request, failure = null) {
+    chrome.tabs.query({ url }, (tabs) => {
+        if (failure)
+            failure(tabs.length === 0)
+        for (let tab of tabs)
+            sendMessageWithLog(tab.id, request)
+    })
+}
+
+function filterVTTTab(request, limit, tabs, titleCB) {
+    let found = false
+    for (let tab of tabs) {
+        if ((limit.id == 0 || tab.id == limit.id) &&
+            (limit.title == null || titleCB(tab.title) == limit.title)) {
+            sendMessageWithLog(tab.id, request)
+            found = true
+        }
+    }
+    if (!found && limit.id != 0) {
+        limit.id = 0
+        mergeSettings({ "vtt-tab": limit })
+        for (let tab of tabs) {
+            if (titleCB(tab.title) == limit.title) {
+                sendMessageWithLog(tab.id, request)
+                found = true
+                break
+            }
+        }
+    }
+    return found
+}
+
+function sendMessageToRoll20(request, limit = null, failure = null) {
+    const targetRequest = wayBeyond20PrepareRequestForTarget(request, "roll20");
+    if (limit) {
+        const vtt = limit.vtt || "roll20"
+        if (vtt == "roll20") {
+            chrome.tabs.query({ "url": ROLL20_URL }, (tabs) => {
+                console.log("[Roll20] limit path: tabs from URL query:", tabs.length, "tracked roll20_tabs:", roll20_tabs.length);
+                // Also check tracked Roll20 tabs, including the no-trailing-slash URL variant.
+                for (let rtab of roll20_tabs) {
+                    if (!tabs.find(t => t.id === rtab.id)) {
+                        tabs.push(rtab);
+                    }
+                }
+                let found = filterVTTTab(targetRequest, limit, tabs, roll20Title)
+                if (failure)
+                    failure(!found)
+            })
+        } else {
+            failure(true)
+        }
+    } else {
+        chrome.tabs.query({ "url": ROLL20_URL }, (tabs) => {
+            for (let rtab of roll20_tabs) {
+                if (!tabs.find(t => t.id === rtab.id)) {
+                    tabs.push(rtab);
+                }
+            }
+            for (let tab of tabs) {
+                sendMessageWithLog(tab.id, targetRequest)
+            }
+            if (failure) failure(tabs.length === 0)
+        });
+    }
+}
+
+function sendMessageToFVTT(request, limit, failure = null) {
+    const targetRequest = wayBeyond20PrepareRequestForTarget(request, "fvtt");
+    if (limit) {
+        const vtt = limit.vtt || "fvtt"
+        if (vtt == "fvtt") {
+            let found = filterVTTTab(targetRequest, limit, fvtt_tabs, fvttTitle)
+            if (failure)
+                failure(!found)
+        } else {
+            failure(true)
+        }
+    } else {
+        if (failure)
+            failure(fvtt_tabs.length == 0)
+        if (fvtt_tabs.length == 0) return;
+        for (let tab of fvtt_tabs) {
+            sendMessageWithLog(tab.id, targetRequest)
+        }
+    }
+}
+
+function sendMessageToCustomSites(request, limit, failure = null) {
+    const targetRequest = wayBeyond20PrepareRequestForTarget(request, "generic");
+    if (failure)
+        failure(custom_tabs.length == 0)
+    if (custom_tabs.length == 0) return;
+    for (let tab of custom_tabs) {
+        sendMessageWithLog(tab.id, targetRequest)
+    }
+}
+
+function sendMessageToBeyond(request) {
+    sendMessageTo(DNDBEYOND_CHARACTER_URL, request)
+    sendMessageTo(DNDBEYOND_MONSTER_URL, request)
+    sendMessageTo(DNDBEYOND_ENCOUNTER_URL, request)
+    sendMessageTo(DNDBEYOND_ENCOUNTERS_URL, request)
+    sendMessageTo(DNDBEYOND_COMBAT_URL, request)
+    sendMessageTo(DNDBEYOND_SPELL_URL, request)
+    sendMessageTo(DNDBEYOND_VEHICLE_URL, request)
+    sendMessageTo(DNDBEYOND_SOURCES_URL, request)
+    sendMessageTo(DNDBEYOND_CLASSES_URL, request)
+    sendMessageTo(DNDBEYOND_EQUIPMENT_URL, request)
+    sendMessageTo(DNDBEYOND_ITEMS_URL, request)
+    sendMessageTo(DNDBEYOND_FEATS_URL, request)
+}
+
+function isFVTTTabAdded(tab) {
+    return !!fvtt_tabs.find(t => t.id === tab.id);
+}
+
+function addFVTTTab(tab) {
+    if (isFVTTTabAdded(tab)) return;
+    fvtt_tabs.push(tab);
+    console.log("Added ", tab.id, " to fvtt tabs.");
+}
+
+function removeFVTTTab(id) {
+    for (let t of fvtt_tabs) {
+        if (t.id == id) {
+            fvtt_tabs = fvtt_tabs.filter(tab => tab !== t);
+            console.log("Removed ", id, " from fvtt tabs.");
+            return;
+        }
+    }
+}
+
+function isCustomTabAdded(tab) {
+    return !!custom_tabs.find(t => t.id === tab.id);
+}
+
+function addCustomTab(tab) {
+    if (isCustomTabAdded(tab)) return;
+    custom_tabs.push(tab);
+    console.log("Added ", tab.id, " to custom tabs.");
+}
+
+function removeCustomTab(id) {
+    for (let t of custom_tabs) {
+        if (t.id == id) {
+            custom_tabs = custom_tabs.filter(tab => tab !== t);
+            console.log("Removed ", id, " from custom tabs.");
+            return;
+        }
+    }
+}
+
+function isRoll20TabAdded(tab) {
+    return !!roll20_tabs.find(t => t.id === tab.id);
+}
+
+function addRoll20Tab(tab) {
+    if (isRoll20TabAdded(tab)) return;
+    roll20_tabs.push(tab);
+    console.log("Added ", tab.id, " to roll20 tabs.");
+}
+
+function removeRoll20Tab(id) {
+    roll20_tabs = roll20_tabs.filter(tab => tab.id !== id);
+}
+
+function onRollFailure(request, sendResponse) {
+    // Passive character-state synchronization is optional. Opening or refreshing a
+    // D&D Beyond sheet without a VTT should not produce a user-facing error.
+    if (["hp-update", "conditions-update", "effects-update", "update-combat"].includes(request.action)) {
+        sendResponse({
+            "success": false, "vtt": null, "request": request, "error": null
+        });
+        return;
+    }
+
+    console.log("Failure to find a VTT", request.action)
+    chrome.tabs.query({ "url": FVTT_URL }, (tabs) => {
+        let found = false
+        for (let tab of tabs) {
+            if (isFVTT(tab.title)) {
+                found = true;
+                break;
+            }
+        }
+        console.log("Found FVTT tabs : ", found, tabs)
+        // Don't show the same message if (the tab is active but doesn't match the settings
+        if (fvtt_tabs.length > 0) {
+            found = false
+        }
+        if (found) {
+            sendResponse({
+                "success": false, "vtt": null, "request": request,
+                "error": "Found a Foundry VTT tab that has not been activated. Please click on the WayBeyond20 icon in the browser's toolbar of that tab in order to give WayBeyond20 access."
+            })
+        } else {
+            // Check if there's a Roll20 editor tab without trailing slash
+            chrome.tabs.query({ "url": ROLL20_URL_NO_SLASH }, (roll20Tabs) => {
+                const roll20Tab = roll20Tabs.find(tab => isRoll20(tab.title));
+                if (roll20Tab) {
+                    // Check if permission has already been granted
+                    const hasRoll20Permission = currentPermissions.origins.some(pattern =>
+                        urlMatches("https://app.roll20.net/", pattern)
+                    );
+                    console.log("[Roll20] no-slash tab found:", roll20Tab.url, "hasPermission:", hasRoll20Permission);
+                    if (hasRoll20Permission) {
+                        addRoll20Tab(roll20Tab);
+                        sendMessageToRoll20(request, settings["vtt-tab"], (failed) => {
+                            if (!failed) {
+                                sendResponse({success: true, vtt: ["roll20"], error: null, request: request});
+                            } else {
+                                sendResponse({
+                                    "success": false, "vtt": null, "request": request,
+                                    "error": "Something went wrong with your roll, please try again."
+                                });
+                            }
+                        });
+                        return;
+                    }
+                }
+                sendResponse({
+                    "success": false, "vtt": null, "request": request,
+                    "error": "No VTT found that matches your settings. Open a VTT window, or check that the settings don't restrict access to a specific campaign."
+                })
+            });
+        }
+    });
+}
+
+
+const forwardedActions = [
+    "roll",
+    "rendered-roll",
+    "hp-update",
+    "conditions-update",
+    "effects-update",
+    "update-combat",
+];
+
+function onMessage(request, sender, sendResponse) {
+    console.log("Received message: ", request)
+    if (forwardedActions.includes(request.action)) {
+        const makeFailureCB = (trackFailure, vtt, sendResponse) => {
+            return (result) => {
+                trackFailure[vtt] = result
+                console.log("Result of sending to VTT ", vtt, ": ", result)
+                if (trackFailure["roll20"] !== null && trackFailure["fvtt"] !== null &&
+                    trackFailure["custom"] !== null) {
+                    if (trackFailure["roll20"] == true && trackFailure["fvtt"] == true &&
+                        trackFailure["custom"] == true) {
+                        onRollFailure(request, sendResponse)
+                    } else {
+                        const vtts = []
+                        for (let key in trackFailure) {
+                            if (!trackFailure[key]) {
+                                vtts.push(key)
+                            }
+                        }
+                        sendResponse({ "success": true, "vtt": vtts, "error": null, "request": request })
+                    }
+                }
+            }
+        }
+        const trackFailure = { "roll20": null, "fvtt": null, "custom": null }
+        if (settings["vtt-tab"] && settings["vtt-tab"].vtt === "dndbeyond") {
+            sendResponse({ "success": false, "vtt": ["dndbeyond"], "error": null, "request": request })
+        } else {
+            sendMessageToRoll20(request, settings["vtt-tab"], makeFailureCB(trackFailure, "roll20", sendResponse))
+            sendMessageToFVTT(request, settings["vtt-tab"], makeFailureCB(trackFailure, "fvtt", sendResponse))
+            sendMessageToCustomSites(request, null, makeFailureCB(trackFailure, "custom", sendResponse))
+        }
+        return true
+    } else if (request.action == "waybeyond20-add-effect") {
+        sendMessageToBeyond(request);
+        sendResponse({ "success": true, "request": request });
+    } else if (request.action == "waybeyond20-token-binding") {
+        sendMessageToBeyond(request);
+        sendResponse({ "success": true, "request": request });
+    } else if (request.action == "waybeyond20-turn-update") {
+        sendMessageToBeyond(request);
+        sendResponse({ "success": true, "request": request });
+    } else if (request.action == "waybeyond20-debug-log") {
+        wayBeyond20QueueDebugLogEntry(request.entry || {}, sender);
+        sendResponse({ "success": true });
+    } else if (request.action == "waybeyond20-damage-result") {
+        wayBeyond20BackgroundDebug("Forwarding resolved damage to D&D Beyond", {
+            character: request.character ? { id: request.character.id, name: request.character.name } : null,
+            totalDamage: request.totalDamage,
+            source: request.source
+        });
+        sendMessageToBeyond(request);
+        sendResponse({ "success": true, "request": request });
+    } else if (request.action == "settings") {
+        if (request.type == "general")
+            updateSettings(request.settings)
+        sendMessageToRoll20(request);
+        sendMessageToBeyond(request);
+        sendMessageToFVTT(request);
+        sendMessageToCustomSites(request);
+    } else if (request.action == "activate-icon") {
+        // popup doesn't have sender.tab so we grab it from the request.
+        const tab = request.tab || sender.tab;
+        action.setPopup({ "tabId": tab.id, "popup": "popup.html" });
+        if (isFVTT(tab.title)) {
+            injectFVTTScripts([tab]);
+            addFVTTTab(tab)
+        } else if ((isCustomDomainUrl(tab) || isSupportedVTT(tab)) && !isCustomTabAdded(tab)) {
+            injectGenericSiteScripts([tab]);
+        }
+        if (isRoll20(tab.title) && !isRoll20TabAdded(tab)) {
+            addRoll20Tab(tab);
+        }
+        // maybe open the changelog
+        if (!openedChangelog) {
+            // Mark it true regardless of whether we opened it, so we don't check every time and avoid race conditions on setting save
+            openedChangelog = true;
+            const version = manifest.version;
+            if (settings["show-changelog"] && settings["last-version"] != version) {
+                mergeSettings({ "last-version": version })
+                chrome.tabs.create({ "url": CHANGELOG_URL })
+            }
+
+        }
+    } else if (request.action == "register-fvtt-tab") {
+        addFVTTTab(sender.tab);
+    } else if (request.action == "register-generic-tab") {
+        action.setPopup({ "tabId": sender.tab.id, "popup": "popup.html" });
+        addCustomTab(sender.tab);
+    } else if (request.action == "discord-permissions-updated") {
+        console.log("Discord permissions updated : ", request.permissions);
+        if (request.permissions) {
+            listenToDiscordFrames();
+        } else {
+            // The previous listener, if there was one, would have been removed automatically at this point
+            webNavigationReady = false;
+        }
+
+    } else if (request.action == "reload-me") {
+        chrome.tabs.reload(sender.tab.id)
+    } else if (request.action == "load-alertify") {
+        insertCSSs([sender.tab], ["libs/css/alertify.css", "libs/css/alertify-themes/default.css", "libs/css/alertify-themes/beyond20.css"]);
+        executeScripts([sender.tab], ["libs/alertify.min.js"], sendResponse);
+        return true
+    } else if (request.action == "get-current-tab") {
+        sendResponse(sender.tab)
+    } else if (request.action == "forward") {
+        chrome.tabs.sendMessage(request.tab, request.message, {frameId: 0}, sendResponse)
+        return true
+    }
+    // Due to MV3 issues and a bug in chrome 99-101, apparently we need to always call sendResponse 
+    // to prevent the socket from being closed
+    sendResponse();
+    return false
+}
+
+function injectFVTTScripts(tabs) {
+    insertCSSs(tabs, ["libs/css/alertify.css", "libs/css/alertify-themes/default.css", "libs/css/alertify-themes/beyond20.css", "dist/beyond20.css"])
+    executeScripts(tabs, ["libs/alertify.min.js", "libs/jquery-3.4.1.min.js", "dist/fvtt.js"])
+}
+function injectGenericSiteScripts(tabs) {
+    insertCSSs(tabs, ["libs/css/alertify.css", "libs/css/alertify-themes/default.css", "libs/css/alertify-themes/beyond20.css", "dist/beyond20.css"])
+    executeScripts(tabs, ["libs/alertify.min.js", "libs/jquery-3.4.1.min.js", "dist/generic_site.js"])
+}
+function injectRoll20Scripts(tabs, frame_id = 0) {
+    insertCSSs(tabs, ["libs/css/alertify.css", "libs/css/alertify-themes/default.css", "libs/css/alertify-themes/beyond20.css", "dist/beyond20.css"], undefined, frame_id)
+    executeScripts(tabs, ["libs/alertify.min.js", "libs/jquery-3.4.1.min.js", "dist/roll20.js"], undefined, frame_id)
+}
+function insertCSSs(tabs, css_files, callback, frame_id = 0) {
+    for (let tab of tabs) {
+        // Use new Manifest V3 scripting API 
+        if (manifest.manifest_version >= 3) {
+            chrome.scripting.insertCSS( {
+                target: { tabId: tab.id, frameIds: [frame_id] },
+                files: css_files
+            }, callback);
+        } else {
+            for (let file of css_files) {
+                chrome.tabs.insertCSS(tab.id, { "file": file, frameId: frame_id }, callback)
+            }
+        }
+    }
+}
+
+async function executeScripts(tabs, js_files, callback, frame_id = 0) {
+    for (let tab of tabs) {
+        // Use new Manifest V3 scripting API 
+        if (manifest.manifest_version >= 3) {
+            console.log("Target is : ", tab);
+            chrome.scripting.executeScript( {
+                target: { tabId: tab.id, frameIds: [frame_id] },
+                files: js_files
+            }, callback);
+        } else {
+            for (let file of js_files) {
+                chrome.tabs.executeScript(tab.id, { file: file, frameId: frame_id }, callback)
+            }
+        }
+    }
+}
+
+function onTabsUpdated(id, changes, tab) {
+    if (isFVTTTabAdded(tab) &&
+        ((changes.url && !urlMatches(changes.url, FVTT_URL)) ||
+         (changes["status"] == "loading"))) {
+        // Delay tab removal because the 'loading' could be caused by the injection of the page script itself
+        // 100ms should be fast enough for page script but not so slow that a reload on a localhost would
+        // fail to remove/add the tab, as it should
+        tabRemovalTimers[id] = setTimeout(() => removeFVTTTab(id), 100);
+    } else if (isCustomTabAdded(tab) &&
+        ((changes.url && !isCustomDomainUrl(tab) && !isSupportedVTT(tab)) ||
+         (changes["status"] == "loading"))) {
+        // Delay tab removal because the 'loading' could be caused by the injection of the page script itself
+        // 100ms should be fast enough for page script but not so slow that a reload on a localhost would
+        // fail to remove/add the tab, as it should
+        tabRemovalTimers[id] = setTimeout(() => removeCustomTab(id), 100);
+    } else if (isRoll20TabAdded(tab) &&
+        ((changes.url && !urlMatches(changes.url, ROLL20_URL) && !urlMatches(changes.url, ROLL20_URL_NO_SLASH)) ||
+         (changes["status"] == "loading"))) {
+        tabRemovalTimers[id] = setTimeout(() => removeRoll20Tab(id), 100);
+    }
+    /* Load WayBeyond20 on custom urls that have been added to our permissions */
+    if (changes["status"] === "complete" &&
+        (isFVTT(tab.title) || isRoll20(tab.title) || isCustomDomainUrl(tab) || isSupportedVTT(tab))) {
+        // Cancel tab removal if we go back to complete within 100ms as the page script loads
+        if (tabRemovalTimers[id]) {
+            clearTimeout(tabRemovalTimers[id]);
+        }
+        if (!isFVTTTabAdded(tab) && !isCustomTabAdded(tab)) {
+            // We cannot use the url or its origin, because Firefox, in its great magnificent wisdom
+            // decided that ports in the origin would break the whole permissions system
+            const origin = `${new URL(tab.url).protocol}//${new URL(tab.url).hostname}/*`;
+            const hasPermission = currentPermissions.origins.some(pattern => urlMatches(origin, pattern));
+            if (hasPermission) {
+                if (isFVTT(tab.title)) {
+                    executeScripts([tab], ["dist/fvtt_test.js"]);
+                } else if (isRoll20(tab.title) && !urlMatches(tab.url, ROLL20_URL)) {
+                    console.log("[Roll20] Auto-injecting into no-slash tab:", tab.id, tab.url);
+                    injectRoll20Scripts([tab]);
+                    addRoll20Tab(tab);
+                } else if (!isRoll20(tab.title)) {
+                    injectGenericSiteScripts([tab])
+                }
+            }
+        }
+    }
+
+}
+
+function onTabRemoved(id, info) {
+    removeFVTTTab(id)
+    removeCustomTab(id)
+    removeRoll20Tab(id)
+}
+
+function onPermissionsUpdated() {
+    const chromeOrBrowser = getBrowser() === "Firefox" ? browser : chrome;
+    chromeOrBrowser.permissions.getAll((permissions) => {
+        currentPermissions = permissions;
+    });
+}
+
+function browserActionClicked(tab) {
+    console.log("Browser action clicked for tab : ", tab.id, tab.url);
+    executeScripts([tab], ["dist/fvtt_test.js"])
+}
+
+updateSettings()
+chrome.runtime.onMessage.addListener(onMessage)
+chrome.tabs.onUpdated.addListener(onTabsUpdated)
+chrome.tabs.onRemoved.addListener(onTabRemoved)
+const chromeOrBrowser = getBrowser() === "Firefox" ? browser : chrome;
+chromeOrBrowser.permissions.onAdded.addListener(onPermissionsUpdated)
+chromeOrBrowser.permissions.onRemoved.addListener(onPermissionsUpdated)
+
+chromeOrBrowser.permissions.getAll((permissions) => {
+    currentPermissions = permissions;
+    for (const pattern of currentPermissions.origins) {
+        // Inject script in existing tabs
+        chrome.tabs.query({ "url": pattern }, (tabs) => {
+            // Skip if it's not a FVTT or custom tab
+            const fvttTabs = tabs.filter(tab => isFVTT(tab.title));
+            const customTabs = tabs.filter(tab => isCustomDomainUrl(tab) || isSupportedVTT(tab));
+            // No-slash Roll20 tabs (issue #1381): the manifest content_scripts
+            // pattern is *://app.roll20.net/editor/* so a tab at /editor with
+            // no trailing slash is not auto-injected. On Firefox the origin
+            // *://app.roll20.net/* permission is normally already granted, so
+            // inject explicitly here. Without this, users who had Roll20 open
+            // at /editor before the extension started (install, browser
+            // restart, MV3 service-worker wake) end up with an unwired tab
+            // and every roll falls through to "No VTT found". PR #1386 handles
+            // the on-navigation case via onTabsUpdated; this covers the
+            // startup-scan case it left open.
+            const roll20NoSlashTabs = tabs.filter(tab =>
+                isRoll20(tab.title) && !urlMatches(tab.url, ROLL20_URL)
+            );
+            console.log("Permissions : ", pattern, fvttTabs, customTabs, roll20NoSlashTabs);
+            executeScripts(fvttTabs, ["dist/fvtt_test.js"]);
+            injectGenericSiteScripts(customTabs);
+            if (roll20NoSlashTabs.length > 0) {
+                injectRoll20Scripts(roll20NoSlashTabs);
+                for (const tab of roll20NoSlashTabs) addRoll20Tab(tab);
+            }
+        })
+    }
+});
+
+function listenToDiscordFrames() {
+    if (!chrome.webNavigation || webNavigationReady) return;
+    console.log("Listening to webNavigation events");
+    chrome.webNavigation.onCompleted.addListener((details) => {
+        if (urlMatches(details.url, ROLL20_DISCORD_ACTIVITY_DOMAIN) &&
+            ((details.documentLifecycle === "active" && details.frameType == "sub_frame") ||
+              details.documentLifecycle === undefined /* Firefox... */)) {
+            console.log("Injecting roll20 content script into frame : ", details.frameId);
+            injectRoll20Scripts([{id: details.tabId}], details.frameId);
+        }
+    });
+    webNavigationReady = true;
+}
+listenToDiscordFrames();
+
+if (getBrowser() == "Chrome") {
+    // Re-inject scripts when reloading the extension, on Chrome
+    for (let script of manifest.content_scripts) {
+        cb = (js_files, css_files) => {
+            return (tabs) => {
+                if (js_files) {
+                    executeScripts(tabs, js_files)
+                }
+                if (css_files) {
+                    insertCSSs(tabs, css_files)
+                }
+            }
+        }
+        chrome.tabs.query({ "url": script.matches }, cb(script.js, script.css))
+    }
+}
+action.onClicked.addListener(browserActionClicked);
+
+// With MV3, background script is actually a service worker, which would get terminated after 30 seconds if it doesn't
+// call an API, so we call a local storage API every 20 seconds to keep it alive
+if (manifest.manifest_version >= 3) {
+    setInterval(() => {
+        chrome.storage.local.get({"ignore": "me"}, () => {});
+    }, 20000);
+}

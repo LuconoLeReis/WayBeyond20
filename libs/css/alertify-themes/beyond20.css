@@ -1,0 +1,35 @@
+/* Prevent the dialog from being hidden on the navigation bar of D&D Beyond */
+.alertify-notifier.ajs-top {
+    top: 50px;
+}
+
+.alertify-notifier .ajs-message {
+    width: 500px;
+}
+
+/* D&D Beyond mobile/tablet sidepanel uses 60001 as z-index, My Encounters modal uses 99999 */
+.alertify .ajs-dimmer {
+  z-index: 100001;
+}
+.alertify .ajs-modal {
+  z-index: 100002;
+}
+.alertify-notifier {
+  z-index: 100003;
+}
+
+/* Make the alert dialog's animations faster  */
+.alertify.ajs-in:not(.ajs-hidden) .ajs-dialog {
+  -webkit-animation-duration: 200ms;
+          animation-duration: 200ms;
+}
+.alertify.ajs-out.ajs-hidden .ajs-dialog {
+  -webkit-animation-duration: 100ms;
+          animation-duration: 100ms;
+}
+
+/* Prevent ajs-content from overlapping with ajs-header in "Beyond20 Quick Settings" */
+.alertify.ajs-resizable .ajs-body .ajs-content,
+.alertify.ajs-maximized .ajs-body .ajs-content {
+  top: 64px;
+}

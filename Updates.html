@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>WayBeyond20 v1.62 Release Notes</title>
+    <link rel="stylesheet" href="Updates.css">
+</head>
+<body>
+    <main class="release-card">
+        <header>
+            <img src="images/icons/icon128.png" alt="WayBeyond20">
+            <div>
+                <p class="eyebrow">First shared release</p>
+                <h1>WayBeyond20 v1.62</h1>
+                <p class="lede">Complete changes from the Beyond20 2.20.1 base</p>
+            </div>
+        </header>
+
+        <section>
+            <h2>Identity and distribution</h2>
+            <ol start="1">
+                <li><strong>WayBeyond20 identity and branding.</strong> Renames the extension and its visible interface from Beyond20 to WayBeyond20.</li>
+                <li><strong>WayBeyond20-owned update page.</strong> Opens these packaged release notes instead of the Beyond20 website.</li>
+                <li><strong>Private Chrome installation package.</strong> Provides a ready-to-extract folder for Chrome's Load unpacked command.</li>
+                <li><strong>Installation and update guide.</strong> Includes README.txt with installation, update, conflict-prevention, and troubleshooting instructions.</li>
+            </ol>
+        </section>
+
+        <section>
+            <h2>D&amp;D Beyond character-sheet integration</h2>
+            <ol start="5">
+                <li><strong>Quiet passive synchronization.</strong> Synchronizes sheet state without a missing-VTT error while preserving that warning for attempted rolls.</li>
+                <li><strong>New-feature discovery notices.</strong> Detects newly parsed class features, species traits, and feats without repeating notices on every scan.</li>
+                <li><strong>Safer roll interception.</strong> Limits roll handling to supported D&amp;D Beyond roll targets.</li>
+                <li><strong>Reinjection safeguards.</strong> Prevents duplicate WayBeyond20 listeners, observers, and pollers after page changes or reloads.</li>
+                <li><strong>Correct Game Log labels.</strong> Labels checks, saves, Initiative, attacks, healing, and other rolls appropriately.</li>
+                <li><strong>Local and Digital Dice result handling.</strong> Handles local custom rolls, Digital Dice totals, and feature callbacks.</li>
+                <li><strong>Critical-damage Game Log aggregation.</strong> Combines normal and critical phases into one correctly typed result.</li>
+            </ol>
+        </section>
+
+        <section>
+            <h2>Generic rules foundation</h2>
+            <ol start="12">
+                <li><strong>Live Talent parser.</strong> Derives activation, components, duration, concentration, targeting, and effect data from current D&amp;D Beyond text.</li>
+                <li><strong>Detailed targeting vocabulary.</strong> Records relationship, sensory, object, and creature-type targeting requirements.</li>
+                <li><strong>Known-target discovery and selection.</strong> Uses connected Roll20 turn-order creatures in supported target prompts.</li>
+                <li><strong>Remote effect delivery.</strong> Delivers supported effect records to the matching open D&amp;D Beyond target sheet.</li>
+                <li><strong>Ordered weapon action pool.</strong> Separates base weapon damage and added effects with source, category, tags, and execution order.</li>
+                <li><strong>Target-specific roll formulas.</strong> Uses destination-appropriate dice syntax for supported feature formulas.</li>
+            </ol>
+        </section>
+
+        <section>
+            <h2>Effects, buffs, concentration, and character statistics</h2>
+            <ol start="18">
+                <li><strong>Persistent active-effect records.</strong> Stores supported effects per character with their source, duration, concentration, flags, and mechanics.</li>
+                <li><strong>Concentration replacement.</strong> Replaces the prior tracked concentration effect when a new one begins.</li>
+                <li><strong>Buff and concentration badges.</strong> Displays contextual Buffs and Concentration information on the character sheet.</li>
+                <li><strong>Effect details and manual ending.</strong> Shows effect details and permits manual ending.</li>
+                <li><strong>Quiet local effect management.</strong> Avoids unnecessary effect-management messages in VTT chat.</li>
+                <li><strong>Armor Class adjustments.</strong> Displays reversible effect-based AC additions with their true source.</li>
+                <li><strong>Speed adjustments.</strong> Applies and displays supported effect-based speed multipliers.</li>
+                <li><strong>Haste mechanics.</strong> Supports Haste AC, speed, Dexterity-save Advantage, and Haste Action mechanics.</li>
+                <li><strong>Hide and Stealth effect.</strong> Creates a visible effect that grants Advantage to the next qualifying attack and is then consumed.</li>
+            </ol>
+        </section>
+
+        <section>
+            <h2>Combat and action economy</h2>
+            <ol start="27">
+                <li><strong>Local Combat Window.</strong> Shows Movement, Action, Bonus Action, Reaction, and optional Haste Action.</li>
+                <li><strong>Combat controls.</strong> Adds New Turn, End Combat, and a manual Combat Window menu command.</li>
+                <li><strong>Automatic combat start from Initiative.</strong> Starts local combat state from a qualifying Initiative roll.</li>
+                <li><strong>Activation-cost spending.</strong> Spends the correct combat resource using parsed activation metadata.</li>
+                <li><strong>Unavailable-resource warning.</strong> Warns about a spent resource and permits an explicit nonnegative override.</li>
+                <li><strong>Movement tracking.</strong> Displays and spends current movement, including supported speed changes.</li>
+                <li><strong>Roll20 token binding.</strong> Associates the D&amp;D Beyond character with a selected or name-matched Roll20 token.</li>
+                <li><strong>Roll20 turn-order synchronization.</strong> Detects character turns, tracks rounds, and resets combat resources.</li>
+                <li><strong>Roll20 target discovery.</strong> Exposes turn-order creatures to supported D&amp;D Beyond target selection.</li>
+                <li><strong>Roll20 resolved-damage callback.</strong> Returns resolved damage to the matching D&amp;D Beyond sheet for dependent features.</li>
+            </ol>
+        </section>
+
+        <section>
+            <h2>Hit Dice and rest handling</h2>
+            <ol start="37">
+                <li><strong>Persistent Hit Dice tracker.</strong> Derives and stores remaining Hit Dice pools from current class levels.</li>
+                <li><strong>Hit Dice controls.</strong> Adds minus, plus, and Reset controls for d6, d8, d10, and d12 pools.</li>
+                <li><strong>Automatic Hit Die spending.</strong> Decrements the matching pool when a Hit Die is rolled.</li>
+                <li><strong>Long Rest reset handling.</strong> Resets WayBeyond20 Hit Dice after a completed Long Rest without duplicate listeners.</li>
+            </ol>
+        </section>
+
+        <section>
+            <h2>Feature-specific rules</h2>
+            <ol start="41">
+                <li><strong>Triage Expert: Bedside Manner.</strong> Rolls one extra healing die and discards the lowest while retaining the modifier.</li>
+                <li><strong>Triage Expert: Blood and Bone.</strong> Adds Hit Die controls, target-die fallback, Bedside Manner integration, and Action spending.</li>
+                <li><strong>Draining Attack qualification.</strong> Marks qualifying Unarmed Strike or natural-attack rolls for Draining Attack.</li>
+                <li><strong>Draining Attack Temporary HP.</strong> Applies resolved qualifying damage as higher-only Temporary Hit Points through local, Digital Dice, and Roll20 paths.</li>
+                <li><strong>Bardic Inspiration native-use spending.</strong> Spends the correct native Bardic Inspiration use without matching unrelated controls.</li>
+                <li><strong>Bardic Inspiration feature card.</strong> Shows Bonus Action, range, die, remaining uses, and an Inspire button.</li>
+                <li><strong>Dazzling Footwork.</strong> Applies or recognizes Advantage on qualifying dancing Performance checks without redundant prompts.</li>
+                <li><strong>Agile Strikes continuation.</strong> Offers the optional attack and automatically chooses the strongest legal ability and damage profile.</li>
+                <li><strong>Savage Attacker.</strong> Rolls the eligible weapon-damage package twice and keeps the higher package on supported VTTs.</li>
+                <li><strong>Use Magic Device scroll casting.</strong> Offers and remembers an Intelligence-plus-proficiency Scrolls casting path for supported formulas.</li>
+            </ol>
+        </section>
+
+        <section>
+            <h2>Settings and diagnostics</h2>
+            <ol start="51">
+                <li><strong>Display All Current Settings.</strong> Shows valid global, hidden, character, effect, Hit Dice, and combat settings.</li>
+                <li><strong>Persistent bounded Debug Log.</strong> Optionally records bounded diagnostics across parsing, rolls, effects, routing, Game Log, and callbacks.</li>
+                <li><strong>Debug Log controls.</strong> Provides Refresh, Copy, Clear, and Close controls.</li>
+                <li><strong>Settings backup and restore labels.</strong> Rebrands settings export and import while preserving WayBeyond20-specific settings.</li>
+            </ol>
+        </section>
+
+        <p class="note">WayBeyond20 is maintained separately from Beyond20. See README.txt in this folder for installation and update instructions.</p>
+    </main>
+</body>
+</html>

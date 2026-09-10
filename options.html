@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WayBeyond20: D&amp;D Beyond to VTT Integration</title>
+  <link rel="stylesheet" href="options.css" />
+  <link rel="stylesheet" href="libs/css/alertify.css" />
+  <link rel="stylesheet" href="libs/css/alertify-themes/default.css" />
+</head>
+<body style="min-width:500px;">
+  <main>
+    <div class="save">
+    <button id="save" class="btn">Save</button>
+    <button id="advanced" class="btn">Advanced Options</button>
+    <button id="display-current-settings" class="btn">Display All Current Settings</button>
+    <button id="display-debug-log" class="btn">Display Debug Log</button>
+    </div>
+    <div class="success">
+      <p>Saved</p>
+    </div>
+    <section id="settings-report-panel" class="settings-report-panel hide">
+      <div class="settings-report-header">
+        <h3>WayBeyond20 Current Settings</h3>
+        <div>
+          <button id="copy-current-settings" class="btn">Copy</button>
+          <button id="close-current-settings" class="btn">Close</button>
+        </div>
+      </div>
+      <textarea id="settings-report" readonly></textarea>
+    </section>
+    <section id="debug-log-panel" class="settings-report-panel hide">
+      <div class="settings-report-header">
+        <h3>WayBeyond20 Debug Log</h3>
+        <div>
+          <button id="refresh-debug-log" class="btn">Refresh</button>
+          <button id="copy-debug-log" class="btn">Copy</button>
+          <button id="clear-debug-log" class="btn">Clear</button>
+          <button id="close-debug-log" class="btn">Close</button>
+        </div>
+      </div>
+      <p class="debug-log-note">Enable <strong>Debug Log</strong> in Advanced Options before reproducing the problem. The log is stored locally until cleared.</p>
+      <textarea id="debug-log" readonly></textarea>
+    </section>
+  </main>
+  <script src="libs/jquery-3.4.1.min.js" charset="UTF-8"></script>
+  <script src="libs/marka.js" charset="UTF-8"></script>
+  <script src="libs/alertify.min.js" charset="UTF-8"></script>
+  <script src="dist/options.js" charset="UTF-8"></script>
+</body>
+</html>
