@@ -953,3 +953,71 @@ span.dice-roll.beyond20-tooltip-content {
     background-color: rgb(155, 208, 243);
     border: 1px solid darkblue;
 }
+
+/* WayBeyond20 Paladin smite query */
+.waybeyond20-smite-query {
+    min-width: 320px;
+}
+
+.waybeyond20-smite-query-message {
+    margin: 0 0 10px;
+}
+
+.waybeyond20-smite-query-section {
+    border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+    border-radius: 8px;
+    margin: 8px 0;
+    padding: 7px 8px 8px;
+}
+
+.waybeyond20-smite-query-section > strong {
+    display: block;
+    margin-bottom: 5px;
+}
+
+.waybeyond20-smite-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 5px;
+}
+
+.waybeyond20-smite-option {
+    align-items: center;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    border-radius: 999px;
+    cursor: pointer;
+    display: inline-flex;
+    gap: 5px;
+    padding: 5px 8px;
+    position: relative;
+    transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 80ms ease;
+}
+
+.waybeyond20-smite-option input {
+    height: 1px;
+    opacity: 0;
+    position: absolute;
+    width: 1px;
+}
+
+.waybeyond20-smite-option-selected {
+    background: color-mix(in srgb, currentColor 15%, transparent);
+    border-color: currentColor;
+    box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 35%, transparent);
+    font-weight: 700;
+}
+
+.waybeyond20-smite-option:focus-within {
+    outline: 2px solid color-mix(in srgb, currentColor 60%, transparent);
+    outline-offset: 2px;
+}
+
+.waybeyond20-smite-option:active {
+    transform: scale(0.97);
+}
+
+.waybeyond20-smite-option-disabled {
+    cursor: default;
+    opacity: 0.4;
+}

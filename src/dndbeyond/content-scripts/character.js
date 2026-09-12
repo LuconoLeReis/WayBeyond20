@@ -3,6 +3,8 @@ console.log("WayBeyond20: D&D Beyond module loaded.");
 async function sendRollWithCharacter(rollType, fallback, args) {
     const limitedUseRequest = args && args["waybeyond20-limited-use"];
     if (limitedUseRequest) delete args["waybeyond20-limited-use"];
+    const smiteRequest = args && args["waybeyond20-smite"];
+    if (smiteRequest) delete args["waybeyond20-smite"];
     const limitedUsePreflight = limitedUseRequest
         ? await wayBeyond20PreflightLimitedUse(limitedUseRequest.feature, {
             name: limitedUseRequest.name || args.name || fallback
@@ -13,9 +15,16 @@ async function sendRollWithCharacter(rollType, fallback, args) {
     const resourceRequest = args && args["waybeyond20-turn-resource"];
     if (resourceRequest) {
         delete args["waybeyond20-turn-resource"];
-        const allowed = await wayBeyond20PreflightTurnResource(resourceRequest.resource, {
-            name: resourceRequest.name || args.name || fallback,
-            rollType: resourceRequest.rollType || rollType
+    }
+    const additionalResourceRequests = args && Array.isArray(args["waybeyond20-turn-resources"])
+        ? args["waybeyond20-turn-resources"].filter(Boolean)
+        : [];
+    if (args && args["waybeyond20-turn-resources"]) delete args["waybeyond20-turn-resources"];
+    const resourceRequests = [resourceRequest, ...additionalResourceRequests].filter(Boolean);
+    for (const request of resourceRequests) {
+        const allowed = await wayBeyond20PreflightTurnResource(request.resource, {
+            name: request.name || args.name || fallback,
+            rollType: request.rollType || rollType
         });
         if (!allowed) return null;
     }
@@ -50,12 +59,12 @@ async function sendRollWithCharacter(rollType, fallback, args) {
         args.d20 += "ro<=1";
     }
     const result = await sendRoll(character, rollType, fallback, args);
-    if (result === true && resourceRequest) {
-        wayBeyond20SpendTurnResource(resourceRequest.resource, {
+    if (result === true) {
+        resourceRequests.forEach(request => wayBeyond20SpendTurnResource(request.resource, {
             forRoll: true,
-            name: resourceRequest.name || args.name || fallback,
-            rollType: resourceRequest.rollType || rollType
-        });
+            name: request.name || args.name || fallback,
+            rollType: request.rollType || rollType
+        }));
     }
     if (result === true && limitedUseRequest && limitedUsePreflight.tracked) {
         const spent = await wayBeyond20SpendLimitedUse(limitedUseRequest.feature);
@@ -68,6 +77,19 @@ async function sendRollWithCharacter(rollType, fallback, args) {
                 alertify.warning(`WayBeyond20 sent ${limitedUseRequest.name || args.name || fallback}, but D&D Beyond did not mark the ${limitedUseRequest.feature} use. Please mark it manually.`);
             }
         }
+    }
+    if (result === true && smiteRequest) {
+        if (smiteRequest.fuel === "spell-slot") {
+            const spent = await wayBeyond20SpendSpellSlot(smiteRequest.slotLevel);
+            if (!spent && typeof alertify !== "undefined" && alertify.warning) {
+                alertify.warning(`WayBeyond20 sent ${smiteRequest.name || "the smite"}, but D&D Beyond did not reduce the spell slot. Please adjust the slot manually.`);
+            }
+        } else if (smiteRequest.fuel === "paladin-smite" && character) {
+            character.mergeCharacterSettings({"waybeyond20-paladin-smite-used": true});
+        }
+    }
+    if (smiteRequest && smiteRequest.returnTab && typeof smiteRequest.returnTab.click === "function") {
+        setTimeout(() => smiteRequest.returnTab.click(), 0);
     }
     if (stealthEffect && result === true) {
         wayBeyond20RemoveTrackedEffect(wayBeyond20EffectKey(stealthEffect));
@@ -3288,6 +3310,22 @@ function wayBeyond20AttachTurnResource(rollProperties, resource, options = {}) {
     return resource;
 }
 
+function wayBeyond20AttachAdditionalTurnResource(rollProperties, resource, options = {}) {
+    if (!rollProperties || !resource) return null;
+    const requests = Array.isArray(rollProperties["waybeyond20-turn-resources"])
+        ? rollProperties["waybeyond20-turn-resources"]
+        : [];
+    if (!requests.some(request => request && request.resource === resource)) {
+        requests.push({
+            resource,
+            name: options.name || rollProperties.name || "",
+            rollType: options.rollType || ""
+        });
+    }
+    rollProperties["waybeyond20-turn-resources"] = requests;
+    return resource;
+}
+
 function wayBeyond20AttachActivationResource(rollProperties, properties = {}, talent = null, fallback = null, options = {}) {
     const resource = wayBeyond20ActivationResource(properties, talent, fallback);
     if (resource) wayBeyond20AttachTurnResource(rollProperties, resource, options);
@@ -3484,6 +3522,7 @@ function wayBeyond20InstallLongRestTracker() {
         });
         setTimeout(() => {
             if (character) character.updateInfo();
+            if (character) character.mergeCharacterSettings({"waybeyond20-paladin-smite-used": false});
             wayBeyond20ResetHitDice("long-rest");
             wayBeyond20LongRestResetPending = false;
         }, 750);
@@ -5061,6 +5100,12 @@ async function rollItem(force_display = false, force_to_hit_only = false, force_
         if (character.hasClassFeature("Trance of Order") && character.getSetting("sorcerer-trance-of-order", false))
             roll_properties.d20 = "1d20min10";
 
+        await wayBeyond20MaybeAddPaladinSmite(
+            roll_properties,
+            properties["Attack Type"] === "Melee" || properties["Attack Type"] === "Unarmed Strike" ||
+                roll_properties["attack-type"] === "Melee" || roll_properties["attack-type"] === "Unarmed Strike"
+        );
+
         // Apply batched updates to settings, if any:
         if (Object.keys(settings_to_change).length > 0)
             character.mergeCharacterSettings(settings_to_change);
@@ -5180,6 +5225,296 @@ function wayBeyond20PaladinSaveDC() {
     if (configured.length > 0) return Math.max(...configured);
     const charisma = character && character.getAbility ? character.getAbility("CHA") : null;
     return 8 + (parseInt(character && character._proficiency) || 0) + (parseInt(charisma && charisma.mod) || 0);
+}
+
+const WAYBEYOND20_PALADIN_SMITE_NAMES = ["Divine Smite", "Thunderous Smite"];
+
+function wayBeyond20SmiteFormulaForSlot(baseFormula, slotLevel) {
+    const formula = String(baseFormula || "").trim();
+    const level = Math.max(1, parseInt(slotLevel) || 1);
+    const match = formula.match(/^(\d+)d(\d+)(.*)$/i);
+    if (!match || level <= 1) return formula;
+    return `${formula} + ${(level - 1)}d${match[2]}${match[3] || ""}`;
+}
+
+function wayBeyond20SmiteFuelIsLegal(smiteName, fuelType) {
+    return fuelType !== "paladin-smite" || String(smiteName || "") === "Divine Smite";
+}
+
+function wayBeyond20HasAvailableBonusAction() {
+    const state = wayBeyond20NormalizeTurnTrackerState(
+        wayBeyond20GetTurnTrackerState(),
+        wayBeyond20GetTrackedSpellEffects()
+    );
+    // Outside a tracked combat there is no local turn state to contradict the
+    // player's action. In tracked combat, require the current Bonus Action.
+    if (!wayBeyond20HasActiveCombatState(state)) return true;
+    return (wayBeyond20ParseInteger(state.bonusAction) ?? 0) > 0;
+}
+
+function wayBeyond20SpellSlotHeaderLevel(header) {
+    if (!header) return null;
+    const label = $(header).find(
+        ".ct-content-group__header-content,.ddbc-content-group__header-content,[class*='contentGroup'][class*='headerContent']"
+    ).first().text() || $(header).text();
+    const match = String(label || "").match(/\b(\d+)(?:st|nd|rd|th)\s+level\b/i);
+    return match ? parseInt(match[1]) : null;
+}
+
+function wayBeyond20SpellSlotControls(level) {
+    const desiredLevel = parseInt(level);
+    if (!Number.isFinite(desiredLevel) || desiredLevel < 1) return [];
+    const headers = Array.from(document.querySelectorAll(
+        ".ct-content-group__header,.ddbc-content-group__header"
+    ));
+    const header = headers.find(candidate => wayBeyond20SpellSlotHeaderLevel(candidate) === desiredLevel);
+    if (!header) return [];
+    return Array.from(header.querySelectorAll("[role='checkbox']")).filter(control =>
+        String(control.getAttribute("aria-label") || "").toLowerCase() === "use" &&
+        control.getAttribute("aria-checked") !== "true" &&
+        !control.hasAttribute("disabled")
+    );
+}
+
+function wayBeyond20AvailableSpellSlots() {
+    const levels = [];
+    const headers = Array.from(document.querySelectorAll(
+        ".ct-content-group__header,.ddbc-content-group__header"
+    ));
+    for (const header of headers) {
+        const level = wayBeyond20SpellSlotHeaderLevel(header);
+        if (!level || level < 1) continue;
+        const allControls = Array.from(header.querySelectorAll("[role='checkbox']")).filter(control =>
+            String(control.getAttribute("aria-label") || "").toLowerCase() === "use"
+        );
+        const available = allControls.filter(control =>
+            control.getAttribute("aria-checked") !== "true" && !control.hasAttribute("disabled")
+        ).length;
+        if (available > 0 && !levels.some(option => option.level === level)) {
+            levels.push({ level, available });
+        }
+    }
+    return levels.sort((a, b) => a.level - b.level);
+}
+
+async function wayBeyond20SpendSpellSlot(level) {
+    const controls = wayBeyond20SpellSlotControls(level);
+    if (controls.length === 0) return false;
+    const before = controls.length;
+    try {
+        controls[0].click();
+    } catch (error) {
+        wayBeyond20CharacterDebug("Spell slot spend click failed", { level, error: String(error) });
+        return false;
+    }
+    for (let attempt = 0; attempt < 8; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 75));
+        if (wayBeyond20SpellSlotControls(level).length < before) return true;
+    }
+    return wayBeyond20SpellSlotControls(level).length < before;
+}
+
+function wayBeyond20FindPaladinSmiteRows() {
+    const rows = Array.from(document.querySelectorAll(".ct-spells-spell,.ddbc-spells-spell"));
+    return rows.map(row => {
+        const name = $(row).find(
+            ".ct-spells-spell__label,.ddbc-spells-spell__label,[class*='spellName']"
+        ).first().text().trim();
+        const meta = $(row).find(
+            ".ct-spells-spell__meta,.ddbc-spells-spell__meta,[class*='spellMeta']"
+        ).first().text().trim();
+        const actionButton = Array.from(row.querySelectorAll("button")).find(button =>
+            /^(use|cast)$/i.test(String(button.textContent || "").replace(/\s+/g, " ").trim())
+        );
+        const damageElement = row.querySelector(
+            ".ct-spells-spell__damage .ddbc-damage__value,.ddbc-spells-spell__damage .ddbc-damage__value,[class*='damage'] [class*='damage__value']"
+        );
+        const damageIcon = row.querySelector(
+            ".ct-spells-spell__damage [aria-label*='damage' i],.ddbc-spells-spell__damage [aria-label*='damage' i]"
+        );
+        const saveAbility = $(row).find(
+            ".ct-spells-spell__save-label,.ddbc-spells-spell__save-label,[class*='saveLabel']"
+        ).first().text().trim().toUpperCase();
+        const saveDc = wayBeyond20ParseInteger($(row).find(
+            ".ct-spells-spell__save-value,.ddbc-spells-spell__save-value,[class*='saveValue']"
+        ).first().text());
+        return {
+            row,
+            name,
+            meta,
+            action: actionButton ? String(actionButton.textContent || "").trim().toLowerCase() : "",
+            disabled: !!(actionButton && actionButton.disabled),
+            formula: damageElement ? String(damageElement.textContent || "").trim() : "",
+            damageType: damageIcon ? String(damageIcon.getAttribute("aria-label") || "").replace(/\s*damage\s*$/i, "").trim() : "",
+            saveAbility,
+            saveDc,
+            text: String(row.textContent || "").replace(/\s+/g, " ").trim()
+        };
+    }).filter(row => WAYBEYOND20_PALADIN_SMITE_NAMES.includes(row.name));
+}
+
+function wayBeyond20CharacterSheetTab(label) {
+    const normalized = wayBeyond20NormalizeFeatureLabel(label);
+    return Array.from(document.querySelectorAll("button[role='radio'],button")).find(button =>
+        wayBeyond20NormalizeFeatureLabel(button.textContent) === normalized
+    ) || null;
+}
+
+function wayBeyond20PaladinSmiteFreeUseAvailable(rows) {
+    if (character && character.getSetting("waybeyond20-paladin-smite-used", false)) return false;
+    return (rows || []).some(row =>
+        row.name === "Divine Smite" &&
+        /paladin.?s smite/i.test(row.meta.replace(/[’']/g, "'")) &&
+        /1\/lr/i.test(row.text) &&
+        row.action === "use" &&
+        !row.disabled
+    );
+}
+
+async function wayBeyond20BuildPaladinSmiteOptions() {
+    if (!character || !character.hasClass("Paladin")) return null;
+    if (!wayBeyond20HasAvailableBonusAction()) return null;
+
+    let rows = wayBeyond20FindPaladinSmiteRows();
+    let spellSlots = wayBeyond20AvailableSpellSlots();
+    let returnTab = null;
+    if (rows.length === 0 || spellSlots.length === 0) {
+        const spellsTab = wayBeyond20CharacterSheetTab("Spells");
+        const actionsTab = wayBeyond20CharacterSheetTab("Actions");
+        const wasSpellsTabActive = spellsTab && (
+            spellsTab.getAttribute("aria-checked") === "true" || spellsTab.classList.contains("styles_active__oWpHc")
+        );
+        if (spellsTab && !wasSpellsTabActive && typeof spellsTab.click === "function") {
+            spellsTab.click();
+            for (let attempt = 0; attempt < 15; attempt++) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                rows = wayBeyond20FindPaladinSmiteRows();
+                spellSlots = wayBeyond20AvailableSpellSlots();
+                if (rows.length > 0 && spellSlots.length > 0) break;
+            }
+            returnTab = actionsTab;
+        }
+    }
+    const is2024Character = !character.getVersion || character.getVersion() === 2024 ||
+        rows.some(row => row.name === "Divine Smite" && /paladin.?s smite/i.test(row.meta.replace(/[’']/g, "'")));
+    if (!is2024Character) return null;
+    const freeDivineAvailable = wayBeyond20PaladinSmiteFreeUseAvailable(rows);
+    const fuels = [];
+    if (freeDivineAvailable) {
+        fuels.push({ type: "paladin-smite", label: "Paladin's Smite", level: 1 });
+    }
+    spellSlots.forEach(slot => fuels.push({
+        type: "spell-slot",
+        level: slot.level,
+        label: `${slot.level}${slot.level === 1 ? "st" : slot.level === 2 ? "nd" : slot.level === 3 ? "rd" : "th"} Level Spell Slot (${slot.available} available)`
+    }));
+    if (fuels.length === 0) return null;
+
+    const smites = [];
+    for (const name of WAYBEYOND20_PALADIN_SMITE_NAMES) {
+        const matchingRows = rows.filter(row => row.name === name && !row.disabled);
+        const row = matchingRows.find(candidate => candidate.action === "cast") || matchingRows[0];
+        if (!row) continue;
+        if (name === "Thunderous Smite" && !spellSlots.length) continue;
+        const fallbackFormula = name === "Divine Smite" ? "2d8" : "2d6";
+        smites.push({
+            name,
+            formula: row.formula || fallbackFormula,
+            damageType: row.damageType || (name === "Divine Smite" ? "Radiant" : "Thunder"),
+            saveAbility: row.saveAbility || "",
+            saveDc: row.saveDc,
+            description: row.text
+        });
+    }
+    if (smites.length === 0) return null;
+    return { smites, fuels, returnTab };
+}
+
+async function wayBeyond20QueryPaladinSmite(options) {
+    if (!options || !options.smites.length || !options.fuels.length ||
+        typeof dndbeyondDiceRoller === "undefined" || !dndbeyondDiceRoller || !dndbeyondDiceRoller._prompter) return null;
+    const defaultSmite = options.smites[0];
+    const defaultFuel = options.fuels.find(fuel => wayBeyond20SmiteFuelIsLegal(defaultSmite.name, fuel.type)) || options.fuels[0];
+    let html = '<form class="waybeyond20-smite-query">';
+    html += '<p class="waybeyond20-smite-query-message">Would you like to add a smite to this attack?</p>';
+    html += '<div class="waybeyond20-smite-query-section"><strong>Smite</strong><div class="waybeyond20-smite-options">';
+    options.smites.forEach((smite, index) => {
+        const id = `waybeyond20-smite-type-${index}`;
+        html += `<label class="waybeyond20-smite-option"><input type="radio" id="${id}" name="smite-type" value="${smite.name}"${smite.name === defaultSmite.name ? " checked" : ""}><span>${smite.name}</span></label>`;
+    });
+    html += '</div></div>';
+    html += '<div class="waybeyond20-smite-query-section"><strong>Fuel</strong><div class="waybeyond20-smite-options">';
+    options.fuels.forEach((fuel, index) => {
+        const id = `waybeyond20-smite-fuel-${index}`;
+        const checked = fuel.type === defaultFuel.type && fuel.level === defaultFuel.level;
+        html += `<label class="waybeyond20-smite-option"><input type="radio" id="${id}" name="smite-fuel" data-smite-fuel="${fuel.type}" value="${fuel.type}:${fuel.level}"${checked ? " checked" : ""}><span>${fuel.label}</span></label>`;
+    });
+    html += '</div></div></form>';
+
+    const result = await dndbeyondDiceRoller._prompter.prompt("Paladin Smite", html, "Proceed", "Cancel");
+    if (!result) return null;
+    const smiteName = result.find("input[name='smite-type']:checked").val();
+    const fuelValue = result.find("input[name='smite-fuel']:checked").val();
+    if (!smiteName || !fuelValue) return null;
+    const [fuelType, rawLevel] = String(fuelValue).split(":");
+    if (!wayBeyond20SmiteFuelIsLegal(smiteName, fuelType)) return null;
+    return {
+        smite: options.smites.find(smite => smite.name === smiteName) || options.smites[0],
+        fuel: options.fuels.find(fuel => fuel.type === fuelType && String(fuel.level) === String(rawLevel)) || options.fuels[0]
+    };
+}
+
+async function wayBeyond20MaybeAddPaladinSmite(rollProperties, isEligibleAttack) {
+    if (!rollProperties || !isEligibleAttack || !rollProperties.rollDamage ||
+        !Array.isArray(rollProperties.damages) || !Array.isArray(rollProperties["damage-types"])) return null;
+    const options = await wayBeyond20BuildPaladinSmiteOptions();
+    if (!options) return null;
+    const selection = await wayBeyond20QueryPaladinSmite(options);
+    if (!selection || !selection.smite || !selection.fuel) {
+        if (options.returnTab && typeof options.returnTab.click === "function") options.returnTab.click();
+        return null;
+    }
+
+    const formula = wayBeyond20SmiteFormulaForSlot(selection.smite.formula, selection.fuel.level);
+    const damageType = `${selection.smite.damageType} (${selection.smite.name})`;
+    rollProperties.damages.push(formula);
+    rollProperties["damage-types"].push(damageType);
+    rollProperties["critical-damages"] = Array.isArray(rollProperties["critical-damages"])
+        ? rollProperties["critical-damages"]
+        : [];
+    rollProperties["critical-damage-types"] = Array.isArray(rollProperties["critical-damage-types"])
+        ? rollProperties["critical-damage-types"]
+        : [];
+    const criticalFormula = damagesToCrits(character, [formula])[0];
+    if (criticalFormula) {
+        rollProperties["critical-damages"].push(criticalFormula);
+        rollProperties["critical-damage-types"].push(damageType);
+    }
+    if (selection.smite.saveAbility && selection.smite.saveDc && !rollProperties["save-ability"]) {
+        rollProperties["save-ability"] = abbreviationToAbility(selection.smite.saveAbility);
+        rollProperties["save-dc"] = selection.smite.saveDc;
+    }
+    addEffect(rollProperties, `${selection.smite.name} (${selection.fuel.label})`);
+    if (selection.smite.name === "Thunderous Smite") {
+        addEffect(rollProperties, `Thunderous Smite: failed ${abbreviationToAbility(selection.smite.saveAbility || "STR")} save pushes the target 10 feet and knocks it Prone`);
+    }
+    const turnResourceOptions = {
+        name: selection.smite.name,
+        rollType: "attack"
+    };
+    if (rollProperties["waybeyond20-turn-resource"])
+        wayBeyond20AttachAdditionalTurnResource(rollProperties, "bonusAction", turnResourceOptions);
+    else
+        wayBeyond20AttachTurnResource(rollProperties, "bonusAction", turnResourceOptions);
+    rollProperties["waybeyond20-smite"] = {
+        name: selection.smite.name,
+        fuel: selection.fuel.type,
+        fuelLabel: selection.fuel.label,
+        slotLevel: selection.fuel.level,
+        damage: formula,
+        returnTab: options.returnTab || null
+    };
+    return selection;
 }
 
 function wayBeyond20TrackSelfFeatureEffect(name, duration, data = [], flags = []) {
@@ -5622,6 +5957,13 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
             });
             wayBeyond20AttachNativeActionUse(roll_properties, action_name);
         }
+        await wayBeyond20MaybeAddPaladinSmite(
+            roll_properties,
+            wayBeyond20ActivationResource(properties, null, "action") !== "bonusAction" &&
+                (isMeleeAttack || properties["Attack Type"] === "Melee" || properties["Attack Type"] === "Unarmed Strike" ||
+                roll_properties["attack-type"] === "Melee" || roll_properties["attack-type"] === "Unarmed Strike"
+                )
+        );
         return sendRollWithCharacter("attack", damages[0], roll_properties);
     } else {
         const rollProperties = {

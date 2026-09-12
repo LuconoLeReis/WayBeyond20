@@ -1,6 +1,6 @@
 # WayBeyond20 Current State
 
-Last reconciled: 2026-09-11 — v1.63 release packaging
+Last reconciled: 2026-09-11 — v1.64 development build
 
 This file is the continuity authority for current source, verified build state, known limitations, and the remaining release gate. It must not be used as a substitute for inspecting the actual source or package.
 
@@ -24,8 +24,8 @@ Project location:
 
 | Item | Current value |
 | --- | --- |
-| WayBeyond20 candidate | v1.63 |
-| Internal package/manifest version | 2.20.63 |
+| WayBeyond20 candidate | v1.64 development build; not released |
+| Internal package/manifest version | 2.20.64 |
 | Extension platform | Chrome Manifest V3 |
 | Upstream baseline | Beyond20 2.20.1 |
 | Authoritative source | `WayBeyond20-Master`, `main` at tag `v1.63` |
@@ -42,12 +42,13 @@ Project location:
 
 ## Build and verification record
 
-- `package.json`, `package-lock.json`, `manifest.json`, and `manifest_ff.json` report 2.20.63; both manifests display WayBeyond20 1.63.
-- `npm test` passes the v1.63 regression checks for Savage Attacker grouped formulas, Paladin limited-use mapping, Watcher's Will save-Advantage data, Bardic observer idempotence, utility-spell Cast injection, and dispatch-safe Stealth consumption.
+- `package.json`, `package-lock.json`, `manifest.json`, and `manifest_ff.json` report 2.20.64; both manifests display WayBeyond20 1.64.
+- `npm test` passes the v1.63 regression checks and the v1.64 smite checks.
 - `npm run build` completed successfully for Firefox and Chrome on September 11, 2026.
 - Changed authored JavaScript passed `node --check`.
 - `build\chrome` was mirrored to `WayBeyond20-Dev`; the built and loadable `dist\dndbeyond_character.js` hashes match.
-- Live Chrome and Roll20 verification was completed on September 11, 2026; package validation recorded one top-level `WayBeyond20` folder, 97 files, manifest version 2.20.63, and no source/test/node_modules payload.
+- `build\chrome` was mirrored to `WayBeyond20-Dev`; the built and loadable `dist\dndbeyond_character.js` hashes match.
+- v1.64 live browser verification is pending a manual Reload of the unpacked WayBeyond20 entry in Chrome's Extensions page; tests run before that reload are not treated as v1.64 runtime evidence.
 
 ## v1.63 changes verified for release
 

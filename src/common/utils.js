@@ -272,6 +272,35 @@ function initializeAlertify() {
                     this.elements.content.innerHTML = this.get('content');
                     this.__internal.buttons[0].element.innerHTML = this.get('ok_label');
                     this.__internal.buttons[1].element.innerHTML = this.get('cancel_label');
+
+                    // WayBeyond20 smite queries use two radio groups. Keep the
+                    // Proceed button disabled until both groups contain a legal
+                    // selection, and do not offer Paladin's Smite as fuel for a
+                    // smite spell other than Divine Smite.
+                    const smiteForm = this.elements.content.querySelector("form.waybeyond20-smite-query");
+                    if (smiteForm) {
+                        const proceed = this.__internal.buttons[0].element;
+                        const syncSmiteChoices = () => {
+                            const smite = smiteForm.querySelector("input[name='smite-type']:checked");
+                            smiteForm.querySelectorAll("input[name='smite-type'],input[name='smite-fuel']").forEach(input => {
+                                const label = input.closest("label");
+                                if (label) label.classList.toggle("waybeyond20-smite-option-selected", input.checked);
+                            });
+                            const fuelInputs = Array.from(smiteForm.querySelectorAll("input[name='smite-fuel']"));
+                            fuelInputs.forEach(input => {
+                                const isFreeDivine = input.getAttribute("data-smite-fuel") === "paladin-smite";
+                                const legal = !isFreeDivine || !smite || smite.value === "Divine Smite";
+                                input.disabled = !legal;
+                                const label = input.closest("label");
+                                if (label) label.classList.toggle("waybeyond20-smite-option-disabled", !legal);
+                                if (!legal && input.checked) input.checked = false;
+                            });
+                            const fuel = smiteForm.querySelector("input[name='smite-fuel']:checked");
+                            proceed.disabled = !(smite && fuel && !fuel.disabled);
+                        };
+                        smiteForm.addEventListener("change", syncSmiteChoices);
+                        syncSmiteChoices();
+                    }
                 },
                 "callback": function (closeEvent) {
                     if (closeEvent.index == 0) {
