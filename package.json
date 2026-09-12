@@ -1,11 +1,12 @@
 {
   "name": "waybeyond20",
-  "version": "2.20.62",
+  "version": "2.20.63",
   "description": "WayBeyond20: D&D Beyond & Roll20/Foundry VTT Integration",
   "directories": {
     "doc": "docs"
   },
   "scripts": {
+    "test": "node tests/v1.63-regressions.js",
     "gulp": "gulp",
     "clean": "gulp clean",
     "build": "run-s clean build:*",

@@ -93,14 +93,14 @@ function wayBeyond20CloneForVTT(request) {
 }
 
 function wayBeyond20SavageFormulaForTarget(formula, target) {
-    const syntax = target === "roll20" ? "dl" : "kh";
-    return String(formula || "").replace(/(\d*)d(\d+)((?:ro<=\d+|min\d+)*)/gi, (match, amount, faces, modifiers) => {
-        const count = parseInt(amount || "1");
-        if (!Number.isFinite(count) || count <= 0) return match;
-        const doubled = count * 2;
-        if (syntax === "dl") return `${doubled}d${faces}${modifiers || ""}dl${count}`;
-        return `${doubled}d${faces}${modifiers || ""}kh${count}`;
-    });
+    const original = String(formula || "").trim();
+    if (!/\d*d\d+/i.test(original)) return original;
+    // Savage Attacker compares two complete weapon-damage rolls. Doubling a 2d6
+    // pool and dropping two individual dice is a different probability distribution.
+    // Roll20 supports grouped rolls, so compare the complete formulas there. Preserve
+    // the native formula on targets whose grouped-roll grammar we have not verified.
+    if (target !== "roll20") return original;
+    return `{${original}, ${original}}kh1`;
 }
 
 function wayBeyond20BedsideFormulaForTarget(formula, target) {
@@ -162,7 +162,7 @@ function wayBeyond20ApplyBedsideMannerTransform(request, target) {
 function wayBeyond20ApplySavageAttackerTransform(request, target) {
     if (!request || !Array.isArray(request.damages)) return request;
     const savage = request["waybeyond20-savage-attacker"];
-    if (!savage || savage.mode !== "double-dice-drop-lowest") return request;
+    if (!savage || !["reroll-formula-keep-higher", "double-dice-drop-lowest"].includes(savage.mode)) return request;
 
     let selected = Array.isArray(savage.selectedDamageIndexes) ? savage.selectedDamageIndexes : [];
     if (selected.length === 0 && Array.isArray(savage.selected) && Array.isArray(request["waybeyond20-action-pool"])) {

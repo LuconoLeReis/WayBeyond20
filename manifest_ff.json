@@ -1,6 +1,6 @@
 {
     "name": "WayBeyond20",
-    "version": "2.20.62",
+    "version": "2.20.63",
     "manifest_version": 2,
     "description": "WayBeyond20 integrates D&D Beyond Character Sheets with Roll20 and Foundry VTT.",
     "permissions": [
@@ -197,5 +197,5 @@
             ]
         }
     ],
-    "version_name": "WayBeyond20 1.61"
+    "version_name": "WayBeyond20 1.63"
 }

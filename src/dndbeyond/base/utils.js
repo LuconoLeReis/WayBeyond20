@@ -639,14 +639,14 @@ async function sendRoll(character, rollType, fallback, args) {
         
     if (req.whisper === WhisperType.QUERY) {
         req.whisper = await dndbeyondDiceRoller.queryWhisper(args.name || rollType, is_monster);
-        if (req.whisper === null) return; // Query was cancelled
+        if (req.whisper === null) return false; // Query was cancelled
     }
     if (rollType === "custom") {
         req.advantage = RollType.NORMAL;
     }
     if (req.advantage === RollType.QUERY) {
         req.advantage = await dndbeyondDiceRoller.queryAdvantage(args.name || rollType, req["advantage-query"]);
-        if (req.advantage === null) return; // Query was cancelled
+        if (req.advantage === null) return false; // Query was cancelled
     }
     if (character.getGlobalSetting("weapon-force-critical", false) || key_modifiers.force_critical) {
         req["rollCritical"] = true;
@@ -673,6 +673,10 @@ async function sendRoll(character, rollType, fallback, args) {
         console.log("Sending message: ", req);
         chrome.runtime.sendMessage(req, (resp) => beyond20SendMessageFailure(character, resp));
     }
+    // Callers use this acknowledgement only to decide whether a one-use effect or
+    // native resource may be consumed. It means the roll was dispatched, not that a
+    // remote VTT has already rendered it.
+    return true;
 }
 
 function adjustRollAndKeyModifiersWithAdvantage(roll_properties) {

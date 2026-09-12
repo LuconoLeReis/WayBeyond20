@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WayBeyond20 v1.62 Release Notes</title>
+    <title>WayBeyond20 v1.63 Release Notes</title>
     <link rel="stylesheet" href="Updates.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
             <img src="images/icons/icon128.png" alt="WayBeyond20">
             <div>
                 <p class="eyebrow">First shared release</p>
-                <h1>WayBeyond20 v1.62</h1>
+                <h1>WayBeyond20 v1.63</h1>
                 <p class="lede">Complete changes from the Beyond20 2.20.1 base</p>
             </div>
         </header>
@@ -33,7 +33,7 @@
                 <li><strong>Quiet passive synchronization.</strong> Synchronizes sheet state without a missing-VTT error while preserving that warning for attempted rolls.</li>
                 <li><strong>New-feature discovery notices.</strong> Detects newly parsed class features, species traits, and feats without repeating notices on every scan.</li>
                 <li><strong>Safer roll interception.</strong> Limits roll handling to supported D&amp;D Beyond roll targets.</li>
-                <li><strong>Reinjection safeguards.</strong> Prevents duplicate WayBeyond20 listeners, observers, and pollers after page changes or reloads.</li>
+                <li><strong>Reinjection and observer safeguards.</strong> Prevents duplicate WayBeyond20 listeners, observers, and pollers after page changes or reloads, including self-triggering Bardic Inspiration updates.</li>
                 <li><strong>Correct Game Log labels.</strong> Labels checks, saves, Initiative, attacks, healing, and other rolls appropriately.</li>
                 <li><strong>Local and Digital Dice result handling.</strong> Handles local custom rolls, Digital Dice totals, and feature callbacks.</li>
                 <li><strong>Critical-damage Game Log aggregation.</strong> Combines normal and critical phases into one correctly typed result.</li>
@@ -63,7 +63,7 @@
                 <li><strong>Armor Class adjustments.</strong> Displays reversible effect-based AC additions with their true source.</li>
                 <li><strong>Speed adjustments.</strong> Applies and displays supported effect-based speed multipliers.</li>
                 <li><strong>Haste mechanics.</strong> Supports Haste AC, speed, Dexterity-save Advantage, and Haste Action mechanics.</li>
-                <li><strong>Hide and Stealth effect.</strong> Creates a visible effect that grants Advantage to the next qualifying attack and is then consumed.</li>
+                <li><strong>Hide and Stealth effect.</strong> Creates a visible effect that grants Advantage to the next qualifying attack and is consumed only after the attack is dispatched.</li>
             </ol>
         </section>
 
@@ -73,11 +73,11 @@
                 <li><strong>Local Combat Window.</strong> Shows Movement, Action, Bonus Action, Reaction, and optional Haste Action.</li>
                 <li><strong>Combat controls.</strong> Adds New Turn, End Combat, and a manual Combat Window menu command.</li>
                 <li><strong>Automatic combat start from Initiative.</strong> Starts local combat state from a qualifying Initiative roll.</li>
-                <li><strong>Activation-cost spending.</strong> Spends the correct combat resource using parsed activation metadata.</li>
+                <li><strong>Activation-cost spending.</strong> Spends the correct combat resource after the associated roll is dispatched, using parsed activation metadata.</li>
                 <li><strong>Unavailable-resource warning.</strong> Warns about a spent resource and permits an explicit nonnegative override.</li>
                 <li><strong>Movement tracking.</strong> Displays and spends current movement, including supported speed changes.</li>
                 <li><strong>Roll20 token binding.</strong> Associates the D&amp;D Beyond character with a selected or name-matched Roll20 token.</li>
-                <li><strong>Roll20 turn-order synchronization.</strong> Detects character turns, tracks rounds, and resets combat resources.</li>
+                <li><strong>Roll20 turn-order synchronization.</strong> Detects character turns, tracks rounds, resets combat resources, and prevents one open character sheet from spending another character's off-turn Action or Bonus Action.</li>
                 <li><strong>Roll20 target discovery.</strong> Exposes turn-order creatures to supported D&amp;D Beyond target selection.</li>
                 <li><strong>Roll20 resolved-damage callback.</strong> Returns resolved damage to the matching D&amp;D Beyond sheet for dependent features.</li>
             </ol>
@@ -98,13 +98,13 @@
             <ol start="41">
                 <li><strong>Triage Expert: Bedside Manner.</strong> Rolls one extra healing die and discards the lowest while retaining the modifier.</li>
                 <li><strong>Triage Expert: Blood and Bone.</strong> Adds Hit Die controls, target-die fallback, Bedside Manner integration, and Action spending.</li>
-                <li><strong>Draining Attack qualification.</strong> Marks qualifying Unarmed Strike or natural-attack rolls for Draining Attack.</li>
+                <li><strong>Draining Attack qualification.</strong> Marks qualifying natural-weapon attacks without applying Draining Attack to generic Unarmed Strikes, Bardic damage, or Agile Strikes.</li>
                 <li><strong>Draining Attack Temporary HP.</strong> Applies resolved qualifying damage as higher-only Temporary Hit Points through local, Digital Dice, and Roll20 paths.</li>
                 <li><strong>Bardic Inspiration native-use spending.</strong> Spends the correct native Bardic Inspiration use without matching unrelated controls.</li>
                 <li><strong>Bardic Inspiration feature card.</strong> Shows Bonus Action, range, die, remaining uses, and an Inspire button.</li>
                 <li><strong>Dazzling Footwork.</strong> Applies or recognizes Advantage on qualifying dancing Performance checks without redundant prompts.</li>
                 <li><strong>Agile Strikes continuation.</strong> Offers the optional attack and automatically chooses the strongest legal ability and damage profile.</li>
-                <li><strong>Savage Attacker.</strong> Rolls the eligible weapon-damage package twice and keeps the higher package on supported VTTs.</li>
+                <li><strong>Savage Attacker.</strong> On Roll20, rolls the complete eligible base weapon-damage formula twice and keeps the higher total.</li>
                 <li><strong>Use Magic Device scroll casting.</strong> Offers and remembers an Intelligence-plus-proficiency Scrolls casting path for supported formulas.</li>
             </ol>
         </section>
@@ -116,6 +116,20 @@
                 <li><strong>Persistent bounded Debug Log.</strong> Optionally records bounded diagnostics across parsing, rolls, effects, routing, Game Log, and callbacks.</li>
                 <li><strong>Debug Log controls.</strong> Provides Refresh, Copy, Clear, and Close controls.</li>
                 <li><strong>Settings backup and restore labels.</strong> Rebrands settings export and import while preserving WayBeyond20-specific settings.</li>
+            </ol>
+        </section>
+
+        <section>
+            <h2>Paladin feature support</h2>
+            <ol start="55">
+                <li><strong>Native limited-use dispatch.</strong> Checks exact native counters before sending and marks a use only after dispatch, including shared Channel Divinity pools.</li>
+                <li><strong>Lay on Hands.</strong> Selects a healing amount, sends healing or cleansing information, and reduces the native D&amp;D Beyond healing pool after dispatch.</li>
+                <li><strong>Oath of the Watchers: Watcher's Will.</strong> Sends only its own description, spends Action and Channel Divinity, and tracks one minute of Advantage on Intelligence, Wisdom, and Charisma saving throws.</li>
+                <li><strong>Oath of the Watchers: Abjure the Extraplanar.</strong> Sends only its own description with the live Wisdom save DC and spends Action and Channel Divinity.</li>
+                <li><strong>Oath of the Noble Genies: Elemental Smite.</strong> Preserves the distinct Dao, Djinni, Efreeti, and Marid after-Smite effects while using the shared Channel Divinity pool.</li>
+                <li><strong>Oath of the Noble Genies: Elemental Rebuke.</strong> Supports all five damage types, adds Charisma to 2d10, includes the Dexterity save, spends Reaction, and marks the native use.</li>
+                <li><strong>Oath of the Noble Genies: Noble Scion.</strong> Sends the Bonus Action, marks the native use, and tracks the ten-minute flight and Minor Wish reminder.</li>
+                <li><strong>Utility and defensive spell casting.</strong> Adds <em>Cast on VTT</em> beside <em>Display</em> so non-damaging spells can spend their activation and create persistent effects.</li>
             </ol>
         </section>
 

@@ -1,10 +1,19 @@
 console.log("WayBeyond20: D&D Beyond module loaded.");
 
 async function sendRollWithCharacter(rollType, fallback, args) {
+    const limitedUseRequest = args && args["waybeyond20-limited-use"];
+    if (limitedUseRequest) delete args["waybeyond20-limited-use"];
+    const limitedUsePreflight = limitedUseRequest
+        ? await wayBeyond20PreflightLimitedUse(limitedUseRequest.feature, {
+            name: limitedUseRequest.name || args.name || fallback
+        })
+        : { allowed: true, tracked: false };
+    if (!limitedUsePreflight.allowed) return null;
+
     const resourceRequest = args && args["waybeyond20-turn-resource"];
     if (resourceRequest) {
         delete args["waybeyond20-turn-resource"];
-        const allowed = await wayBeyond20UseTurnResource(resourceRequest.resource, {
+        const allowed = await wayBeyond20PreflightTurnResource(resourceRequest.resource, {
             name: resourceRequest.name || args.name || fallback,
             rollType: resourceRequest.rollType || rollType
         });
@@ -41,7 +50,26 @@ async function sendRollWithCharacter(rollType, fallback, args) {
         args.d20 += "ro<=1";
     }
     const result = await sendRoll(character, rollType, fallback, args);
-    if (stealthEffect) {
+    if (result === true && resourceRequest) {
+        wayBeyond20SpendTurnResource(resourceRequest.resource, {
+            forRoll: true,
+            name: resourceRequest.name || args.name || fallback,
+            rollType: resourceRequest.rollType || rollType
+        });
+    }
+    if (result === true && limitedUseRequest && limitedUsePreflight.tracked) {
+        const spent = await wayBeyond20SpendLimitedUse(limitedUseRequest.feature);
+        if (!spent) {
+            wayBeyond20CharacterDebug("Native limited use could not be spent after roll dispatch", {
+                feature: limitedUseRequest.feature,
+                name: limitedUseRequest.name || args.name || fallback
+            });
+            if (typeof alertify !== "undefined" && alertify.warning) {
+                alertify.warning(`WayBeyond20 sent ${limitedUseRequest.name || args.name || fallback}, but D&D Beyond did not mark the ${limitedUseRequest.feature} use. Please mark it manually.`);
+            }
+        }
+    }
+    if (stealthEffect && result === true) {
         wayBeyond20RemoveTrackedEffect(wayBeyond20EffectKey(stealthEffect));
     }
     return result;
@@ -890,6 +918,57 @@ async function wayBeyond20SpendLimitedUse(featureName) {
     return verification.spent;
 }
 
+async function wayBeyond20PreflightLimitedUse(featureName, options = {}) {
+    const result = wayBeyond20FindLimitedUseControls(featureName);
+    const remaining = result.controls.filter(wayBeyond20LimitedUseControlIsUnused).length;
+    if (result.controls.length === 0) {
+        wayBeyond20CharacterDebug("Limited use is not exposed on the current sheet", {
+            featureName,
+            name: options.name || ""
+        });
+        return { allowed: true, tracked: false, remaining: null };
+    }
+    if (remaining > 0) return { allowed: true, tracked: true, remaining };
+
+    const proceed = await wayBeyond20ConfirmChoice(
+        `No ${featureName} Uses Available`,
+        `D&D Beyond shows no remaining ${featureName} uses. Send ${options.name || "the roll"} anyway without changing the counter?`,
+        "Send Anyway",
+        "Cancel"
+    );
+    return { allowed: proceed, tracked: false, remaining: 0 };
+}
+
+function wayBeyond20AttachLimitedUse(rollProperties, featureName, options = {}) {
+    if (!rollProperties || !featureName) return null;
+    rollProperties["waybeyond20-limited-use"] = {
+        feature: featureName,
+        name: options.name || rollProperties.name || featureName
+    };
+    return featureName;
+}
+
+function wayBeyond20LimitedUseFeatureForAction(actionName) {
+    const normalized = String(actionName || "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (!normalized) return null;
+    if (normalized.startsWith("channel divinity:")) return "Channel Divinity";
+    if (normalized.startsWith("elemental strike:") || [
+        "dao's crush", "dao’s crush", "djinni's escape", "djinni’s escape",
+        "efreeti's fury", "efreeti’s fury", "marid's surge", "marid’s surge"
+    ].includes(normalized)) return "Channel Divinity";
+    if (normalized === "elemental rebuke") return "Elemental Rebuke";
+    if (normalized === "activate noble scion" || normalized === "noble scion") return "Activate Noble Scion";
+    if (normalized.includes("breath weapon")) return "Breath Weapon";
+
+    return wayBeyond20FindLimitedUseControls(actionName).controls.length > 0 ? actionName : null;
+}
+
+function wayBeyond20AttachNativeActionUse(rollProperties, actionName) {
+    const featureName = wayBeyond20LimitedUseFeatureForAction(actionName);
+    if (featureName) wayBeyond20AttachLimitedUse(rollProperties, featureName, { name: actionName });
+    return featureName;
+}
+
 function wayBeyond20BardicInspirationRemainingUses() {
     const result = wayBeyond20FindLimitedUseControls("Bardic Inspiration");
     if (result.controls.length > 0) {
@@ -1001,14 +1080,25 @@ function wayBeyond20InjectBardicInspirationButton() {
     const nativeText = String(row.find(".ct-combat-attack__notes,.ddbc-combat-attack__notes").first().text() || "");
     const nativeCount = nativeText.match(/\((\d+)\s*\/\s*(\d+)\)/);
     const maximum = nativeCount ? parseInt(nativeCount[2]) : null;
-    card.find(".waybeyond20-bardic-feature-die").text(wayBeyond20GetBardicInspirationDie().replace(/^1/, ""));
-    card.find(".waybeyond20-bardic-feature-uses").text(remaining === null
+    // This function runs from the document-wide MutationObserver. Rewriting the same
+    // text or attributes on every callback creates another mutation and can trap Bard
+    // character sheets in a self-sustaining observer loop. Only touch the DOM when the
+    // displayed value actually changed.
+    const dieText = wayBeyond20GetBardicInspirationDie().replace(/^1/, "");
+    const usesText = remaining === null
         ? "Uses unavailable"
-        : `${remaining}${maximum !== null ? "/" + maximum : ""} uses`);
-    button.prop("disabled", remaining === 0 || wayBeyond20BardicInspirationActivationPending);
-    button.attr("title", remaining === null
+        : `${remaining}${maximum !== null ? "/" + maximum : ""} uses`;
+    const disabled = remaining === 0 || wayBeyond20BardicInspirationActivationPending;
+    const title = remaining === null
         ? "Use Bardic Inspiration"
-        : `${remaining} Bardic Inspiration use${remaining === 1 ? "" : "s"} remaining`);
+        : `${remaining} Bardic Inspiration use${remaining === 1 ? "" : "s"} remaining`;
+
+    const die = card.find(".waybeyond20-bardic-feature-die");
+    const uses = card.find(".waybeyond20-bardic-feature-uses");
+    if (die.text() !== dieText) die.text(dieText);
+    if (uses.text() !== usesText) uses.text(usesText);
+    if (button.prop("disabled") !== disabled) button.prop("disabled", disabled);
+    if (button.attr("title") !== title) button.attr("title", title);
 }
 
 async function wayBeyond20ChooseHitDie() {
@@ -1440,9 +1530,19 @@ function applyAbilityOrSavingThrowEffects({ rollType, ability_name, ability, mod
         }
     }
 
-    if (rollType === "saving-throw" && ability === "DEX" && wayBeyond20HasActiveEffect("Haste")) {
-        roll_properties["advantage"] = RollType.OVERRIDE_ADVANTAGE;
-        addEffect(roll_properties, "Haste");
+    if (rollType === "saving-throw") {
+        const saveAdvantageEffects = wayBeyond20GetTrackedSpellEffects().filter(effect => {
+            const entries = wayBeyond20EffectDataEntries(effect);
+            if (entries.some(entry =>
+                String(entry.field || "").trim().toUpperCase() === "SAVE_ADVANTAGE" &&
+                String(entry.string || "").trim().toUpperCase() === ability
+            )) return true;
+            return entries.length === 0 && ability === "DEX" && wayBeyond20EffectName(effect) === "haste";
+        });
+        if (saveAdvantageEffects.length > 0) {
+            roll_properties["advantage"] = RollType.OVERRIDE_ADVANTAGE;
+            saveAdvantageEffects.forEach(effect => addEffect(roll_properties, effect.name));
+        }
     }
 
     // Wizard - War Magic - Durable Magic
@@ -2540,6 +2640,7 @@ function wayBeyond20BuildActiveEffectMechanics(effects) {
         baseArmor: null,
         acBonus: 0,
         speedMultiplier: 1,
+        saveAdvantages: [],
         dexSaveAdvantage: false,
         hasteAction: false,
         notes: []
@@ -2567,6 +2668,7 @@ function wayBeyond20BuildActiveEffectMechanics(effects) {
                 if (value !== null && value > mechanics.speedMultiplier) mechanics.speedMultiplier = value;
             } else if (field === "SAVE_ADVANTAGE") {
                 const ability = String(entry.string || "").trim().toUpperCase();
+                if (ability && !mechanics.saveAdvantages.includes(ability)) mechanics.saveAdvantages.push(ability);
                 if (ability === "DEX") mechanics.dexSaveAdvantage = true;
             } else if (field === "ACTION_GRANT") {
                 const action = String(entry.string || "").trim().toUpperCase();
@@ -2588,6 +2690,7 @@ function wayBeyond20BuildActiveEffectMechanics(effects) {
                 mechanics.acBonus += 2;
                 mechanics.speedMultiplier = Math.max(mechanics.speedMultiplier, 2);
                 mechanics.dexSaveAdvantage = true;
+                if (!mechanics.saveAdvantages.includes("DEX")) mechanics.saveAdvantages.push("DEX");
                 mechanics.hasteAction = true;
                 mechanics.notes.push("Haste: +2 AC, doubled speed, advantage on DEX saves, and one limited additional action.");
             }
@@ -3020,6 +3123,15 @@ function wayBeyond20SpendTurnResource(resource, options = {}) {
     const activeEffects = wayBeyond20GetTrackedSpellEffects();
     const state = wayBeyond20NormalizeTurnTrackerState(wayBeyond20GetTurnTrackerState(), activeEffects);
     if (!wayBeyond20HasActiveCombatState(state)) return false;
+    if (resource !== "reaction" && state.combatSource === "Roll20" &&
+        state.currentRoll20Turn && state.currentRoll20Turn.isThisCharactersTurn === false) {
+        wayBeyond20CharacterDebug("Turn resource not spent for another character's Roll20 turn", {
+            resource,
+            current: state.currentRoll20Turn,
+            name: options.name || ""
+        });
+        return false;
+    }
     const current = wayBeyond20ParseInteger(state[resource]);
     if (current === null) return false;
 
@@ -3081,6 +3193,16 @@ async function wayBeyond20PreflightTurnResource(resource, options = {}) {
     const activeEffects = wayBeyond20GetTrackedSpellEffects();
     const state = wayBeyond20NormalizeTurnTrackerState(wayBeyond20GetTurnTrackerState(), activeEffects);
     if (!wayBeyond20HasActiveCombatState(state)) return true;
+    if (resource !== "reaction" && state.combatSource === "Roll20" &&
+        state.currentRoll20Turn && state.currentRoll20Turn.isThisCharactersTurn === false) {
+        const currentName = state.currentRoll20Turn.tokenName || state.currentRoll20Turn.custom || "another combatant";
+        return wayBeyond20ConfirmChoice(
+            "Different Roll20 Turn",
+            `Roll20 shows ${currentName} as the current combatant, not ${wayBeyond20CurrentCharacterName(character)}. Send ${options.name || "the roll"} without spending this character's ${wayBeyond20TurnResourceName(resource)}?`,
+            "Send Without Spending",
+            "Cancel"
+        );
+    }
     const current = wayBeyond20ParseInteger(state[resource]);
     if (current === null || current > 0) return true;
 
@@ -4080,7 +4202,6 @@ function wayBeyond20ApplySavageAttacker(character, roll_properties, action_pool,
         const tags = row.tags || [];
         return row.dice && (
             tags.includes("base-weapon") ||
-            tags.includes("weapon-effect") ||
             tags.includes("savage-attacker")
         );
     });
@@ -4097,7 +4218,7 @@ function wayBeyond20ApplySavageAttacker(character, roll_properties, action_pool,
     // system-neutral; Roll20, Foundry, and generic renderers each get the same
     // intent metadata and can render the dice syntax they support.
     roll_properties["waybeyond20-savage-attacker"] = {
-        mode: "double-dice-drop-lowest",
+        mode: "reroll-formula-keep-higher",
         selected: selected.map(row => row.id),
         selectedDamageIndexes: selectedIndices,
         originalDamages: selectedIndices.map(idx => ({
@@ -5024,6 +5145,264 @@ async function rollItem(force_display = false, force_to_hit_only = false, force_
     }
 }
 
+function wayBeyond20NormalizeFeatureLabel(value) {
+    return String(value || "")
+        .replace(/[’']/g, "")
+        .replace(/[^a-z0-9]+/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+}
+
+function wayBeyond20ActionDescription(paneClass, actionName) {
+    const selector = `.ct-action-detail__description,.ddbc-action-detail__description,.${paneClass} div[class*='styles_description']`;
+    const containers = $(selector).filter(":visible");
+    const suffix = String(actionName || "").split(":").pop();
+    const normalizedSuffix = wayBeyond20NormalizeFeatureLabel(suffix);
+
+    for (const container of containers.toArray()) {
+        const paragraphs = $(container).find("p").addBack("p");
+        for (const paragraph of paragraphs.toArray()) {
+            const strong = $(paragraph).find("strong").first();
+            if (!strong.length) continue;
+            if (wayBeyond20NormalizeFeatureLabel(strong.text()) === normalizedSuffix) {
+                return descriptionToString(paragraph);
+            }
+        }
+    }
+    return descriptionToString(selector);
+}
+
+function wayBeyond20PaladinSaveDC() {
+    const configured = character && character._spell_saves && typeof character._spell_saves === "object"
+        ? Object.values(character._spell_saves).map(value => parseInt(value)).filter(Number.isFinite)
+        : [];
+    if (configured.length > 0) return Math.max(...configured);
+    const charisma = character && character.getAbility ? character.getAbility("CHA") : null;
+    return 8 + (parseInt(character && character._proficiency) || 0) + (parseInt(charisma && charisma.mod) || 0);
+}
+
+function wayBeyond20TrackSelfFeatureEffect(name, duration, data = [], flags = []) {
+    if (!character || !name) return null;
+    const owner = wayBeyond20CurrentCharacterName(character);
+    const effect = {
+        id: wayBeyond20GenerateEffectId(),
+        name,
+        source: name,
+        owner,
+        ownerLevel: wayBeyond20OwnerLevel(character),
+        target: owner,
+        targetName: owner,
+        targetRelation: "self",
+        duration,
+        concentration: false,
+        startedAt: Date.now(),
+        flags: wayBeyond20NormalizeEffectFlags(["buff", "feature-effect", ...flags]),
+        data: Array.isArray(data) ? data : []
+    };
+    const settingsToChange = {};
+    const update = wayBeyond20AddSpellEffectToSettings(character, settingsToChange, effect);
+    character.mergeCharacterSettings(settingsToChange, () => {
+        wayBeyond20SendEffectsUpdate(character, update.activeEffects, update.concentration);
+    });
+    return effect;
+}
+
+function wayBeyond20FindNumericFeaturePool(featureHeading) {
+    const normalizedHeading = wayBeyond20NormalizeFeatureLabel(featureHeading);
+    const headings = Array.from(document.querySelectorAll(
+        ".ct-feature-snippet__heading,.ddbc-feature-snippet__heading,[class*='featureSnippet'] [class*='heading']"
+    ));
+    const heading = headings.find(element => wayBeyond20NormalizeFeatureLabel(wayBeyond20ElementOwnText(element)) === normalizedHeading);
+    if (!heading) return { container: $(), current: null, decrease: $() };
+
+    let node = heading;
+    for (let depth = 0; node && depth < 10; depth++, node = node.parentElement) {
+        const container = $(node);
+        const current = container.find(".ct-slot-manager-large__value--cur,.ddbc-slot-manager-large__value--cur,[class*='value--cur']").first();
+        const decrease = container.find("button.button-action-decrease,button[class*='action-decrease'],button[aria-label*='decrease' i]").first();
+        if (current.length && decrease.length) {
+            return { container, current: wayBeyond20ParseInteger(current.text()), decrease };
+        }
+    }
+    return { container: $(), current: null, decrease: $() };
+}
+
+async function wayBeyond20SpendNumericFeaturePool(featureHeading, amount) {
+    const requested = Math.max(0, parseInt(amount) || 0);
+    if (!requested) return true;
+    const initial = wayBeyond20FindNumericFeaturePool(featureHeading);
+    if (initial.current === null || !initial.decrease.length) return false;
+    const expected = Math.max(0, initial.current - requested);
+
+    for (let index = 0; index < requested; index++) {
+        const before = wayBeyond20FindNumericFeaturePool(featureHeading);
+        if (before.current === null || before.current <= expected || !before.decrease.length) break;
+        before.decrease[0].click();
+        for (let attempt = 0; attempt < 10; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            const after = wayBeyond20FindNumericFeaturePool(featureHeading);
+            if (after.current !== null && after.current < before.current) break;
+        }
+    }
+    const final = wayBeyond20FindNumericFeaturePool(featureHeading);
+    return final.current !== null && final.current <= expected;
+}
+
+async function wayBeyond20RollLayOnHands(actionName, description, properties) {
+    const normalized = wayBeyond20NormalizeFeatureLabel(actionName);
+    const poolHeading = "Lay On Hands: Healing Pool";
+    const pool = wayBeyond20FindNumericFeaturePool(poolHeading);
+    let amount = 5;
+    const isHealing = normalized.includes("heal") && !normalized.includes("healing pool");
+    if (isHealing) {
+        const raw = window.prompt(
+            `How many Lay on Hands points should heal the target?${pool.current === null ? "" : ` (${pool.current} available)`}`,
+            "1"
+        );
+        if (raw === null) return null;
+        amount = parseInt(raw);
+        if (!Number.isFinite(amount) || amount < 1) {
+            if (typeof alertify !== "undefined" && alertify.error) alertify.error("Enter a whole number of at least 1.");
+            return null;
+        }
+    }
+
+    if (pool.current !== null && amount > pool.current) {
+        const proceed = await wayBeyond20ConfirmChoice(
+            "Not Enough Lay on Hands Points",
+            `${actionName} needs ${amount} points, but D&D Beyond shows ${pool.current}. Send the card without changing the pool?`,
+            "Send Anyway",
+            "Cancel"
+        );
+        if (!proceed) return null;
+    }
+
+    const rollProperties = {
+        name: actionName,
+        description,
+        "source-type": "action"
+    };
+    if (isHealing) {
+        rollProperties.damages = [String(amount)];
+        rollProperties["damage-types"] = ["Healing"];
+    }
+    wayBeyond20AttachActivationResource(rollProperties, properties, null, null, {
+        name: actionName,
+        rollType: isHealing ? "spell-attack" : "trait"
+    });
+    const result = await sendRollWithCharacter(isHealing ? "spell-attack" : "trait", isHealing ? String(amount) : 0, rollProperties);
+    if (result === true && pool.current !== null && amount <= pool.current) {
+        const spent = await wayBeyond20SpendNumericFeaturePool(poolHeading, amount);
+        if (!spent && typeof alertify !== "undefined" && alertify.warning) {
+            alertify.warning(`WayBeyond20 sent ${actionName}, but D&D Beyond did not reduce Lay on Hands by ${amount}. Please adjust the pool manually.`);
+        }
+    }
+    return result;
+}
+
+function wayBeyond20ChooseElementalDamageType() {
+    const choices = ["Acid", "Cold", "Fire", "Lightning", "Thunder"];
+    const raw = window.prompt(`Elemental Rebuke damage type (${choices.join(", ")}):`, "Fire");
+    if (raw === null) return null;
+    return choices.find(choice => choice.toLowerCase() === String(raw).trim().toLowerCase()) || null;
+}
+
+async function wayBeyond20RollPaladinSpecialAction(actionName, actionParent, description, properties) {
+    const normalized = wayBeyond20NormalizeFeatureLabel(actionName);
+    const dc = wayBeyond20PaladinSaveDC();
+
+    if (normalized.includes("lay on hands") || normalized === "restoring touch") {
+        return { handled: true, result: await wayBeyond20RollLayOnHands(actionName, description, properties) };
+    }
+
+    if (normalized.endsWith("watchers will")) {
+        const rollProperties = { name: actionName, description, source: actionParent, "source-type": "action" };
+        wayBeyond20AttachActivationResource(rollProperties, properties, null, "action", { name: actionName, rollType: "trait" });
+        wayBeyond20AttachLimitedUse(rollProperties, "Channel Divinity", { name: actionName });
+        const result = await sendRollWithCharacter("trait", 0, rollProperties);
+        if (result === true) {
+            wayBeyond20TrackSelfFeatureEffect("Watcher’s Will", "1 minute", [
+                { field: "SAVE_ADVANTAGE", string: "INT", value: "1" },
+                { field: "SAVE_ADVANTAGE", string: "WIS", value: "1" },
+                { field: "SAVE_ADVANTAGE", string: "CHA", value: "1" }
+            ]);
+        }
+        return { handled: true, result };
+    }
+
+    if (normalized.endsWith("abjure extraplanar")) {
+        const rollProperties = {
+            name: actionName,
+            description: `${description}\n\nWisdom saving throw: DC ${dc}.`,
+            source: actionParent,
+            "source-type": "action",
+            "save-ability": "WIS",
+            "save-dc": dc
+        };
+        wayBeyond20AttachActivationResource(rollProperties, properties, null, "action", { name: actionName, rollType: "trait" });
+        wayBeyond20AttachLimitedUse(rollProperties, "Channel Divinity", { name: actionName });
+        return { handled: true, result: await sendRollWithCharacter("trait", 0, rollProperties) };
+    }
+
+    if (normalized === "elemental rebuke") {
+        const damageType = wayBeyond20ChooseElementalDamageType();
+        if (!damageType) {
+            if (typeof alertify !== "undefined" && alertify.error) alertify.error("Choose Acid, Cold, Fire, Lightning, or Thunder.");
+            return { handled: true, result: null };
+        }
+        const charisma = character && character.getAbility ? character.getAbility("CHA") : null;
+        const charismaMod = parseInt(charisma && charisma.mod) || 0;
+        const formula = `2d10 ${charismaMod >= 0 ? "+" : "-"} ${Math.abs(charismaMod)}`;
+        const rollProperties = {
+            name: actionName,
+            description,
+            damages: [formula],
+            "damage-types": [damageType],
+            "save-ability": "DEX",
+            "save-dc": dc,
+            "save-effect": "Half Damage"
+        };
+        wayBeyond20AttachActivationResource(rollProperties, properties, null, "reaction", { name: actionName, rollType: "spell-attack" });
+        wayBeyond20AttachLimitedUse(rollProperties, "Elemental Rebuke", { name: actionName });
+        return { handled: true, result: await sendRollWithCharacter("spell-attack", formula, rollProperties) };
+    }
+
+    if (normalized.endsWith("daos crush")) {
+        const rollProperties = {
+            name: actionName,
+            description: `${description}\n\nEscape DC: ${dc}. This is applied after Divine Smite; it is not an initial attack roll or saving throw.`,
+            source: actionParent,
+            "source-type": "action"
+        };
+        wayBeyond20AttachActivationResource(rollProperties, properties, null, null, { name: actionName, rollType: "trait" });
+        wayBeyond20AttachLimitedUse(rollProperties, "Channel Divinity", { name: actionName });
+        return { handled: true, result: await sendRollWithCharacter("trait", 0, rollProperties) };
+    }
+
+    if (normalized.endsWith("djinnis escape")) {
+        const rollProperties = { name: actionName, description, source: actionParent, "source-type": "action" };
+        wayBeyond20AttachActivationResource(rollProperties, properties, null, null, { name: actionName, rollType: "trait" });
+        wayBeyond20AttachLimitedUse(rollProperties, "Channel Divinity", { name: actionName });
+        const result = await sendRollWithCharacter("trait", 0, rollProperties);
+        if (result === true) {
+            wayBeyond20TrackSelfFeatureEffect("Djinni’s Escape", "Until the end of your next turn", [], ["resistance", "condition-immunity"]);
+        }
+        return { handled: true, result };
+    }
+
+    if (normalized === "activate noble scion" || normalized === "noble scion") {
+        const rollProperties = { name: actionName, description, source: actionParent, "source-type": "action" };
+        wayBeyond20AttachActivationResource(rollProperties, properties, null, "bonusAction", { name: actionName, rollType: "trait" });
+        wayBeyond20AttachLimitedUse(rollProperties, "Activate Noble Scion", { name: actionName });
+        const result = await sendRollWithCharacter("trait", 0, rollProperties);
+        if (result === true) wayBeyond20TrackSelfFeatureEffect("Noble Scion", "10 minutes", [], ["flying", "minor-wish"]);
+        return { handled: true, result };
+    }
+
+    return { handled: false, result: null };
+}
+
 async function rollAction(paneClass, force_to_hit_only = false, force_damages_only = false) {
     if (key_modifiers["display_attack"]) {
         return displayAction(paneClass);
@@ -5033,8 +5412,11 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
     //console.log("Properties are : " + String(properties));
     const action_name = $(".ct-sidebar__heading").text();
     const action_parent = $(".ct-sidebar__header-parent").text();
-    const description = descriptionToString(`.ct-action-detail__description, .${paneClass} div[class*='styles_description']`);
+    const description = wayBeyond20ActionDescription(paneClass, action_name);
     let to_hit = properties["To Hit"] !== undefined && properties["To Hit"] !== "--" ? properties["To Hit"] : null;
+
+    const paladinSpecial = await wayBeyond20RollPaladinSpecialAction(action_name, action_parent, description, properties);
+    if (paladinSpecial.handled) return paladinSpecial.result;
 
     if (action_name == "Superiority Dice" || action_parent == "Maneuvers") {
         const fighter_level = character.getClassLevel("Fighter");
@@ -5238,6 +5620,7 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
                 name: action_name,
                 rollType: "attack"
             });
+            wayBeyond20AttachNativeActionUse(roll_properties, action_name);
         }
         return sendRollWithCharacter("attack", damages[0], roll_properties);
     } else {
@@ -5250,6 +5633,7 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
             name: action_name,
             rollType: "trait"
         });
+        wayBeyond20AttachNativeActionUse(rollProperties, action_name);
         return sendRollWithCharacter("trait", 0, rollProperties);
     }
 }
@@ -5968,7 +6352,7 @@ function displayBackground() {
 
 function displayAction(paneClass) {
     const action_name = $(".ct-sidebar__heading").text();
-    const description = descriptionToString(`.ct-action-detail__description, .${paneClass} div[class*='styles_description']`);
+    const description = wayBeyond20ActionDescription(paneClass, action_name);
     return sendRollWithCharacter("trait", 0, {
         "name": action_name,
         "description": description,
@@ -6279,13 +6663,11 @@ function injectRollButton(paneClass) {
         if (to_hit === null)
             to_hit = findToHit(spell_full_name, ".ct-spells-spell,.ddbc-spells-spell", ".ct-spell-name,.ddbc-spell-name,span[class*='styles_spellName']", ".ct-spells-spell__tohit,.ddbc-spells-spell__tohit");
 
-        if (damages.length > 0 || healings.length > 0 || to_hit !== null || properties["Attack/Save"] !== undefined) {
-            addRollButtonEx(paneClass, ".ct-sidebar__heading", { text: "Cast on VTT", small: true });
-            addDisplayButtonEx(paneClass, ".ct-sidebar__header .ct-beyond20-roll");
-        } else {
-            //addRollButtonEx(paneClass, ".ct-sidebar__heading", text="Cast on VTT", image=false);
-            addDisplayButtonEx(paneClass, ".ct-sidebar__heading", { append: false, small: false });
-        }
+        // Utility and defensive spells still need a real Cast action so WayBeyond20 can
+        // send the card, spend the action, and track a persistent effect. Display remains
+        // a separate, non-consuming preview for every spell.
+        addRollButtonEx(paneClass, ".ct-sidebar__heading", { text: "Cast on VTT", small: true });
+        addDisplayButtonEx(paneClass, ".ct-sidebar__header .ct-beyond20-roll");
 
         if (spell_name == "Animate Objects") {
             const rows = $(".ct-spell-detail__description table tbody tr,.ddbc-spell-detail__description table tbody tr");
