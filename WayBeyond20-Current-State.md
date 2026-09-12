@@ -28,10 +28,10 @@ Project location:
 | Internal package/manifest version | 2.20.63 |
 | Extension platform | Chrome Manifest V3 |
 | Upstream baseline | Beyond20 2.20.1 |
-| Authoritative source | `WayBeyond20-Master`, branch `repair/v1.63` until release merge |
+| Authoritative source | `WayBeyond20-Master`, `main` at tag `v1.63` |
 | Loadable Chrome build | `WayBeyond20-Dev` |
 | First shared release ZIP | `WayBeyond20-chrome-v1_63.zip` — SHA-256 `377086881D6EB90D2EEF9E20D36E1606B4868A6AC1A58E77D3D023FA12E6C503` |
-| GitHub release | Pending live verification |
+| GitHub release | [v1.63 — First Shared Release](https://github.com/LuconoLeReis/WayBeyond20/releases/tag/v1.63) |
 
 ## Recovery provenance
 
@@ -98,6 +98,10 @@ The official subclass name is **Oath of the Noble Genies**.
 7. Oath aura positioning, creature-type qualification, and damage-ending conditions are table-facing rules unless the connected VTT exposes reliable data.
 
 ## v1.63 live release record
+
+- `main` contains commit `ae6f331` and tag `v1.63`.
+- GitHub release asset: `WayBeyond20-chrome-v1_63.zip` at `https://github.com/LuconoLeReis/WayBeyond20/releases/download/v1.63/WayBeyond20-chrome-v1_63.zip`.
+- The downloaded GitHub asset was re-hashed on September 11, 2026: SHA-256 `377086881D6EB90D2EEF9E20D36E1606B4868A6AC1A58E77D3D023FA12E6C503`; size 1,239,019 bytes.
 
 1. Reload `WayBeyond20-Dev` from `chrome://extensions` and refresh D&D Beyond/Roll20 tabs.
 2. Load Calan and confirm the sheet remains responsive with the Bardic feature card present.
