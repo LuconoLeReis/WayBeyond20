@@ -3523,6 +3523,7 @@ function wayBeyond20InstallLongRestTracker() {
         setTimeout(() => {
             if (character) character.updateInfo();
             if (character) character.mergeCharacterSettings({"waybeyond20-paladin-smite-used": false});
+            wayBeyond20InvalidateSmiteSpellCache({ prepared: false, slots: true });
             wayBeyond20ResetHitDice("long-rest");
             wayBeyond20LongRestResetPending = false;
         }, 750);
@@ -5227,18 +5228,160 @@ function wayBeyond20PaladinSaveDC() {
     return 8 + (parseInt(character && character._proficiency) || 0) + (parseInt(charisma && charisma.mod) || 0);
 }
 
-const WAYBEYOND20_PALADIN_SMITE_NAMES = ["Divine Smite", "Thunderous Smite"];
-
-function wayBeyond20SmiteFormulaForSlot(baseFormula, slotLevel) {
-    const formula = String(baseFormula || "").trim();
-    const level = Math.max(1, parseInt(slotLevel) || 1);
-    const match = formula.match(/^(\d+)d(\d+)(.*)$/i);
-    if (!match || level <= 1) return formula;
-    return `${formula} + ${(level - 1)}d${match[2]}${match[3] || ""}`;
+function wayBeyond20SmiteNameIsEligible(name) {
+    // D&D Beyond exposes the character's currently available/prepared spells
+    // in the spell rows.  Do not maintain a fixed list here: subclasses,
+    // homebrew, and future rules updates can add another spell whose name
+    // contains "Smite".
+    return /\bsmite\b/i.test(String(name || ""));
 }
 
-function wayBeyond20SmiteFuelIsLegal(smiteName, fuelType) {
-    return fuelType !== "paladin-smite" || String(smiteName || "") === "Divine Smite";
+function wayBeyond20SpellRowIsPrepared(row) {
+    if (!row) return false;
+
+    // Prepared state is represented differently across D&D Beyond sheet
+    // versions.  Prefer explicit row metadata/classes, then inspect the
+    // prepare/unprepare control.  If the sheet is showing a spell row without
+    // exposing a preparation control, treat that visible row as prepared;
+    // this is how the filtered Prepared/Always Prepared views are represented.
+    const metadata = [
+        String(row.className || ""),
+        ...Array.from(row.attributes || []).map(attribute =>
+            `${attribute.name}=${attribute.value}`)
+    ].join(" ");
+    const preparationAttribute = Array.from(row.attributes || []).find(attribute =>
+        /(?:prepared|preparation)/i.test(attribute.name)
+    );
+    if (preparationAttribute) {
+        if (/^(?:false|0|no|unprepared)$/i.test(String(preparationAttribute.value || "").trim())) return false;
+        if (/^(?:true|1|yes|prepared)$/i.test(String(preparationAttribute.value || "").trim())) return true;
+    }
+    if (/\b(?:unprepared|not[- ]?prepared)\b/i.test(metadata)) return false;
+    if (/(?:^|[-_ ])prepared(?:$|[-_ ])/i.test(metadata)) return true;
+
+    let preparationControlFound = false;
+    let prepared = null;
+    const controls = Array.from(row.querySelectorAll(
+        "button,input,[role='checkbox'],[role='switch'],[aria-label],[title],[data-prepared],[data-is-prepared],[class*='prepared']"
+    ));
+    for (const control of controls) {
+        const labels = [
+            control.textContent,
+            control.getAttribute && control.getAttribute("aria-label"),
+            control.getAttribute && control.getAttribute("title"),
+            control.getAttribute && control.getAttribute("data-state"),
+            control.getAttribute && control.getAttribute("data-prepared"),
+            control.getAttribute && control.getAttribute("data-is-prepared"),
+            control.className
+        ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+        if (!/\b(?:un)?prepare(?:d|ation|ing)?\b/i.test(labels)) continue;
+        preparationControlFound = true;
+
+        const ariaChecked = control.getAttribute && control.getAttribute("aria-checked");
+        const checked = typeof control.checked === "boolean" ? control.checked : null;
+        if (ariaChecked === "true" || checked === true || /\bunprepare(?:d)?\b/i.test(labels)) {
+            prepared = true;
+        } else if (ariaChecked === "false" || checked === false || /\bprepare\b/i.test(labels)) {
+            prepared = false;
+        } else if (/\bprepared\b/i.test(labels)) {
+            prepared = true;
+        }
+    }
+    return preparationControlFound && prepared !== null ? prepared : true;
+}
+
+function wayBeyond20FirstDamageFormula(value) {
+    const match = String(value || "").match(/\b\d+d\d+(?:\s*[+-]\s*\d+)?\b/i);
+    return match ? match[0].replace(/\s+/g, " ").trim() : "";
+}
+
+function wayBeyond20DamageTypeFromText(value) {
+    const match = String(value || "").match(
+        /\b(acid|bludgeoning|cold|fire|force|lightning|necrotic|piercing|poison|psychic|radiant|slashing|thunder)\s+damage\b/i
+    );
+    return match ? match[1][0].toUpperCase() + match[1].slice(1).toLowerCase() : "";
+}
+
+let wayBeyond20PreparedSmiteCache = null;
+let wayBeyond20SpellSlotCache = null;
+let wayBeyond20SmiteCacheOwner = "";
+
+function wayBeyond20CurrentSmiteCacheOwner() {
+    const path = typeof window !== "undefined" && window.location
+        ? String(window.location.pathname || "")
+        : "";
+    const name = character && character._name ? String(character._name) : "";
+    return `${path}|${name}`;
+}
+
+function wayBeyond20EnsureSmiteCacheOwner() {
+    const owner = wayBeyond20CurrentSmiteCacheOwner();
+    if (wayBeyond20SmiteCacheOwner !== owner) {
+        wayBeyond20SmiteCacheOwner = owner;
+        wayBeyond20PreparedSmiteCache = null;
+        wayBeyond20SpellSlotCache = null;
+    }
+}
+
+function wayBeyond20InvalidateSmiteSpellCache({ prepared = true, slots = true } = {}) {
+    if (prepared) wayBeyond20PreparedSmiteCache = null;
+    if (slots) wayBeyond20SpellSlotCache = null;
+}
+
+function wayBeyond20InstallSmiteSpellStateTracker() {
+    if (window.__wayBeyond20SmiteSpellStateTrackerInstalled) return;
+    window.__wayBeyond20SmiteSpellStateTrackerInstalled = true;
+
+    const handleSpellControl = event => {
+        const target = event.target && event.target.closest ? event.target : null;
+        const slotControl = target && target.closest("[role='checkbox'][aria-label='use' i]");
+        if (slotControl && slotControl.closest(".ct-content-group__header,.ddbc-content-group__header")) {
+            wayBeyond20InvalidateSmiteSpellCache({ prepared: false, slots: true });
+            return;
+        }
+        const spellRow = target && target.closest(".ct-spells-spell,.ddbc-spells-spell");
+        if (!spellRow) return;
+        const control = target.closest("button,input,[role='checkbox'],[role='switch'],[aria-label],[title]") || target;
+        const label = [
+            control.textContent,
+            control.getAttribute && control.getAttribute("aria-label"),
+            control.getAttribute && control.getAttribute("title")
+        ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+        if (/\b(?:un)?prepare(?:d|ation|ing)?\b/i.test(label)) {
+            wayBeyond20InvalidateSmiteSpellCache({ prepared: true, slots: false });
+        }
+        if (/^(?:cast|use)$/i.test(label) ||
+            String(control.getAttribute && control.getAttribute("aria-label") || "").toLowerCase() === "use") {
+            wayBeyond20InvalidateSmiteSpellCache({ prepared: false, slots: true });
+        }
+    };
+
+    document.addEventListener("click", handleSpellControl, true);
+    document.addEventListener("change", handleSpellControl, true);
+}
+
+function wayBeyond20SmiteFormulaForSlot(baseFormula, slotLevel, baseLevel = 1) {
+    const formula = String(baseFormula || "").trim();
+    const level = Math.max(1, parseInt(slotLevel) || 1);
+    const minimumLevel = Math.max(1, parseInt(baseLevel) || 1);
+    const match = formula.match(/^(\d+)d(\d+)(.*)$/i);
+    const addedLevels = Math.max(0, level - minimumLevel);
+    if (!match || addedLevels === 0) return formula;
+    return `${formula} + ${addedLevels}d${match[2]}${match[3] || ""}`;
+}
+
+function wayBeyond20SmiteFuelIsLegal(smiteName, fuelType, slotLevel = 1, smiteLevel = 1) {
+    const normalizedName = String(smiteName || "")
+        .replace(/[’']/g, "")
+        .replace(/[^a-z0-9]+/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+    if (fuelType === "paladin-smite") return normalizedName === "divine smite";
+    if (fuelType === "spell-slot") {
+        return (parseInt(slotLevel) || 0) >= Math.max(1, parseInt(smiteLevel) || 1);
+    }
+    return false;
 }
 
 function wayBeyond20HasAvailableBonusAction() {
@@ -5277,7 +5420,9 @@ function wayBeyond20SpellSlotControls(level) {
 }
 
 function wayBeyond20AvailableSpellSlots() {
+    wayBeyond20EnsureSmiteCacheOwner();
     const levels = [];
+    let sawSpellSlotControls = false;
     const headers = Array.from(document.querySelectorAll(
         ".ct-content-group__header,.ddbc-content-group__header"
     ));
@@ -5287,6 +5432,7 @@ function wayBeyond20AvailableSpellSlots() {
         const allControls = Array.from(header.querySelectorAll("[role='checkbox']")).filter(control =>
             String(control.getAttribute("aria-label") || "").toLowerCase() === "use"
         );
+        if (allControls.length > 0) sawSpellSlotControls = true;
         const available = allControls.filter(control =>
             control.getAttribute("aria-checked") !== "true" && !control.hasAttribute("disabled")
         ).length;
@@ -5294,7 +5440,31 @@ function wayBeyond20AvailableSpellSlots() {
             levels.push({ level, available });
         }
     }
-    return levels.sort((a, b) => a.level - b.level);
+    if (sawSpellSlotControls) {
+        wayBeyond20SpellSlotCache = levels.sort((a, b) => a.level - b.level);
+    }
+    return (wayBeyond20SpellSlotCache || []).map(slot => Object.assign({}, slot));
+}
+
+function wayBeyond20SpellRowLevel(row, meta = "") {
+    if (!row) return 1;
+    const levelAttribute = Array.from(row.attributes || []).find(attribute =>
+        /^(?:data-)?(?:spell-)?level$/i.test(attribute.name)
+    );
+    const attributeLevel = levelAttribute ? parseInt(levelAttribute.value) : NaN;
+    if (Number.isFinite(attributeLevel) && attributeLevel > 0) return attributeLevel;
+
+    const group = row.closest && row.closest(
+        ".ct-content-group,.ddbc-content-group,[class*='contentGroup']"
+    );
+    const header = group && group.querySelector(
+        ".ct-content-group__header,.ddbc-content-group__header,[class*='header']"
+    );
+    const headerLevel = wayBeyond20SpellSlotHeaderLevel(header);
+    if (headerLevel) return headerLevel;
+
+    const match = String(meta || "").match(/\b(\d+)(?:st|nd|rd|th)\s+level\b/i);
+    return match ? parseInt(match[1]) : 1;
 }
 
 async function wayBeyond20SpendSpellSlot(level) {
@@ -5309,14 +5479,27 @@ async function wayBeyond20SpendSpellSlot(level) {
     }
     for (let attempt = 0; attempt < 8; attempt++) {
         await new Promise(resolve => setTimeout(resolve, 75));
-        if (wayBeyond20SpellSlotControls(level).length < before) return true;
+        if (wayBeyond20SpellSlotControls(level).length < before) {
+            wayBeyond20SpellSlotCache = null;
+            wayBeyond20AvailableSpellSlots();
+            return true;
+        }
     }
-    return wayBeyond20SpellSlotControls(level).length < before;
+    const spent = wayBeyond20SpellSlotControls(level).length < before;
+    if (spent) {
+        wayBeyond20SpellSlotCache = null;
+        wayBeyond20AvailableSpellSlots();
+    }
+    return spent;
 }
 
 function wayBeyond20FindPaladinSmiteRows() {
+    wayBeyond20EnsureSmiteCacheOwner();
     const rows = Array.from(document.querySelectorAll(".ct-spells-spell,.ddbc-spells-spell"));
-    return rows.map(row => {
+    if (rows.length === 0 && wayBeyond20PreparedSmiteCache !== null) {
+        return wayBeyond20PreparedSmiteCache.map(row => Object.assign({}, row));
+    }
+    const smites = rows.map(row => {
         const name = $(row).find(
             ".ct-spells-spell__label,.ddbc-spells-spell__label,[class*='spellName']"
         ).first().text().trim();
@@ -5342,15 +5525,24 @@ function wayBeyond20FindPaladinSmiteRows() {
             row,
             name,
             meta,
+            level: wayBeyond20SpellRowLevel(row, meta),
             action: actionButton ? String(actionButton.textContent || "").trim().toLowerCase() : "",
             disabled: !!(actionButton && actionButton.disabled),
             formula: damageElement ? String(damageElement.textContent || "").trim() : "",
             damageType: damageIcon ? String(damageIcon.getAttribute("aria-label") || "").replace(/\s*damage\s*$/i, "").trim() : "",
             saveAbility,
             saveDc,
-            text: String(row.textContent || "").replace(/\s+/g, " ").trim()
+            text: String(row.textContent || "").replace(/\s+/g, " ").trim(),
+            prepared: wayBeyond20SpellRowIsPrepared(row)
         };
-    }).filter(row => WAYBEYOND20_PALADIN_SMITE_NAMES.includes(row.name));
+    }).filter(row =>
+        row.prepared &&
+        wayBeyond20SmiteNameIsEligible(row.name)
+    );
+    if (rows.length > 0) {
+        wayBeyond20PreparedSmiteCache = smites.map(row => Object.assign({}, row));
+    }
+    return smites;
 }
 
 function wayBeyond20CharacterSheetTab(label) {
@@ -5363,9 +5555,9 @@ function wayBeyond20CharacterSheetTab(label) {
 function wayBeyond20PaladinSmiteFreeUseAvailable(rows) {
     if (character && character.getSetting("waybeyond20-paladin-smite-used", false)) return false;
     return (rows || []).some(row =>
-        row.name === "Divine Smite" &&
+        wayBeyond20NormalizeFeatureLabel(row.name) === "divine smite" &&
         /paladin.?s smite/i.test(row.meta.replace(/[’']/g, "'")) &&
-        /1\/lr/i.test(row.text) &&
+        /1\s*\/\s*(?:lr|long\s+rest)/i.test(row.text) &&
         row.action === "use" &&
         !row.disabled
     );
@@ -5395,9 +5587,6 @@ async function wayBeyond20BuildPaladinSmiteOptions() {
             returnTab = actionsTab;
         }
     }
-    const is2024Character = !character.getVersion || character.getVersion() === 2024 ||
-        rows.some(row => row.name === "Divine Smite" && /paladin.?s smite/i.test(row.meta.replace(/[’']/g, "'")));
-    if (!is2024Character) return null;
     const freeDivineAvailable = wayBeyond20PaladinSmiteFreeUseAvailable(rows);
     const fuels = [];
     if (freeDivineAvailable) {
@@ -5411,20 +5600,34 @@ async function wayBeyond20BuildPaladinSmiteOptions() {
     if (fuels.length === 0) return null;
 
     const smites = [];
-    for (const name of WAYBEYOND20_PALADIN_SMITE_NAMES) {
-        const matchingRows = rows.filter(row => row.name === name && !row.disabled);
+    const smiteNames = [];
+    rows.forEach(row => {
+        if (!row.disabled && !smiteNames.some(name =>
+            wayBeyond20NormalizeFeatureLabel(name) === wayBeyond20NormalizeFeatureLabel(row.name))) {
+            smiteNames.push(row.name);
+        }
+    });
+    for (const name of smiteNames) {
+        const matchingRows = rows.filter(row =>
+            wayBeyond20NormalizeFeatureLabel(row.name) === wayBeyond20NormalizeFeatureLabel(name) &&
+            !row.disabled && row.prepared
+        );
         const row = matchingRows.find(candidate => candidate.action === "cast") || matchingRows[0];
         if (!row) continue;
-        if (name === "Thunderous Smite" && !spellSlots.length) continue;
-        const fallbackFormula = name === "Divine Smite" ? "2d8" : "2d6";
-        smites.push({
+        const formula = row.formula || wayBeyond20FirstDamageFormula(row.text);
+        if (!formula) continue;
+        const smite = {
             name,
-            formula: row.formula || fallbackFormula,
-            damageType: row.damageType || (name === "Divine Smite" ? "Radiant" : "Thunder"),
+            level: row.level,
+            formula,
+            damageType: row.damageType || wayBeyond20DamageTypeFromText(row.text) || "Smite",
             saveAbility: row.saveAbility || "",
             saveDc: row.saveDc,
             description: row.text
-        });
+        };
+        if (!fuels.some(fuel => wayBeyond20SmiteFuelIsLegal(
+            smite.name, fuel.type, fuel.level, smite.level))) continue;
+        smites.push(smite);
     }
     if (smites.length === 0) return null;
     return { smites, fuels, returnTab };
@@ -5434,20 +5637,21 @@ async function wayBeyond20QueryPaladinSmite(options) {
     if (!options || !options.smites.length || !options.fuels.length ||
         typeof dndbeyondDiceRoller === "undefined" || !dndbeyondDiceRoller || !dndbeyondDiceRoller._prompter) return null;
     const defaultSmite = options.smites[0];
-    const defaultFuel = options.fuels.find(fuel => wayBeyond20SmiteFuelIsLegal(defaultSmite.name, fuel.type)) || options.fuels[0];
+    const defaultFuel = options.fuels.find(fuel => wayBeyond20SmiteFuelIsLegal(
+        defaultSmite.name, fuel.type, fuel.level, defaultSmite.level)) || options.fuels[0];
     let html = '<form class="waybeyond20-smite-query">';
     html += '<p class="waybeyond20-smite-query-message">Would you like to add a smite to this attack?</p>';
     html += '<div class="waybeyond20-smite-query-section"><strong>Smite</strong><div class="waybeyond20-smite-options">';
     options.smites.forEach((smite, index) => {
         const id = `waybeyond20-smite-type-${index}`;
-        html += `<label class="waybeyond20-smite-option"><input type="radio" id="${id}" name="smite-type" value="${smite.name}"${smite.name === defaultSmite.name ? " checked" : ""}><span>${smite.name}</span></label>`;
+        html += `<label class="waybeyond20-smite-option"><input type="radio" id="${id}" name="smite-type" value="${smite.name}" data-smite-level="${smite.level}"${smite.name === defaultSmite.name ? " checked" : ""}><span>${smite.name}</span></label>`;
     });
     html += '</div></div>';
     html += '<div class="waybeyond20-smite-query-section"><strong>Fuel</strong><div class="waybeyond20-smite-options">';
     options.fuels.forEach((fuel, index) => {
         const id = `waybeyond20-smite-fuel-${index}`;
         const checked = fuel.type === defaultFuel.type && fuel.level === defaultFuel.level;
-        html += `<label class="waybeyond20-smite-option"><input type="radio" id="${id}" name="smite-fuel" data-smite-fuel="${fuel.type}" value="${fuel.type}:${fuel.level}"${checked ? " checked" : ""}><span>${fuel.label}</span></label>`;
+        html += `<label class="waybeyond20-smite-option"><input type="radio" id="${id}" name="smite-fuel" data-smite-fuel="${fuel.type}" data-slot-level="${fuel.level}" value="${fuel.type}:${fuel.level}"${checked ? " checked" : ""}><span>${fuel.label}</span></label>`;
     });
     html += '</div></div></form>';
 
@@ -5457,9 +5661,11 @@ async function wayBeyond20QueryPaladinSmite(options) {
     const fuelValue = result.find("input[name='smite-fuel']:checked").val();
     if (!smiteName || !fuelValue) return null;
     const [fuelType, rawLevel] = String(fuelValue).split(":");
-    if (!wayBeyond20SmiteFuelIsLegal(smiteName, fuelType)) return null;
+    const selectedSmite = options.smites.find(smite => smite.name === smiteName) || options.smites[0];
+    if (!wayBeyond20SmiteFuelIsLegal(
+        selectedSmite.name, fuelType, rawLevel, selectedSmite.level)) return null;
     return {
-        smite: options.smites.find(smite => smite.name === smiteName) || options.smites[0],
+        smite: selectedSmite,
         fuel: options.fuels.find(fuel => fuel.type === fuelType && String(fuel.level) === String(rawLevel)) || options.fuels[0]
     };
 }
@@ -5475,7 +5681,8 @@ async function wayBeyond20MaybeAddPaladinSmite(rollProperties, isEligibleAttack)
         return null;
     }
 
-    const formula = wayBeyond20SmiteFormulaForSlot(selection.smite.formula, selection.fuel.level);
+    const formula = wayBeyond20SmiteFormulaForSlot(
+        selection.smite.formula, selection.fuel.level, selection.smite.level);
     const damageType = `${selection.smite.damageType} (${selection.smite.name})`;
     rollProperties.damages.push(formula);
     rollProperties["damage-types"].push(damageType);
@@ -8313,6 +8520,7 @@ var character = new Character(settings);
 var creature = null;
 updateSettings();
 installDDBRollHijack();
+wayBeyond20InstallSmiteSpellStateTracker();
 wayBeyond20InstallLongRestTracker();
 wayBeyond20InstallGameLogDebugRelay();
 chrome.runtime.onMessage.addListener(handleMessage);

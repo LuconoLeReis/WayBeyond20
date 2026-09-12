@@ -1,6 +1,6 @@
 # WayBeyond20 Current State
 
-Last reconciled: 2026-09-11 — v1.64 development build
+Last reconciled: 2026-09-12 — v1.64.1 corrected smite prerelease
 
 This file is the continuity authority for current source, verified build state, known limitations, and the remaining release gate. It must not be used as a substitute for inspecting the actual source or package.
 
@@ -24,14 +24,16 @@ Project location:
 
 | Item | Current value |
 | --- | --- |
-| WayBeyond20 candidate | v1.64 development build; not released |
-| Internal package/manifest version | 2.20.64 |
+| WayBeyond20 candidate | v1.64.1 corrected smite prerelease |
+| Internal package/manifest version | 2.20.65 |
 | Extension platform | Chrome Manifest V3 |
 | Upstream baseline | Beyond20 2.20.1 |
-| Authoritative source | `WayBeyond20-Master`, `main` at tag `v1.63` |
+| Authoritative source | `WayBeyond20-Master`, `main` at tag `v1.64.1` |
 | Loadable Chrome build | `WayBeyond20-Dev` |
 | First shared release ZIP | `WayBeyond20-chrome-v1_63.zip` — SHA-256 `377086881D6EB90D2EEF9E20D36E1606B4868A6AC1A58E77D3D023FA12E6C503` |
+| Corrected smite ZIP | `WayBeyond20-chrome-v1_64_1.zip` — SHA-256 `E66B429DA59BA7EB6F8F36A2F49BF04650B9B0EF0A3DEEA4EE666D7BBE9AE2A0` |
 | GitHub release | [v1.63 — First Shared Release](https://github.com/LuconoLeReis/WayBeyond20/releases/tag/v1.63) |
+| Corrected GitHub prerelease | [v1.64.1 — Prepared Smite Discovery](https://github.com/LuconoLeReis/WayBeyond20/releases/tag/v1.64.1) |
 
 ## Recovery provenance
 
@@ -42,13 +44,12 @@ Project location:
 
 ## Build and verification record
 
-- `package.json`, `package-lock.json`, `manifest.json`, and `manifest_ff.json` report 2.20.64; both manifests display WayBeyond20 1.64.
-- `npm test` passes the v1.63 regression checks and the v1.64 smite checks.
-- `npm run build` completed successfully for Firefox and Chrome on September 11, 2026.
+- `package.json`, `package-lock.json`, `manifest.json`, and `manifest_ff.json` report 2.20.65; both manifests display WayBeyond20 1.64.1.
+- `npm test` passes the v1.63 regression checks and the v1.64.1 generalized smite checks.
+- `npm run build` completed successfully for Firefox and Chrome on September 12, 2026.
 - Changed authored JavaScript passed `node --check`.
 - `build\chrome` was mirrored to `WayBeyond20-Dev`; the built and loadable `dist\dndbeyond_character.js` hashes match.
-- `build\chrome` was mirrored to `WayBeyond20-Dev`; the built and loadable `dist\dndbeyond_character.js` hashes match.
-- v1.64 live browser verification is pending a manual Reload of the unpacked WayBeyond20 entry in Chrome's Extensions page; tests run before that reload are not treated as v1.64 runtime evidence.
+- v1.64.1 live browser verification is pending group testing after reloading the unpacked WayBeyond20 entry in Chrome's Extensions page; tests run before that reload are not treated as v1.64.1 runtime evidence.
 
 ## v1.63 changes verified for release
 

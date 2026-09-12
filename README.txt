@@ -1,5 +1,5 @@
-WAYBEYOND20 v1.64
-=================
+WAYBEYOND20 v1.64.1
+===================
 
 WayBeyond20 is a customized version of Beyond20 for connecting D&D Beyond
 character sheets with Roll20 and supported virtual tabletops.

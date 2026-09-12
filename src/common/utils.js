@@ -275,8 +275,9 @@ function initializeAlertify() {
 
                     // WayBeyond20 smite queries use two radio groups. Keep the
                     // Proceed button disabled until both groups contain a legal
-                    // selection, and do not offer Paladin's Smite as fuel for a
-                    // smite spell other than Divine Smite.
+                    // selection. Fuel choices are also constrained by the
+                    // selected spell's minimum slot level; Paladin's Smite is
+                    // legal only for Divine Smite.
                     const smiteForm = this.elements.content.querySelector("form.waybeyond20-smite-query");
                     if (smiteForm) {
                         const proceed = this.__internal.buttons[0].element;
@@ -289,7 +290,10 @@ function initializeAlertify() {
                             const fuelInputs = Array.from(smiteForm.querySelectorAll("input[name='smite-fuel']"));
                             fuelInputs.forEach(input => {
                                 const isFreeDivine = input.getAttribute("data-smite-fuel") === "paladin-smite";
-                                const legal = !isFreeDivine || !smite || smite.value === "Divine Smite";
+                                const smiteLevel = Math.max(1, parseInt(smite && smite.getAttribute("data-smite-level")) || 1);
+                                const slotLevel = parseInt(input.getAttribute("data-slot-level")) || 0;
+                                const isDivineSmite = !!smite && String(smite.value || "").trim().toLowerCase() === "divine smite";
+                                const legal = !smite || (isFreeDivine ? isDivineSmite : slotLevel >= smiteLevel);
                                 input.disabled = !legal;
                                 const label = input.closest("label");
                                 if (label) label.classList.toggle("waybeyond20-smite-option-disabled", !legal);

@@ -1,6 +1,6 @@
 {
   "name": "waybeyond20",
-  "version": "2.20.64",
+  "version": "2.20.65",
   "description": "WayBeyond20: D&D Beyond & Roll20/Foundry VTT Integration",
   "directories": {
     "doc": "docs"

@@ -1,5 +1,22 @@
 # WayBeyond20 Changelog
 
+## v1.64.1 — Prepared smite discovery correction
+
+Prepared: September 12, 2026
+
+Extension version: 2.20.65
+
+Based on: Beyond20 2.20.1
+
+### Correction from v1.64
+
+- Replaces the fixed Divine Smite/Thunderous Smite list with discovery of the character's currently prepared or Always Prepared D&D Beyond spell rows whose names contain **Smite**.
+- Caches that small prepared-smite list and invalidates it when a spell is prepared or unprepared, when the character changes, or when relevant spell resources change.
+- Builds spell-slot fuel choices from the character's currently available slots and keeps Paladin's Smite legal only for Divine Smite.
+- Uses each discovered row's own damage, damage type, save, and description data where D&D Beyond exposes it.
+
+This is a corrected prerelease for group testing in D&D Beyond and Roll20. The v1.64 two-spell implementation should not be used as the generalized behavior.
+
 ## v1.63 — First Shared Release
 
 Prepared: September 11, 2026  

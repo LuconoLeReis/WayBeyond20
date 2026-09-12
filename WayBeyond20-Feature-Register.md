@@ -96,6 +96,7 @@ This is the master list of meaningful features and behavior changes in WayBeyond
 60. **Oath of the Noble Genies: Elemental Rebuke** — Prompts for its five eligible elemental damage types, includes the Charisma modifier in its 2d10 damage, sends the Dexterity save and half-damage rule, spends Reaction, and marks the native use.
 61. **Oath of the Noble Genies: Noble Scion** — Sends the activation as a Bonus Action, marks the native use, and tracks the ten-minute self effect for its flight and Minor Wish reminder.
 62. **Utility and defensive spell casting** — Gives spells without attacks, damage, healing, or saves a real **Cast on VTT** action in addition to **Display**, allowing activation costs and persistent effects such as Shield of Faith to be tracked.
+63. **Prepared smite discovery and selection** — Caches the character's current prepared or Always Prepared D&D Beyond smite spell rows, invalidates that cache when preparation changes, presents every discovered eligible smite, and keeps Paladin's Smite fuel restricted to Divine Smite.
 
 ## Internal register fields
 
