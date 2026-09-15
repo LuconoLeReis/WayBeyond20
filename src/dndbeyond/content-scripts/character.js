@@ -5,6 +5,25 @@ async function sendRollWithCharacter(rollType, fallback, args) {
     if (limitedUseRequest) delete args["waybeyond20-limited-use"];
     const smiteRequest = args && args["waybeyond20-smite"];
     if (smiteRequest) delete args["waybeyond20-smite"];
+    const nobleGenieRider = args && args["waybeyond20-noble-genie-rider"];
+    if (nobleGenieRider) delete args["waybeyond20-noble-genie-rider"];
+    const intrusionRequest = args && args["waybeyond20-occultist-intrusion"];
+    if (intrusionRequest) delete args["waybeyond20-occultist-intrusion"];
+    const afterDispatchCommits = args && Array.isArray(args["waybeyond20-after-dispatch"]) ? args["waybeyond20-after-dispatch"] : [];
+    if (args && args["waybeyond20-after-dispatch"]) delete args["waybeyond20-after-dispatch"];
+    try {
+        return await wayBeyond20DispatchRollWithCharacter(rollType, fallback, args, {
+            limitedUseRequest, smiteRequest, nobleGenieRider, intrusionRequest, afterDispatchCommits
+        });
+    } finally {
+        // The Smite helper may have changed sheet tabs; every exit returns the player to the tab
+        // they started on (brief 1.11, F-L12), including a cancelled preflight or failed dispatch.
+        if (smiteRequest && smiteRequest.returnTab) wayBeyond20RestoreCharacterSheetTab(smiteRequest.returnTab);
+    }
+}
+
+async function wayBeyond20DispatchRollWithCharacter(rollType, fallback, args, intents) {
+    const { limitedUseRequest, smiteRequest, nobleGenieRider, intrusionRequest, afterDispatchCommits } = intents;
     const limitedUsePreflight = limitedUseRequest
         ? await wayBeyond20PreflightLimitedUse(limitedUseRequest.feature, {
             name: limitedUseRequest.name || args.name || fallback
@@ -41,6 +60,7 @@ async function sendRollWithCharacter(rollType, fallback, args) {
         }
     }
     if (args && ["attack", "spell-attack"].includes(rollType)) {
+        wayBeyond20NormalizeAttackSemantics(args, args.name || fallback);
         wayBeyond20ApplyDrainingAttackIntent(args, args.name || fallback);
     }
     wayBeyond20CharacterDebug("Roll request prepared", {
@@ -65,6 +85,13 @@ async function sendRollWithCharacter(rollType, fallback, args) {
             name: request.name || args.name || fallback,
             rollType: request.rollType || rollType
         }));
+        afterDispatchCommits.forEach(commit => {
+            try {
+                commit();
+            } catch (error) {
+                console.warn("WayBeyond20: a post-dispatch update failed", error);
+            }
+        });
     }
     if (result === true && limitedUseRequest && limitedUsePreflight.tracked) {
         const spent = await wayBeyond20SpendLimitedUse(limitedUseRequest.feature);
@@ -78,23 +105,72 @@ async function sendRollWithCharacter(rollType, fallback, args) {
             }
         }
     }
+    if (result === true && limitedUseRequest && !limitedUsePreflight.tracked && limitedUsePreflight.remaining === null) {
+        // No control owned by the named pool was showing, so nothing was spent. Ask for manual
+        // reconciliation instead of guessing at a neighboring counter.
+        if (typeof alertify !== "undefined" && alertify.warning) {
+            alertify.warning(`WayBeyond20 sent ${limitedUseRequest.name || args.name || fallback}, but could not find the ${limitedUseRequest.feature} uses on the current sheet. Please mark the use manually.`);
+        }
+    }
     if (result === true && smiteRequest) {
         if (smiteRequest.fuel === "spell-slot") {
-            const spent = await wayBeyond20SpendSpellSlot(smiteRequest.slotLevel);
+            const spent = await wayBeyond20SpendSpellSlot(smiteRequest.slotLevel, {
+                expectedAvailable: smiteRequest.slotAvailable
+            });
             if (!spent && typeof alertify !== "undefined" && alertify.warning) {
                 alertify.warning(`WayBeyond20 sent ${smiteRequest.name || "the smite"}, but D&D Beyond did not reduce the spell slot. Please adjust the slot manually.`);
             }
         } else if (smiteRequest.fuel === "paladin-smite" && character) {
+            const spent = await wayBeyond20SpendPaladinSmiteFreeUse();
             character.mergeCharacterSettings({"waybeyond20-paladin-smite-used": true});
+            if (!spent && typeof alertify !== "undefined" && alertify.warning) {
+                alertify.warning("WayBeyond20 sent Divine Smite, but D&D Beyond did not mark Paladin's Smite as used. Please mark it manually.");
+            }
         }
-    }
-    if (smiteRequest && smiteRequest.returnTab && typeof smiteRequest.returnTab.click === "function") {
-        setTimeout(() => smiteRequest.returnTab.click(), 0);
     }
     if (stealthEffect && result === true) {
         wayBeyond20RemoveTrackedEffect(wayBeyond20EffectKey(stealthEffect));
     }
+    if (result === true && nobleGenieRider && nobleGenieRider.choice === "djinni") {
+        wayBeyond20TrackSelfFeatureEffect(
+            "Djinni’s Escape",
+            "Until the end of your next turn",
+            [],
+            ["resistance", "condition-immunity", "teleport"]
+        );
+    }
+    if (result === true && intrusionRequest && character) {
+        wayBeyond20SetIntrusionDie(intrusionRequest.nextDie, "intrusion-roll");
+    }
     return result;
+}
+
+// Settings a roll would change (one-shot feature toggles, remembered choices, spell effects and
+// Concentration) are committed only after sendRollWithCharacter dispatched the roll (brief 1.11, F-L4).
+function wayBeyond20CommitAfterDispatch(rollProperties, commit) {
+    if (!rollProperties || typeof commit !== "function") return;
+    const existing = Array.isArray(rollProperties["waybeyond20-after-dispatch"]) ? rollProperties["waybeyond20-after-dispatch"] : [];
+    rollProperties["waybeyond20-after-dispatch"] = existing.concat(commit);
+}
+
+function wayBeyond20CommitRollSettings(settings_to_change, callback = null) {
+    if (!character || !settings_to_change || Object.keys(settings_to_change).length === 0) {
+        if (callback) callback();
+        return;
+    }
+    character.mergeCharacterSettings(settings_to_change, () => {
+        if (callback) callback();
+    });
+}
+
+function wayBeyond20CommitSpellRollSettings(settings_to_change, plan) {
+    const update = plan ? plan.commit(settings_to_change) : null;
+    const sendEffects = () => {
+        if (plan && (plan.local.length > 0 || plan.remote.length > 0)) {
+            wayBeyond20SendEffectsUpdate(character, update.activeEffects, update.concentration);
+        }
+    };
+    wayBeyond20CommitRollSettings(settings_to_change, sendEffects);
 }
 
 function addEffect(rollProperties, effect) {
@@ -608,25 +684,42 @@ function wayBeyond20GetBardicInspirationDie() {
     return "1d12";
 }
 
+// Whether this attack is an Unarmed Strike, whatever produced it (item row, action row,
+// Agile Strikes profile, or a later trigger). Profile, ability, and damage mode do not matter.
 function wayBeyond20RollIsUnarmedStrike(rollProperties, actionName = "") {
     if (!rollProperties) return false;
+    if (rollProperties["waybeyond20-unarmed-strike"] === true) return true;
     if (rollProperties["waybeyond20-natural-attack"] === true) return true;
-    if (["naturalStr", "naturalDex"].includes(rollProperties["waybeyond20-unarmed-damage-mode"])) return true;
+    if (rollProperties["waybeyond20-unarmed-damage-mode"]) return true;
+    // A spell is never an Unarmed Strike, even when its text mentions natural weapons (Alter Self).
+    if (rollProperties["attack-source"] === "spell") return false;
 
-    const name = String(actionName || rollProperties.name || "").replace(/\s+/g, " ").trim().toLowerCase();
-    if (/\b(?:natural attack|fangs?\/claws?|fangs?|claws?|bite)\b/.test(name)) return true;
+    const normalize = value => String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (normalize(rollProperties["attack-type"]) === "unarmed strike") return true;
+    const properties = Array.isArray(rollProperties.properties) ? rollProperties.properties : [];
+    if (properties.some(property => normalize(property) === "unarmed strike")) return true;
 
-    // Natural-attack rows sometimes use a feature title instead of a stable attack name. Their
-    // live description still identifies natural weaponry. Do not treat generic Unarmed Strike,
-    // Bardic Damage, or Agile Strikes as Draining Attack merely because they say "Unarmed Strike."
-    const description = String(rollProperties.description || "").replace(/\s+/g, " ").trim().toLowerCase();
-    return /\bnatural weapon(?:ry|s)?\b/.test(description);
+    const names = [actionName, rollProperties.name].map(normalize).filter(Boolean);
+    if (names.some(name => /\bunarmed strikes?\b|\bflurry of blows\b/.test(name))) return true;
+
+    // Natural-weapon rows granted by a trait are actions, not inventory weapons. Keep weapon
+    // items named like "Claw" from qualifying through these name and description fallbacks.
+    if (rollProperties["attack-source"] === "item") return false;
+    if (names.some(name => /\b(?:natural attack|fangs?\/claws?|fangs?|claws?|bite)\b/.test(name))) return true;
+    return /\bnatural weapon(?:ry|s)?\b/.test(normalize(rollProperties.description));
+}
+
+// Record Unarmed Strike semantics on the request once, at the shared dispatch boundary.
+function wayBeyond20NormalizeAttackSemantics(roll_properties, actionName) {
+    if (!roll_properties) return;
+    if (wayBeyond20RollIsUnarmedStrike(roll_properties, actionName))
+        roll_properties["waybeyond20-unarmed-strike"] = true;
 }
 
 function wayBeyond20ApplyDrainingAttackIntent(roll_properties, actionName) {
     const hasDrainingAttack = !!(character && character.hasRacialTrait("Draining Attack", true));
     const hasNaturalAttack = !!(character && character.hasRacialTrait("Natural Attack", true));
-    const qualifies = wayBeyond20RollIsUnarmedStrike(roll_properties, actionName);
+    const qualifies = !!(roll_properties && roll_properties["waybeyond20-unarmed-strike"] === true);
     wayBeyond20CharacterDebug("Draining Attack intent evaluated", {
         actionName,
         hasRollProperties: !!roll_properties,
@@ -635,7 +728,6 @@ function wayBeyond20ApplyDrainingAttackIntent(roll_properties, actionName) {
         qualifies
     });
     if (!roll_properties || !character || !hasDrainingAttack || !hasNaturalAttack || !qualifies) return;
-    roll_properties["waybeyond20-unarmed-strike"] = true;
     roll_properties["waybeyond20-temp-hp-on-hit"] = {
         mode: "damage-dealt",
         source: "Draining Attack",
@@ -787,31 +879,78 @@ function wayBeyond20LimitedUseControlIsUnused(control) {
     return !/(checked|selected|active|used)/.test(className);
 }
 
-function wayBeyond20LimitedUseControlMatchesFeature(control, featureName) {
-    const element = control && control.jquery ? control[0] : control;
-    const needle = String(featureName || "").replace(/\s+/g, " ").trim().toLowerCase();
-    if (!element || !needle) return false;
+// Named limited-use ownership (brief 1.10). A `use` control belongs only to the feature named by the
+// primary label of its own nearest row: a feature snippet or snippet option, an attack row, or an
+// action pane. With no recognizable row, the nearest ancestor that adds a label owns it, provided that
+// ancestor adds no other controls and carries exactly one distinct label; anything else is unowned.
+// A broad container holding a label and another feature's counter never qualifies.
+// page-scripts/message-broker.js b20LimitedUseControlOwnerLabel applies the same rule.
+function wayBeyond20LimitedUseSelectors() {
+    const label = ".ct-feature-snippet__heading,.ddbc-feature-snippet__heading,[class*='styles_heading']," +
+        ".ct-combat-attack__label,.ddbc-combat-attack__label,.ct-sidebar__heading,h1,h2,h3,h4,h5,h6";
+    return {
+        control: "[role='checkbox'][aria-label='use' i],input[type='checkbox'][aria-label='use' i]",
+        row: ".ct-feature-snippet__option,.ddbc-feature-snippet__option,.ct-feature-snippet,.ddbc-feature-snippet," +
+            "[class*='ct-feature-snippet--'],[class*='ddbc-feature-snippet--']," +
+            ".ct-combat-attack,.ddbc-combat-attack,.b20-action-pane,.b20-custom-action-pane,.ct-custom-action-pane",
+        label,
+        fallbackLabel: "[class*='heading'],[class*='title'],[class*='name'],[class*='label']"
+    };
+}
 
-    let node = element;
-    for (let depth = 0; node && depth < 12; depth++, node = node.parentElement) {
-        const text = String(node.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
-        if (!text.includes(needle)) continue;
-        const localControls = node.querySelectorAll ? node.querySelectorAll("[role='checkbox'][aria-label='use' i], input[type='checkbox'][aria-label='use' i]").length : 0;
-        const labels = node.querySelectorAll ? Array.from(node.querySelectorAll(
-            "h1,h2,h3,h4,h5,h6,strong,[class*='heading'],[class*='title'],[class*='name'],[class*='label']"
-        )) : [];
-        const hasExactFeatureLabel = labels.some(label =>
-            wayBeyond20ElementOwnText(label).replace(/\s+/g, " ").trim().toLowerCase() === needle
-        );
-        if (hasExactFeatureLabel && localControls > 0 && localControls <= 12) return true;
+// Distinct normalized label texts under an element that could name `control`, headings first: a
+// heading level decides alone; generic name/label/title elements count only where no heading exists.
+// A label inside another recognized row (an attack row beside the counter) names that row, not this.
+function wayBeyond20LimitedUseLabelsWithin(node, selectors, control) {
+    const ownedElsewhere = candidate => {
+        const row = candidate.closest(selectors.row);
+        if (!row) return false;
+        for (let current = control; current; current = current.parentElement) if (current === row) return false;
+        return true;
+    };
+    const distinct = selector => Array.from(new Set(Array.from(node.querySelectorAll(selector))
+        .filter(candidate => !ownedElsewhere(candidate))
+        .map(wayBeyond20LimitedUseLabelText)
+        .filter(text => /[a-z]/.test(text))));
+    const headings = distinct(selectors.label);
+    return headings.length ? headings : distinct(selectors.fallbackLabel);
+}
+
+function wayBeyond20LimitedUseLabelText(element) {
+    if (!element) return "";
+    return wayBeyond20NormalizeFeatureLabel(wayBeyond20ElementOwnText(element) || element.textContent);
+}
+
+function wayBeyond20LimitedUseControlOwnerLabel(control) {
+    const element = control && control.jquery ? control[0] : control;
+    if (!element || !element.closest) return "";
+    const selectors = wayBeyond20LimitedUseSelectors();
+    const row = element.closest(selectors.row);
+    if (row) {
+        const primary = Array.from(row.querySelectorAll(selectors.label)).find(candidate =>
+            candidate.closest(selectors.row) === row && wayBeyond20LimitedUseLabelText(candidate));
+        if (primary) return wayBeyond20LimitedUseLabelText(primary);
     }
-    return false;
+    const controlsWithin = node => (node.matches && node.matches(selectors.control) ? 1 : 0) +
+        node.querySelectorAll(selectors.control).length;
+    let node = row ? row.parentElement : element.parentElement;
+    const groupControls = row ? controlsWithin(row) : (node ? controlsWithin(node) : 1);
+    for (let depth = 0; node && depth < 12; depth++, node = node.parentElement) {
+        const labels = wayBeyond20LimitedUseLabelsWithin(node, selectors, element);
+        if (labels.length === 0) continue;
+        return controlsWithin(node) === groupControls && labels.length === 1 ? labels[0] : "";
+    }
+    return "";
+}
+
+function wayBeyond20LimitedUseControlMatchesFeature(control, featureName) {
+    const needle = wayBeyond20NormalizeFeatureLabel(featureName);
+    return !!needle && wayBeyond20LimitedUseControlOwnerLabel(control) === needle;
 }
 
 function wayBeyond20FindLimitedUseControls(featureName = "") {
-    const raw = Array.from(document.querySelectorAll(
-        "[role='checkbox'][aria-label='use' i], input[type='checkbox'][aria-label='use' i]"
-    ));
+    if (!wayBeyond20NormalizeFeatureLabel(featureName)) return { pane: $(), controls: [] };
+    const raw = Array.from(document.querySelectorAll(wayBeyond20LimitedUseSelectors().control));
     const unique = [];
     const seen = new Set();
     raw.forEach(element => {
@@ -821,14 +960,8 @@ function wayBeyond20FindLimitedUseControls(featureName = "") {
         unique.push(canonical);
     });
 
-    const featureControls = unique.filter(element => wayBeyond20LimitedUseControlMatchesFeature(element, featureName));
-    const labeledUseControls = unique.filter(element => {
-        const ariaLabel = String(element.getAttribute ? element.getAttribute("aria-label") || "" : "").toLowerCase();
-        const input = wayBeyond20LimitedUseInputForControl(element);
-        const inputLabel = String(input && input.getAttribute ? input.getAttribute("aria-label") || "" : "").toLowerCase();
-        return ariaLabel === "use" || inputLabel === "use";
-    });
-    const controls = featureControls.length ? featureControls : (featureName ? [] : labeledUseControls);
+    // Never fall back to another labeled `use` control: no owned control means no match.
+    const controls = unique.filter(element => wayBeyond20LimitedUseControlMatchesFeature(element, featureName));
     const pane = controls.length
         ? $(controls[0]).closest(".b20-action-pane, .ct-custom-action-pane, .b20-custom-action-pane, .ct-actions, .ddbc-actions, [class*='styles_actions']").first()
         : $();
@@ -898,6 +1031,12 @@ async function wayBeyond20SpendLimitedUse(featureName) {
         ].filter((element, index, values) => element && values.indexOf(element) === index);
 
         for (const target of clickTargets) {
+            // Re-read before each click so a change that lands late is never doubled.
+            const fresh = await wayBeyond20WaitForLimitedUseSpend(featureName, effectiveBeforeUnused, 0);
+            if (fresh.spent) {
+                verification = fresh;
+                break;
+            }
             try {
                 target.scrollIntoView({ block: "nearest", inline: "nearest" });
             } catch (_) {}
@@ -914,6 +1053,10 @@ async function wayBeyond20SpendLimitedUse(featureName) {
             if (verification.spent) break;
         }
 
+        if (!verification.spent) {
+            const fresh = await wayBeyond20WaitForLimitedUseSpend(featureName, effectiveBeforeUnused, 0);
+            if (fresh.spent) verification = fresh;
+        }
         if (!verification.spent && input && typeof HTMLInputElement !== "undefined") {
             try {
                 const checkedSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked")?.set;
@@ -980,8 +1123,14 @@ function wayBeyond20LimitedUseFeatureForAction(actionName) {
     ].includes(normalized)) return "Channel Divinity";
     if (normalized === "elemental rebuke") return "Elemental Rebuke";
     if (normalized === "activate noble scion" || normalized === "noble scion") return "Activate Noble Scion";
-    if (normalized.includes("breath weapon")) return "Breath Weapon";
+    // D&D Beyond titles the counter row after the ancestry ("Breath Weapon (Fire)") on current sheets.
+    // Use the action's own name when its row owns the counter; otherwise the shared pool name.
+    if (normalized.includes("breath weapon")) {
+        return wayBeyond20FindLimitedUseControls(actionName).controls.length > 0 ? actionName : "Breath Weapon";
+    }
 
+    // Generic Talent support: an action whose own row owns a counter spends it. Ownership is exact,
+    // so an attack with no counter (a Natural Attack, Unarmed Strike) never borrows a neighbor's.
     return wayBeyond20FindLimitedUseControls(actionName).controls.length > 0 ? actionName : null;
 }
 
@@ -2473,10 +2622,31 @@ function wayBeyond20SendEffectToTarget(target, effect) {
     }
 }
 
-async function wayBeyond20ApplySpellEffectWithTargets(character, settings_to_change, effect, talent) {
-    if (!effect || !effect.name) return { activeEffects: wayBeyond20GetTrackedSpellEffects(), concentration: wayBeyond20GetConcentrationEffect() };
+// Target choice happens before the roll; the effect itself is committed only after the roll was
+// actually dispatched (brief 1.11, F-L4). commit() re-reads the current effects at commit time so a
+// change made meanwhile (for example a consumed Stealth effect) is not overwritten.
+function wayBeyond20CreateSpellEffectPlan(character) {
+    const plan = {
+        local: [],
+        remote: [],
+        commit(settings_to_change) {
+            let update = { activeEffects: wayBeyond20GetTrackedSpellEffects(), concentration: wayBeyond20GetConcentrationEffect() };
+            for (const localEffect of plan.local) {
+                update = wayBeyond20AddSpellEffectToSettings(character, settings_to_change, localEffect);
+            }
+            for (const [target, remoteEffect] of plan.remote) {
+                wayBeyond20SendEffectToTarget(target, remoteEffect);
+            }
+            return update;
+        }
+    };
+    return plan;
+}
 
-    let localUpdate = { activeEffects: wayBeyond20GetTrackedSpellEffects(), concentration: wayBeyond20GetConcentrationEffect() };
+async function wayBeyond20ApplySpellEffectWithTargets(character, effect, talent) {
+    const plan = wayBeyond20CreateSpellEffectPlan(character);
+    if (!effect || !effect.name) return plan;
+
     const targetsAnotherCreature = wayBeyond20TalentTargetsAnotherCreature(talent);
     const hasExecutableTargetData = wayBeyond20EffectHasExecutableTargetData(effect);
 
@@ -2493,14 +2663,14 @@ async function wayBeyond20ApplySpellEffectWithTargets(character, settings_to_cha
                 data: [],
                 flags: wayBeyond20NormalizeEffectFlags([...(effect.flags || []), "concentration"])
             });
-            localUpdate = wayBeyond20AddSpellEffectToSettings(character, settings_to_change, casterConcentration);
+            plan.local.push(casterConcentration);
         }
         wayBeyond20CharacterDebug("Target selection skipped: no executable target effect", {
             name: effect.name,
             targeting: talent && talent.targeting ? talent.targeting : null,
             concentration: !!effect.concentration
         });
-        return localUpdate;
+        return plan;
     }
 
     let targets = [wayBeyond20EffectTargetForCurrentCharacter(character)];
@@ -2515,7 +2685,7 @@ async function wayBeyond20ApplySpellEffectWithTargets(character, settings_to_cha
     for (const target of targets) {
         const targetedEffect = wayBeyond20ApplySelectedTargetToEffect(character, effect, target);
         if (target.relation === "self" || wayBeyond20CharacterMatchesMessageCharacter(target.character || target.name)) {
-            localUpdate = wayBeyond20AddSpellEffectToSettings(character, settings_to_change, targetedEffect);
+            plan.local.push(targetedEffect);
             appliedLocal = true;
             continue;
         }
@@ -2526,7 +2696,7 @@ async function wayBeyond20ApplySpellEffectWithTargets(character, settings_to_cha
             concentration: false,
             flags: wayBeyond20NormalizeEffectFlags((targetedEffect.flags || []).filter(flag => flag !== "concentration").concat(targetedEffect.concentration ? ["concentration-dependent"] : []))
         });
-        wayBeyond20SendEffectToTarget(target, remoteEffect);
+        plan.remote.push([target, remoteEffect]);
     }
 
     // A concentration spell cast on another target still belongs to the caster's concentration.
@@ -2539,15 +2709,18 @@ async function wayBeyond20ApplySpellEffectWithTargets(character, settings_to_cha
             data: [],
             flags: wayBeyond20NormalizeEffectFlags([...(effect.flags || []), "concentration"])
         });
-        localUpdate = wayBeyond20AddSpellEffectToSettings(character, settings_to_change, casterConcentration);
+        plan.local.push(casterConcentration);
     }
 
-    return localUpdate;
+    return plan;
 }
 
 function wayBeyond20AddSpellEffectToSettings(character, settings_to_change, effect) {
     if (!character || !settings_to_change || !effect || !effect.name) return { activeEffects: [], concentration: null };
-    const existing = character.getSetting("waybeyond20-active-effects", []);
+    // An earlier effect in the same batch is already in settings_to_change but not yet saved.
+    const existing = Array.isArray(settings_to_change["waybeyond20-active-effects"])
+        ? settings_to_change["waybeyond20-active-effects"]
+        : character.getSetting("waybeyond20-active-effects", []);
     let activeEffects = Array.isArray(existing) ? existing.slice() : [];
 
     // Do not block duplicate effects by default. Multiple instances may matter because owner,
@@ -2562,9 +2735,12 @@ function wayBeyond20AddSpellEffectToSettings(character, settings_to_change, effe
     if (effect.concentration) {
         settings_to_change["waybeyond20-concentration"] = effect;
     }
+    const existingConcentration = settings_to_change["waybeyond20-concentration"] !== undefined
+        ? settings_to_change["waybeyond20-concentration"]
+        : character.getSetting("waybeyond20-concentration", null);
     return {
         activeEffects,
-        concentration: effect.concentration ? effect : (character.getSetting("waybeyond20-concentration", null) || null)
+        concentration: effect.concentration ? effect : (existingConcentration || null)
     };
 }
 
@@ -3066,8 +3242,12 @@ function wayBeyond20SetTurnTrackerState(state, callback = null) {
     });
 }
 
-function wayBeyond20IsMainCharacterSheet() {
-    return /\/characters\/\d+(?:$|[/?#])/.test(window.location.pathname + window.location.search + window.location.hash);
+// The character sheet itself: /characters/<id> or a shared sheet link /characters/<id>/<shareId>.
+// The character builder (/characters/<id>/builder/...) is not a sheet; sheet-only UI such as the
+// Combat window must not draw there (Bill, live 2026-09-15).
+function wayBeyond20IsMainCharacterSheet(pathname = window.location.pathname) {
+    const path = String(pathname || "");
+    return /^\/characters\/\d+(?:\/[^/]+)?\/?$/.test(path) && !/^\/characters\/\d+\/builder(?:\/|$)/.test(path);
 }
 
 function wayBeyond20HasHasteAction(effects = null) {
@@ -3495,6 +3675,71 @@ function wayBeyond20InjectHitDiceTracker() {
 
 let wayBeyond20LongRestResetPending = false;
 
+const WAYBEYOND20_INTRUSION_DICE = [2, 3, 4, 6, 8, 10, 12];
+
+function wayBeyond20OccultistStartingDie() {
+    const level = character ? parseInt(character.getClassLevel("Wizard")) || 0 : 0;
+    if (level >= 17) return 12;
+    if (level >= 11) return 10;
+    if (level >= 5) return 8;
+    return 6;
+}
+
+function wayBeyond20HasOccultistIntrusion() {
+    return !!(character && character.hasClassFeature("Intrusion", true));
+}
+
+function wayBeyond20GetIntrusionDie() {
+    const maximum = wayBeyond20OccultistStartingDie();
+    const stored = character ? parseInt(character.getSetting("waybeyond20-occultist-intrusion-die", maximum)) : maximum;
+    return WAYBEYOND20_INTRUSION_DICE.includes(stored) && stored <= maximum ? stored : maximum;
+}
+
+function wayBeyond20StepIntrusionDie(value, direction) {
+    const maximum = wayBeyond20OccultistStartingDie();
+    const current = WAYBEYOND20_INTRUSION_DICE.includes(parseInt(value)) ? parseInt(value) : maximum;
+    const maximumIndex = WAYBEYOND20_INTRUSION_DICE.indexOf(maximum);
+    const currentIndex = Math.min(maximumIndex, Math.max(0, WAYBEYOND20_INTRUSION_DICE.indexOf(current)));
+    return WAYBEYOND20_INTRUSION_DICE[Math.min(maximumIndex, Math.max(0, currentIndex + direction))];
+}
+
+function wayBeyond20SetIntrusionDie(value, reason = "manual") {
+    if (!character || !wayBeyond20HasOccultistIntrusion()) return;
+    const maximum = wayBeyond20OccultistStartingDie();
+    const numeric = parseInt(value);
+    const next = WAYBEYOND20_INTRUSION_DICE.includes(numeric) && numeric <= maximum ? numeric : maximum;
+    character.mergeCharacterSettings({ "waybeyond20-occultist-intrusion-die": next }, wayBeyond20ScheduleActiveEffectBadgeRefresh);
+    wayBeyond20CharacterDebug("Occultist Intrusion die updated", { previous: wayBeyond20GetIntrusionDie(), next, reason });
+}
+
+function wayBeyond20RestWizardResources(restType) {
+    if (!character) return;
+    const hasArcaneRecovery = character.hasClassFeature("Arcane Recovery", true);
+    const hasIntrusion = wayBeyond20HasOccultistIntrusion();
+    if (restType === "long") {
+        const updates = {};
+        if (hasArcaneRecovery) updates["waybeyond20-arcane-recovery-used"] = false;
+        if (hasIntrusion) updates["waybeyond20-occultist-intrusion-die"] = wayBeyond20OccultistStartingDie();
+        if (Object.keys(updates).length) {
+            character.mergeCharacterSettings(updates, wayBeyond20ScheduleActiveEffectBadgeRefresh);
+        }
+    } else if (restType === "short" && hasIntrusion) {
+        wayBeyond20SetIntrusionDie(wayBeyond20StepIntrusionDie(wayBeyond20GetIntrusionDie(), 1), "short-rest");
+    }
+}
+
+function wayBeyond20CharacterHelperEnabled(key) {
+    // Helper switches are stored per character and default on when absent.
+    return !!character && character.getSetting(key, true) !== false;
+}
+
+function wayBeyond20ShowMusicianRestReminder(restType) {
+    if (!wayBeyond20CharacterHelperEnabled("musician-rest-reminder") || !character.hasFeat("Musician", true)) return;
+    if (typeof alertify !== "undefined" && alertify.message) {
+        alertify.message(`Musician: ${restType === "long" ? "Long" : "Short"} Rest completed. You may grant Heroic Inspiration to eligible allies.`);
+    }
+}
+
 function wayBeyond20InstallLongRestTracker() {
     // This listener is a WayBeyond20 addition. If Chrome reinjects the content
     // script into an existing D&D Beyond tab, replace our previous listener
@@ -3509,22 +3754,26 @@ function wayBeyond20InstallLongRestTracker() {
         if (!control || wayBeyond20LongRestResetPending) return;
         const label = String(control.textContent || control.getAttribute("aria-label") || "")
             .replace(/\s+/g, " ").trim().toLowerCase();
-        if (!label.includes("long rest") || /(cancel|close|back|dismiss)/.test(label)) return;
+        const restType = label.includes("long rest") ? "long" : (label.includes("short rest") ? "short" : "");
+        if (!restType || /(cancel|close|back|dismiss)/.test(label)) return;
 
         const pane = $(control).closest("[role='dialog'],.ct-sidebar,.ddbc-sidebar,[class*='styles_modal'],[class*='styles_sidebar']");
         if (!pane.length) return;
         const paneText = String(pane.text() || "").replace(/\s+/g, " ").trim().toLowerCase();
-        if (!paneText.includes("long rest")) return;
+        if (!paneText.includes(`${restType} rest`)) return;
 
         wayBeyond20LongRestResetPending = true;
-        wayBeyond20CharacterDebug("Long Rest completion detected", {
+        wayBeyond20CharacterDebug(`${restType === "long" ? "Long" : "Short"} Rest completion detected`, {
             control: wayBeyond20DescribeElement(control)
         });
         setTimeout(() => {
             if (character) character.updateInfo();
-            if (character) character.mergeCharacterSettings({"waybeyond20-paladin-smite-used": false});
+            wayBeyond20EndCombat(true);
+            if (restType === "long" && character) character.mergeCharacterSettings({"waybeyond20-paladin-smite-used": false});
             wayBeyond20InvalidateSmiteSpellCache({ prepared: false, slots: true });
-            wayBeyond20ResetHitDice("long-rest");
+            if (restType === "long") wayBeyond20ResetHitDice("long-rest");
+            wayBeyond20RestWizardResources(restType);
+            wayBeyond20ShowMusicianRestReminder(restType);
             wayBeyond20LongRestResetPending = false;
         }, 750);
     };
@@ -3579,10 +3828,10 @@ function wayBeyond20StartNewTurn() {
     wayBeyond20SetTurnTrackerState(state, wayBeyond20ScheduleActiveEffectBadgeRefresh);
 }
 
-function wayBeyond20EndCombat() {
+function wayBeyond20EndCombat(restoreResources = false) {
     if (!character) return;
     const activeEffects = wayBeyond20GetTrackedSpellEffects();
-    const state = wayBeyond20NormalizeTurnTrackerState(wayBeyond20GetTurnTrackerState(), activeEffects);
+    const state = wayBeyond20NormalizeTurnTrackerState(wayBeyond20GetTurnTrackerState(), activeEffects, { reset: restoreResources });
     if (state.combatSource === "Roll20") {
         state.suppressedRoll20TurnKey =
             (state.currentRoll20Turn && state.currentRoll20Turn.turnKey) ||
@@ -4034,6 +4283,264 @@ function wayBeyond20InjectBuffsBadge(effects) {
     wayBeyond20UpsertEffectBadge(defenseHeader, "waybeyond20-buffs-badge", label, "Active Buffs", () => wayBeyond20GetTrackedSpellEffects());
 }
 
+function wayBeyond20SpellTabAnchor() {
+    return $("button,span,div").filter(function() {
+        if (!wayBeyond20IsVisibleElement(this)) return false;
+        return wayBeyond20ElementOwnText(this).toUpperCase() === "ALL" ||
+            String(this.textContent || "").replace(/\s+/g, " ").trim().toUpperCase() === "ALL";
+    }).filter(function() {
+        const rowText = String(this.parentElement ? this.parentElement.textContent : "").replace(/\s+/g, " ").trim().toUpperCase();
+        return rowText.includes("1ST") || rowText.includes("2ND") || rowText.includes("3RD") || rowText.includes("0");
+    }).first();
+}
+
+function wayBeyond20SpellTabIsActive() {
+    const tab = wayBeyond20CharacterSheetTab("Spells");
+    if (!tab) return false;
+    return tab.getAttribute("aria-checked") === "true" ||
+        tab.getAttribute("aria-selected") === "true" ||
+        /(?:^|\s)(?:active|selected|checked)(?:\s|$)/i.test(String(tab.className || ""));
+}
+
+function wayBeyond20AllSpellSlotPools() {
+    const pools = [];
+    const headers = Array.from(document.querySelectorAll(".ct-content-group__header,.ddbc-content-group__header"));
+    for (const header of headers) {
+        const level = wayBeyond20SpellSlotHeaderLevel(header);
+        if (!level || level < 1) continue;
+        const controls = Array.from(header.querySelectorAll("[role='checkbox']")).filter(control =>
+            String(control.getAttribute("aria-label") || "").toLowerCase() === "use"
+        );
+        if (!controls.length) continue;
+        const expended = controls.filter(control => control.getAttribute("aria-checked") === "true").length;
+        pools.push({ level, total: controls.length, available: controls.length - expended, expended });
+    }
+    return pools.sort((a, b) => a.level - b.level);
+}
+
+async function wayBeyond20RestoreSpellSlot(level) {
+    const before = wayBeyond20SpellSlotControls(level).length;
+    const result = await wayBeyond20RequestPageSpellSlotChange(level, "restore", before);
+    if (result && result.changed) {
+        wayBeyond20InvalidateSmiteSpellCache({ prepared: false, slots: true });
+        return true;
+    }
+    if (wayBeyond20SpellSlotControls(level).length > before) return true;
+
+    const desiredLevel = parseInt(level);
+    const header = Array.from(document.querySelectorAll(".ct-content-group__header,.ddbc-content-group__header"))
+        .find(candidate => wayBeyond20SpellSlotHeaderLevel(candidate) === desiredLevel);
+    const spentControl = header && Array.from(header.querySelectorAll("[role='checkbox']")).find(control =>
+        String(control.getAttribute("aria-label") || "").toLowerCase() === "use" &&
+        control.getAttribute("aria-checked") === "true" && !control.disabled
+    );
+    if (!spentControl) return false;
+    try {
+        spentControl.click();
+    } catch (error) {
+        return false;
+    }
+    for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        wayBeyond20InvalidateSmiteSpellCache({ prepared: false, slots: true });
+        if (wayBeyond20SpellSlotControls(level).length > before) return true;
+    }
+    return false;
+}
+
+async function wayBeyond20SpendArcaneRecoveryUse() {
+    let result = wayBeyond20FindLimitedUseControls("Arcane Recovery");
+    const returnTab = wayBeyond20CharacterSheetTab("Spells");
+    if (!result.controls.length) {
+        const featuresTab = wayBeyond20CharacterSheetTab("Features & Traits") || wayBeyond20CharacterSheetTab("Features");
+        if (featuresTab && typeof featuresTab.click === "function") {
+            featuresTab.click();
+            for (let attempt = 0; attempt < 12; attempt++) {
+                await new Promise(resolve => setTimeout(resolve, 125));
+                result = wayBeyond20FindLimitedUseControls("Arcane Recovery");
+                if (result.controls.length) break;
+            }
+        }
+    }
+    const spent = result.controls.length ? await wayBeyond20SpendLimitedUse("Arcane Recovery") : false;
+    if (returnTab && typeof returnTab.click === "function") setTimeout(() => returnTab.click(), 0);
+    return spent;
+}
+
+async function wayBeyond20UseArcaneRecovery() {
+    if (!character || !character.hasClassFeature("Arcane Recovery", true)) return;
+    if (character.getSetting("waybeyond20-arcane-recovery-used", false)) {
+        if (typeof alertify !== "undefined" && alertify.message) alertify.message("Arcane Recovery has already been used since the last Long Rest.");
+        return;
+    }
+    const maximum = Math.max(1, Math.ceil((parseInt(character.getClassLevel("Wizard")) || 1) / 2));
+    const pools = wayBeyond20AllSpellSlotPools().filter(pool => pool.level <= 5 && pool.expended > 0);
+    if (!pools.length) {
+        if (typeof alertify !== "undefined" && alertify.message) alertify.message("Arcane Recovery: no eligible expended spell slots are visible.");
+        return;
+    }
+
+    let html = `<form class="waybeyond20-arcane-recovery-query"><p>Choose expended spell slots totaling no more than ${maximum} spell levels.</p><div class="waybeyond20-arcane-recovery-options">`;
+    for (const pool of pools) {
+        for (let index = 0; index < pool.expended; index++) {
+            html += `<label><input type="checkbox" name="arcane-recovery-slot" value="${pool.level}"><span>Level ${pool.level}</span></label>`;
+        }
+    }
+    html += "</div></form>";
+    const response = await dndbeyondDiceRoller._prompter.prompt("Arcane Recovery", html, "Recover", "Cancel");
+    if (!response) return;
+    const levels = response.find("input[name='arcane-recovery-slot']:checked").map(function() {
+        return parseInt($(this).val());
+    }).get().filter(level => Number.isFinite(level));
+    const total = levels.reduce((sum, level) => sum + level, 0);
+    if (!levels.length || total > maximum || levels.some(level => level > 5)) {
+        if (typeof alertify !== "undefined" && alertify.warning) alertify.warning(`Arcane Recovery can restore up to ${maximum} combined spell levels, with no slot above level 5.`);
+        return;
+    }
+
+    let restored = 0;
+    for (const level of levels) {
+        if (await wayBeyond20RestoreSpellSlot(level)) restored++;
+    }
+    if (!restored) {
+        if (typeof alertify !== "undefined" && alertify.warning) alertify.warning("D&D Beyond did not restore the selected spell slots.");
+        return;
+    }
+    character.mergeCharacterSettings({ "waybeyond20-arcane-recovery-used": true }, wayBeyond20ScheduleActiveEffectBadgeRefresh);
+    const nativeSpent = await wayBeyond20SpendArcaneRecoveryUse();
+    if (!nativeSpent && typeof alertify !== "undefined" && alertify.warning) {
+        alertify.warning("The spell slots were restored, but D&D Beyond did not mark Arcane Recovery as used. Please mark it manually.");
+    }
+}
+
+function wayBeyond20InjectWizardHelpers() {
+    const existing = $(".waybeyond20-wizard-tools");
+    const hasIntrusion = !!(character && wayBeyond20HasOccultistIntrusion());
+    const hasArcaneRecovery = !!(character && character.hasClassFeature("Arcane Recovery", true));
+    if (!wayBeyond20IsMainCharacterSheet() || !character || (!hasIntrusion && !hasArcaneRecovery) || !wayBeyond20SpellTabIsActive()) {
+        existing.remove();
+        return;
+    }
+    const anchor = wayBeyond20SpellTabAnchor();
+    if (!anchor.length) return;
+    const row = anchor.parent();
+    let tools = row.find("> .waybeyond20-wizard-tools").first();
+    if (!tools.length) {
+        tools = $("<span>").addClass("waybeyond20-wizard-tools");
+        row.append(tools);
+    }
+    const intrusionEnabled = wayBeyond20CharacterHelperEnabled("wizard-occultist-intrusion-helper");
+    const arcaneRecoveryEnabled = wayBeyond20CharacterHelperEnabled("wizard-arcane-recovery-helper");
+    const signature = JSON.stringify({
+        intrusionEnabled,
+        hasIntrusion,
+        intrusionDie: hasIntrusion ? wayBeyond20GetIntrusionDie() : null,
+        arcaneRecoveryEnabled,
+        hasArcaneRecovery,
+        arcaneRecoveryUsed: character.getSetting("waybeyond20-arcane-recovery-used", false)
+    });
+    if (tools.attr("data-waybeyond20-signature") === signature) return;
+    tools.attr("data-waybeyond20-signature", signature);
+    tools.empty();
+
+    if (intrusionEnabled && hasIntrusion) {
+        const die = wayBeyond20GetIntrusionDie();
+        const maximum = wayBeyond20OccultistStartingDie();
+        const tracker = $("<span>").addClass("waybeyond20-intrusion-tracker");
+        tracker.append($("<button type='button'>").text("−").attr("title", "Reduce Intrusion Die").prop("disabled", die === WAYBEYOND20_INTRUSION_DICE[0]).on("click", event => {
+            event.preventDefault(); event.stopPropagation();
+            wayBeyond20SetIntrusionDie(wayBeyond20StepIntrusionDie(die, -1), "manual-minus");
+        }));
+        tracker.append($("<span>").text(`INTRUSION d${die}`));
+        tracker.append($("<button type='button'>").text("+").attr("title", "Increase Intrusion Die").prop("disabled", die === maximum).on("click", event => {
+            event.preventDefault(); event.stopPropagation();
+            wayBeyond20SetIntrusionDie(wayBeyond20StepIntrusionDie(die, 1), "manual-plus");
+        }));
+        tools.append(tracker);
+    }
+    if (arcaneRecoveryEnabled && hasArcaneRecovery) {
+        tools.append($("<button type='button'>")
+            .addClass("waybeyond20-arcane-recovery-button")
+            .text(character.getSetting("waybeyond20-arcane-recovery-used", false) ? "ARCANE RECOVERY USED" : "ARCANE RECOVERY")
+            .prop("disabled", character.getSetting("waybeyond20-arcane-recovery-used", false))
+            .on("click", event => { event.preventDefault(); event.stopPropagation(); wayBeyond20UseArcaneRecovery(); }));
+    }
+    if (!tools.children().length) tools.remove();
+}
+
+function wayBeyond20InjectMageArmorBadge(effects) {
+    const existing = $(".waybeyond20-mage-armor-badge");
+    const removeExisting = () => {
+        const anchors = existing.parent();
+        existing.remove();
+        anchors.each(function() {
+            if ($(this).find("> .waybeyond20-effect-badge").length === 0) {
+                $(this).removeClass("waybeyond20-effect-header-split");
+                $(this).find("> .waybeyond20-effect-header-separator").remove();
+            }
+        });
+    };
+    if (!wayBeyond20CharacterHelperEnabled("waybeyond20-mage-armor-helper")) {
+        removeExisting();
+        return;
+    }
+    const mageArmor = (effects || []).find(effect => wayBeyond20EffectName(effect) === "mage armor");
+    if (!mageArmor) {
+        removeExisting();
+        return;
+    }
+    const defenseHeader = wayBeyond20FindVisibleTextElement("DEFENSES", { avoidTransientPanels: true, preferCompact: true });
+    if (!defenseHeader.length) return;
+    const mechanics = wayBeyond20BuildActiveEffectMechanics([mageArmor]);
+    const label = mechanics.baseArmor === null ? "MAGE ARMOR" : `MAGE ARMOR AC ${mechanics.baseArmor}`;
+    wayBeyond20UpsertEffectBadge(defenseHeader, "waybeyond20-mage-armor-badge", label, "Mage Armor", () => [mageArmor]);
+}
+
+async function wayBeyond20RunConcentrationCheck() {
+    const concentration = wayBeyond20GetConcentrationEffect();
+    if (!concentration) return;
+    const raw = window.prompt("Damage taken for this Concentration check:", "1");
+    if (raw === null) return;
+    const damage = parseInt(raw);
+    if (!Number.isFinite(damage) || damage < 0) {
+        if (typeof alertify !== "undefined" && alertify.warning) alertify.warning("Enter a valid damage amount.");
+        return;
+    }
+    const dc = Math.max(10, Math.floor(damage / 2));
+    const conRow = $(".ct-saving-throws-summary__ability,.ddbc-saving-throws-summary__ability").filter(function() {
+        return $(this).find("abbr").first().text().trim().toUpperCase() === "CON";
+    }).first();
+    let modifier = conRow.find(".ct-saving-throws-summary__ability-modifier .ct-signed-number,.ddbc-saving-throws-summary__ability-modifier .ddbc-signed-number,[class*='styles_modifier'] [class*='styles_numberDisplay']").first().text().replace(/\s+/g, "");
+    if (!modifier) modifier = wayBeyond20FormatSigned(character.getAbility("CON").mod || 0);
+    let numericModifier = parseInt(modifier) || 0;
+    const rollProperties = { name: `Concentration Check (DC ${dc})`, ability: "CON", modifier: wayBeyond20FormatSigned(numericModifier), "waybeyond20-concentration-dc": dc };
+    if (character.hasFeat("War Caster", true)) {
+        rollProperties.advantage = RollType.OVERRIDE_ADVANTAGE;
+        addEffect(rollProperties, "War Caster");
+    }
+    if (character.hasClassFeature("Bladesong", true) && character.getSetting("wizard-bladesong", false)) {
+        numericModifier += Math.max(parseInt(character.getAbility("INT").mod) || 0, 1);
+        rollProperties.modifier = wayBeyond20FormatSigned(numericModifier);
+        addEffect(rollProperties, "Bladesong");
+    }
+    const sent = await sendRollWithCharacter("saving-throw", `1d20${rollProperties.modifier}`, rollProperties);
+    if (sent === true && window.confirm(`Concentration save DC ${dc} was rolled. Did the save fail?\n\nOK: end concentration\nCancel: keep concentrating`)) {
+        const current = wayBeyond20GetConcentrationEffect();
+        if (current) wayBeyond20RemoveTrackedEffect(wayBeyond20EffectKey(current));
+    }
+}
+
+function wayBeyond20HandleConcentrationBadge(event, badge) {
+    event.preventDefault();
+    event.stopPropagation();
+    const current = wayBeyond20GetConcentrationEffect();
+    if (wayBeyond20CharacterHelperEnabled("waybeyond20-concentration-check-helper") && current) {
+        wayBeyond20RunConcentrationCheck();
+    } else {
+        wayBeyond20OpenEffectsPopout(badge, "Concentration", current ? [current] : []);
+    }
+}
+
 function wayBeyond20InjectConcentrationBadge(concentration) {
     if (!concentration || !concentration.name) {
         const existing = $(".waybeyond20-concentration-badge,.waybeyond20-spell-tab-concentration-badge");
@@ -4054,15 +4561,11 @@ function wayBeyond20InjectConcentrationBadge(concentration) {
             const current = wayBeyond20GetConcentrationEffect();
             return current ? [current] : [];
         });
+        const badge = conditionHeader.find("> .waybeyond20-concentration-badge").first();
+        badge.off("click.waybeyond20-effects").on("click.waybeyond20-effects", event => wayBeyond20HandleConcentrationBadge(event, badge));
     }
 
-    const spellLevelAnchor = $("button,span,div").filter(function() {
-        if (!wayBeyond20IsVisibleElement(this)) return false;
-        return wayBeyond20ElementOwnText(this).toUpperCase() === "ALL" || String(this.textContent || "").replace(/\s+/g, " ").trim().toUpperCase() === "ALL";
-    }).filter(function() {
-        const rowText = String(this.parentElement ? this.parentElement.textContent : "").replace(/\s+/g, " ").trim().toUpperCase();
-        return rowText.includes("1ST") || rowText.includes("2ND") || rowText.includes("3RD") || rowText.includes("0");
-    }).first();
+    const spellLevelAnchor = wayBeyond20SpellTabIsActive() ? wayBeyond20SpellTabAnchor() : $();
 
     if (spellLevelAnchor.length > 0) {
         const row = spellLevelAnchor.parent();
@@ -4075,8 +4578,7 @@ function wayBeyond20InjectConcentrationBadge(concentration) {
         badge.off("click.waybeyond20-effects").on("click.waybeyond20-effects", event => {
             event.preventDefault();
             event.stopPropagation();
-            const current = wayBeyond20GetConcentrationEffect();
-            wayBeyond20OpenEffectsPopout(badge, "Concentration", current ? [current] : []);
+            wayBeyond20HandleConcentrationBadge(event, badge);
         });
     }
 }
@@ -4089,7 +4591,9 @@ function wayBeyond20RefreshActiveEffectBadges() {
     const concentration = wayBeyond20GetConcentrationEffect();
     wayBeyond20ApplyActiveEffectMechanics(effects);
     wayBeyond20InjectBuffsBadge(effects);
+    wayBeyond20InjectMageArmorBadge(effects);
     wayBeyond20InjectConcentrationBadge(concentration);
+    wayBeyond20InjectWizardHelpers();
     wayBeyond20InjectTurnResourceTracker(effects);
     wayBeyond20InjectHitDiceTracker();
 }
@@ -4110,7 +4614,9 @@ function wayBeyond20SendEffectsUpdate(character, activeEffects, concentration) {
     }
     wayBeyond20ApplyActiveEffectMechanics(effectsForDisplay);
     wayBeyond20InjectBuffsBadge(effectsForDisplay);
+    wayBeyond20InjectMageArmorBadge(effectsForDisplay);
     wayBeyond20InjectConcentrationBadge(concentrationForDisplay);
+    wayBeyond20InjectWizardHelpers();
     wayBeyond20InjectTurnResourceTracker(effectsForDisplay);
     wayBeyond20InjectHitDiceTracker();
     wayBeyond20ScheduleActiveEffectBadgeRefresh();
@@ -5101,15 +5607,14 @@ async function rollItem(force_display = false, force_to_hit_only = false, force_
         if (character.hasClassFeature("Trance of Order") && character.getSetting("sorcerer-trance-of-order", false))
             roll_properties.d20 = "1d20min10";
 
-        await wayBeyond20MaybeAddPaladinSmite(
+        await wayBeyond20MaybeAddSmite(
             roll_properties,
             properties["Attack Type"] === "Melee" || properties["Attack Type"] === "Unarmed Strike" ||
                 roll_properties["attack-type"] === "Melee" || roll_properties["attack-type"] === "Unarmed Strike"
         );
 
-        // Apply batched updates to settings, if any:
-        if (Object.keys(settings_to_change).length > 0)
-            character.mergeCharacterSettings(settings_to_change);
+        // Apply batched updates to settings, if any, once the roll was actually dispatched:
+        wayBeyond20CommitAfterDispatch(roll_properties, () => wayBeyond20CommitRollSettings(settings_to_change));
 
         return sendRollWithCharacter("attack", (roll_properties["damages"] || damages)[0], roll_properties);
     } else if (!force_display && (is_tool || is_instrument) && character._abilities.length > 0) {
@@ -5467,33 +5972,225 @@ function wayBeyond20SpellRowLevel(row, meta = "") {
     return match ? parseInt(match[1]) : 1;
 }
 
-async function wayBeyond20SpendSpellSlot(level) {
-    const controls = wayBeyond20SpellSlotControls(level);
-    if (controls.length === 0) return false;
-    const before = controls.length;
-    try {
-        controls[0].click();
-    } catch (error) {
-        wayBeyond20CharacterDebug("Spell slot spend click failed", { level, error: String(error) });
-        return false;
-    }
-    for (let attempt = 0; attempt < 8; attempt++) {
+// Live slot state for one spell level from its mounted Spells-tab header; null when that level's
+// header or controls are not mounted.
+function wayBeyond20SpellSlotState(level) {
+    const desiredLevel = parseInt(level);
+    if (!Number.isFinite(desiredLevel) || desiredLevel < 1) return null;
+    const header = Array.from(document.querySelectorAll(".ct-content-group__header,.ddbc-content-group__header"))
+        .find(candidate => wayBeyond20SpellSlotHeaderLevel(candidate) === desiredLevel);
+    if (!header) return null;
+    const controls = Array.from(header.querySelectorAll("[role='checkbox']")).filter(control =>
+        String(control.getAttribute("aria-label") || "").toLowerCase() === "use");
+    if (controls.length === 0) return null;
+    const available = controls.filter(control =>
+        control.getAttribute("aria-checked") !== "true" && !control.hasAttribute("disabled"));
+    return { total: controls.length, available: available.length, availableControls: available };
+}
+
+async function wayBeyond20WaitForSpellSlotBelow(level, before, attempts) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        const state = wayBeyond20SpellSlotState(level);
+        if (state && state.available < before) return true;
         await new Promise(resolve => setTimeout(resolve, 75));
-        if (wayBeyond20SpellSlotControls(level).length < before) {
-            wayBeyond20SpellSlotCache = null;
-            wayBeyond20AvailableSpellSlots();
-            return true;
+    }
+    const state = wayBeyond20SpellSlotState(level);
+    return !!(state && state.available < before);
+}
+
+// Spends one slot of exactly `level` on D&D Beyond after a dispatched Smite. Brings up the Spells tab
+// when that level is not mounted (the Elemental Strike rider shows Actions) and restores the previous
+// tab. Success means the live available count dropped; a missing or unverified control is failure.
+// `expectedAvailable` is the count shown before dispatch: if D&D Beyond already shows fewer (its own
+// cast spent the slot), nothing more is deducted.
+async function wayBeyond20SpendSpellSlot(level, { expectedAvailable = null } = {}) {
+    const previousTab = wayBeyond20ActiveCharacterSheetTab();
+    const spellsTab = wayBeyond20CharacterSheetTab("Spells");
+    let switchedTab = false;
+    let state = wayBeyond20SpellSlotState(level);
+    if (!state && spellsTab && typeof spellsTab.click === "function") {
+        spellsTab.click();
+        switchedTab = true;
+        for (let attempt = 0; attempt < 15 && !state; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            state = wayBeyond20SpellSlotState(level);
         }
     }
-    const spent = wayBeyond20SpellSlotControls(level).length < before;
-    if (spent) {
-        wayBeyond20SpellSlotCache = null;
-        wayBeyond20AvailableSpellSlots();
+
+    let spent = false;
+    const expected = expectedAvailable === null || expectedAvailable === undefined ? NaN : Number(expectedAvailable);
+    if (!state) {
+        wayBeyond20CharacterDebug("Spell slot level is not on the sheet", { level });
+    } else if (Number.isFinite(expected) && state.available < expected) {
+        spent = true;
+        wayBeyond20CharacterDebug("Spell slot already spent by D&D Beyond", { level, expected, available: state.available });
+    } else if (state.available > 0) {
+        const before = state.available;
+        const pageResult = await wayBeyond20RequestPageSpellSlotChange(level, "spend", before);
+        spent = await wayBeyond20WaitForSpellSlotBelow(level, before, pageResult && pageResult.changed ? 5 : 2);
+        const retry = spent ? null : wayBeyond20SpellSlotState(level);
+        // One content-side click, only while the count is still unchanged, so a late page click is never doubled.
+        if (retry && retry.available === before && retry.availableControls[0]) {
+            try {
+                retry.availableControls[0].click();
+                spent = await wayBeyond20WaitForSpellSlotBelow(level, before, 8);
+            } catch (error) {
+                wayBeyond20CharacterDebug("Spell slot spend click failed", { level, error: String(error) });
+            }
+        }
+        const after = wayBeyond20SpellSlotState(level);
+        if (spent && after && after.available !== before - 1) {
+            wayBeyond20CharacterDebug("Spell slot count changed by more than one", { level, before, after: after.available });
+        }
+    }
+
+    wayBeyond20SpellSlotCache = null;
+    wayBeyond20AvailableSpellSlots();
+    if (switchedTab && previousTab && previousTab !== spellsTab && previousTab.isConnected !== false &&
+        typeof previousTab.click === "function") {
+        previousTab.click();
     }
     return spent;
 }
 
-function wayBeyond20FindPaladinSmiteRows() {
+function wayBeyond20RequestPageSpellSlotChange(level, mode, beforeAvailable = null) {
+    return new Promise(resolve => {
+        const requestId = `waybeyond20-spell-slot-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        let settled = false;
+        const listener = addCustomEventListener("WayBeyond20SpellSlotResult", (responseId, result) => {
+            if (responseId !== requestId || settled) return;
+            settled = true;
+            document.removeEventListener(...listener);
+            resolve(result || null);
+        });
+        setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            document.removeEventListener(...listener);
+            resolve(null);
+        }, 3000);
+        sendCustomEvent("WayBeyond20ChangeSpellSlot", [requestId, level, mode, beforeAvailable]);
+    });
+}
+
+// D&D Beyond keeps the Paladin's Smite row and its "Use" label after the use is spent and
+// appends "(Used)" to the 1/LR text (Bill's live observation). That text is the spent marker.
+function wayBeyond20PaladinSmiteUseTextIsUsed(text) {
+    return /\(\s*used\s*\)/i.test(String(text || ""));
+}
+
+// Live DOM only. The prepared-smite cache can hold rows from a tab that is no longer mounted,
+// and clicking or reading those detached rows says nothing about the sheet.
+function wayBeyond20LivePaladinSmiteUse() {
+    const rows = Array.from(document.querySelectorAll(".ct-spells-spell,.ddbc-spells-spell"));
+    for (const row of rows) {
+        const name = $(row).find(".ct-spells-spell__label,.ddbc-spells-spell__label,[class*='spellName']").first().text().trim();
+        const meta = $(row).find(".ct-spells-spell__meta,.ddbc-spells-spell__meta,[class*='spellMeta']").first().text().trim();
+        const text = String(row.textContent || "").replace(/\s+/g, " ").trim();
+        if (wayBeyond20NormalizeFeatureLabel(name) !== "divine smite" ||
+            !/paladin.?s smite/i.test(meta.replace(/[’']/g, "'")) ||
+            !/1\s*\/\s*(?:lr|long\s+rest)/i.test(text)) continue;
+        const button = Array.from(row.querySelectorAll("button")).find(candidate =>
+            /^use$/i.test(String(candidate.textContent || "").replace(/\s+/g, " ").trim())) || null;
+        const used = wayBeyond20PaladinSmiteUseTextIsUsed(text) ||
+            !!(button && (button.disabled || button.getAttribute("aria-disabled") === "true"));
+        return { row, button, used };
+    }
+    return null;
+}
+
+function wayBeyond20ActiveCharacterSheetTab() {
+    return ["Actions", "Spells", "Inventory", "Features & Traits", "Background", "Notes", "Extras"]
+        .map(label => wayBeyond20CharacterSheetTab(label))
+        .find(tab => tab && (tab.getAttribute("aria-checked") === "true" || tab.classList.contains("styles_active__oWpHc"))) || null;
+}
+
+function wayBeyond20RestoreCharacterSheetTab(tab) {
+    if (!tab) return false;
+    // If D&D Beyond re-rendered its tab buttons, find the same tab again by its label.
+    if (tab.isConnected === false) tab = wayBeyond20CharacterSheetTab(tab.textContent);
+    if (!tab || typeof tab.click !== "function") return false;
+    if (wayBeyond20ActiveCharacterSheetTab() === tab) return false;
+    tab.click();
+    return true;
+}
+
+async function wayBeyond20WaitForPaladinSmiteUsed(attempts = 10) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const live = wayBeyond20LivePaladinSmiteUse();
+        if (live && live.used) return true;
+    }
+    return false;
+}
+
+function wayBeyond20RequestPagePaladinSmiteSpend() {
+    return new Promise(resolve => {
+        const requestId = `waybeyond20-paladin-smite-use-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        let settled = false;
+        const listener = addCustomEventListener("WayBeyond20PaladinSmiteUseResult", (responseId, result) => {
+            if (responseId !== requestId || settled) return;
+            settled = true;
+            document.removeEventListener(...listener);
+            resolve(result || null);
+        });
+        setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            document.removeEventListener(...listener);
+            resolve(null);
+        }, 3000);
+        sendCustomEvent("WayBeyond20SpendPaladinSmiteUse", [requestId]);
+    });
+}
+
+// Marks D&D Beyond's own Paladin's Smite use. Success means the mounted row now shows the use
+// as spent; a missing row is never success. Brings up the Spells tab when another tab is showing
+// (the Elemental Strike rider shows Actions to read Channel Divinity) and restores that tab.
+async function wayBeyond20SpendPaladinSmiteFreeUse() {
+    const previousTab = wayBeyond20ActiveCharacterSheetTab();
+    const spellsTab = wayBeyond20CharacterSheetTab("Spells");
+    let switchedTab = false;
+    let live = wayBeyond20LivePaladinSmiteUse();
+    if (!live && spellsTab && typeof spellsTab.click === "function") {
+        spellsTab.click();
+        switchedTab = true;
+        for (let attempt = 0; attempt < 15 && !live; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            live = wayBeyond20LivePaladinSmiteUse();
+        }
+    }
+    wayBeyond20InvalidateSmiteSpellCache({ prepared: true, slots: false });
+
+    let spent = false;
+    if (!live) {
+        wayBeyond20CharacterDebug("Paladin's Smite row is not on the sheet", {});
+    } else if (live.used) {
+        // Already shown as spent on D&D Beyond (for example, marked by hand); nothing to click.
+        spent = true;
+    } else {
+        const pageResult = await wayBeyond20RequestPagePaladinSmiteSpend();
+        live = wayBeyond20LivePaladinSmiteUse();
+        spent = !!(live && live.used);
+        if (!spent && pageResult && pageResult.spent) spent = await wayBeyond20WaitForPaladinSmiteUsed(5);
+        if (!spent && live && live.button && !live.used) {
+            try {
+                live.button.click();
+                spent = await wayBeyond20WaitForPaladinSmiteUsed(10);
+            } catch (error) {
+                wayBeyond20CharacterDebug("Paladin's Smite native Use click failed", { error: String(error) });
+            }
+        }
+    }
+    wayBeyond20InvalidateSmiteSpellCache({ prepared: true, slots: false });
+    if (switchedTab && previousTab && previousTab !== spellsTab && previousTab.isConnected !== false &&
+        typeof previousTab.click === "function") {
+        previousTab.click();
+    }
+    return spent;
+}
+
+function wayBeyond20FindSmiteRows() {
     wayBeyond20EnsureSmiteCacheOwner();
     const rows = Array.from(document.querySelectorAll(".ct-spells-spell,.ddbc-spells-spell"));
     if (rows.length === 0 && wayBeyond20PreparedSmiteCache !== null) {
@@ -5558,21 +6255,21 @@ function wayBeyond20PaladinSmiteFreeUseAvailable(rows) {
         wayBeyond20NormalizeFeatureLabel(row.name) === "divine smite" &&
         /paladin.?s smite/i.test(row.meta.replace(/[’']/g, "'")) &&
         /1\s*\/\s*(?:lr|long\s+rest)/i.test(row.text) &&
+        !wayBeyond20PaladinSmiteUseTextIsUsed(row.text) &&
         row.action === "use" &&
         !row.disabled
     );
 }
 
-async function wayBeyond20BuildPaladinSmiteOptions() {
-    if (!character || !character.hasClass("Paladin")) return null;
+async function wayBeyond20BuildSmiteOptions() {
+    if (!wayBeyond20CharacterHelperEnabled("paladin-smite-prompt")) return null;
     if (!wayBeyond20HasAvailableBonusAction()) return null;
 
-    let rows = wayBeyond20FindPaladinSmiteRows();
+    let rows = wayBeyond20FindSmiteRows();
     let spellSlots = wayBeyond20AvailableSpellSlots();
-    let returnTab = null;
     if (rows.length === 0 || spellSlots.length === 0) {
+        // wayBeyond20MaybeAddSmite restores the player's original tab on every exit.
         const spellsTab = wayBeyond20CharacterSheetTab("Spells");
-        const actionsTab = wayBeyond20CharacterSheetTab("Actions");
         const wasSpellsTabActive = spellsTab && (
             spellsTab.getAttribute("aria-checked") === "true" || spellsTab.classList.contains("styles_active__oWpHc")
         );
@@ -5580,11 +6277,10 @@ async function wayBeyond20BuildPaladinSmiteOptions() {
             spellsTab.click();
             for (let attempt = 0; attempt < 15; attempt++) {
                 await new Promise(resolve => setTimeout(resolve, 100));
-                rows = wayBeyond20FindPaladinSmiteRows();
+                rows = wayBeyond20FindSmiteRows();
                 spellSlots = wayBeyond20AvailableSpellSlots();
                 if (rows.length > 0 && spellSlots.length > 0) break;
             }
-            returnTab = actionsTab;
         }
     }
     const freeDivineAvailable = wayBeyond20PaladinSmiteFreeUseAvailable(rows);
@@ -5595,6 +6291,7 @@ async function wayBeyond20BuildPaladinSmiteOptions() {
     spellSlots.forEach(slot => fuels.push({
         type: "spell-slot",
         level: slot.level,
+        available: slot.available,
         label: `${slot.level}${slot.level === 1 ? "st" : slot.level === 2 ? "nd" : slot.level === 3 ? "rd" : "th"} Level Spell Slot (${slot.available} available)`
     }));
     if (fuels.length === 0) return null;
@@ -5630,56 +6327,220 @@ async function wayBeyond20BuildPaladinSmiteOptions() {
         smites.push(smite);
     }
     if (smites.length === 0) return null;
-    return { smites, fuels, returnTab };
+    return { smites, fuels };
 }
 
-async function wayBeyond20QueryPaladinSmite(options) {
+async function wayBeyond20QuerySmite(options) {
     if (!options || !options.smites.length || !options.fuels.length ||
         typeof dndbeyondDiceRoller === "undefined" || !dndbeyondDiceRoller || !dndbeyondDiceRoller._prompter) return null;
-    const defaultSmite = options.smites[0];
-    const defaultFuel = options.fuels.find(fuel => wayBeyond20SmiteFuelIsLegal(
-        defaultSmite.name, fuel.type, fuel.level, defaultSmite.level)) || options.fuels[0];
     let html = '<form class="waybeyond20-smite-query">';
     html += '<p class="waybeyond20-smite-query-message">Would you like to add a smite to this attack?</p>';
     html += '<div class="waybeyond20-smite-query-section"><strong>Smite</strong><div class="waybeyond20-smite-options">';
     options.smites.forEach((smite, index) => {
         const id = `waybeyond20-smite-type-${index}`;
-        html += `<label class="waybeyond20-smite-option"><input type="radio" id="${id}" name="smite-type" value="${smite.name}" data-smite-level="${smite.level}"${smite.name === defaultSmite.name ? " checked" : ""}><span>${smite.name}</span></label>`;
+        html += `<label class="waybeyond20-smite-option"><input type="radio" id="${id}" name="smite-type" value="${smite.name}" data-smite-level="${smite.level}"><span>${smite.name}</span></label>`;
     });
     html += '</div></div>';
     html += '<div class="waybeyond20-smite-query-section"><strong>Fuel</strong><div class="waybeyond20-smite-options">';
     options.fuels.forEach((fuel, index) => {
         const id = `waybeyond20-smite-fuel-${index}`;
-        const checked = fuel.type === defaultFuel.type && fuel.level === defaultFuel.level;
-        html += `<label class="waybeyond20-smite-option"><input type="radio" id="${id}" name="smite-fuel" data-smite-fuel="${fuel.type}" data-slot-level="${fuel.level}" value="${fuel.type}:${fuel.level}"${checked ? " checked" : ""}><span>${fuel.label}</span></label>`;
+        html += `<label class="waybeyond20-smite-option"><input type="radio" id="${id}" name="smite-fuel" data-smite-fuel="${fuel.type}" data-slot-level="${fuel.level}" value="${fuel.type}:${fuel.level}"><span>${fuel.label}</span></label>`;
     });
     html += '</div></div></form>';
 
-    const result = await dndbeyondDiceRoller._prompter.prompt("Paladin Smite", html, "Proceed", "Cancel");
+    const result = await dndbeyondDiceRoller._prompter.prompt("Smite", html, "Proceed", "Cancel");
     if (!result) return null;
     const smiteName = result.find("input[name='smite-type']:checked").val();
     const fuelValue = result.find("input[name='smite-fuel']:checked").val();
     if (!smiteName || !fuelValue) return null;
     const [fuelType, rawLevel] = String(fuelValue).split(":");
-    const selectedSmite = options.smites.find(smite => smite.name === smiteName) || options.smites[0];
+    const selectedSmite = options.smites.find(smite => smite.name === smiteName);
+    const selectedFuel = options.fuels.find(fuel => fuel.type === fuelType && String(fuel.level) === String(rawLevel));
+    if (!selectedSmite || !selectedFuel) return null;
     if (!wayBeyond20SmiteFuelIsLegal(
         selectedSmite.name, fuelType, rawLevel, selectedSmite.level)) return null;
     return {
         smite: selectedSmite,
-        fuel: options.fuels.find(fuel => fuel.type === fuelType && String(fuel.level) === String(rawLevel)) || options.fuels[0]
+        fuel: selectedFuel
     };
 }
 
-async function wayBeyond20MaybeAddPaladinSmite(rollProperties, isEligibleAttack) {
+// Elemental Strike (character builder name) and Elemental Smite (published article name)
+// are the same capability. Its four options are shared by two activation routes:
+// "divine-smite" (a rider on a Divine Smite cast: one Channel Divinity, the Smite's own
+// Bonus Action) and "independent" (the option's own sheet row and activation cost).
+const WAYBEYOND20_ELEMENTAL_STRIKE_CHOICES = [
+    { key: "dao", element: "Earth", name: "Dao’s Crush", match: "daos crush" },
+    { key: "djinni", element: "Air", name: "Djinni’s Escape", match: "djinnis escape" },
+    { key: "efreeti", element: "Fire", name: "Efreeti’s Fury", match: "efreetis fury" },
+    { key: "marid", element: "Water", name: "Marid’s Surge", match: "marids surge" }
+];
+
+function wayBeyond20ElementalStrikeChoice(keyOrName) {
+    const normalized = wayBeyond20NormalizeFeatureLabel(keyOrName);
+    if (!normalized) return null;
+    return WAYBEYOND20_ELEMENTAL_STRIKE_CHOICES.find(choice =>
+        choice.key === normalized || normalized.endsWith(choice.match)) || null;
+}
+
+// Readable result for the player to relay to the DM: the feature's own wording with the
+// character's resolved spell save DC substituted.
+function wayBeyond20ElementalStrikeSummary(choice, dc) {
+    switch (choice && choice.key) {
+        case "dao": return `The target has the Grappled condition (DC ${dc} to escape). While Grappled, the target has the Restrained condition.`;
+        case "djinni": return "You can teleport to an unoccupied space you can see within 30 feet of yourself. Until the end of your next turn, you have Resistance to Bludgeoning, Piercing, and Slashing damage, and Immunity to the Grappled, Prone, and Restrained conditions.";
+        case "efreeti": return "The target of your Divine Smite takes an extra 2d4 Fire damage, and fire jumps to another creature you can see within 30 feet of yourself. The second creature also takes 2d4 Fire damage (rolled separately; not part of the target's total).";
+        case "marid": return `The target of your Divine Smite and each creature of your choice in a 10-foot Emanation originating from you make a DC ${dc} Strength saving throw. On a failed save, a creature is pushed 15 feet straight away from you and has the Prone condition.`;
+        default: return "";
+    }
+}
+
+function wayBeyond20HasElementalStrike() {
+    if (!character) return false;
+    const featureNames = [
+        "Elemental Strike", "Elemental Smite",
+        "Dao's Crush", "Dao’s Crush",
+        "Djinni's Escape", "Djinni’s Escape",
+        "Efreeti's Fury", "Efreeti’s Fury",
+        "Marid's Surge", "Marid’s Surge"
+    ];
+    return featureNames.some(name =>
+        (character.hasClassFeature && character.hasClassFeature(name, true)) ||
+        (character.hasAction && character.hasAction(name, true))
+    );
+}
+
+// Applies one Elemental Strike option to a roll. The effect is the same on both routes;
+// only the activation context differs. Resource costs are attached by the caller.
+function wayBeyond20ApplyElementalStrikeEffect(rollProperties, keyOrName, { route = "independent", dc = null } = {}) {
+    const choice = wayBeyond20ElementalStrikeChoice(keyOrName);
+    if (!rollProperties || !choice) return null;
+    const saveDc = dc === null ? wayBeyond20PaladinSaveDC() : dc;
+    if (choice.key === "efreeti") {
+        rollProperties.damages = Array.isArray(rollProperties.damages) ? rollProperties.damages : [];
+        rollProperties["damage-types"] = Array.isArray(rollProperties["damage-types"]) ? rollProperties["damage-types"] : [];
+        rollProperties.damages.push("2d4");
+        rollProperties["damage-types"].push("Fire (Efreeti’s Fury)");
+        // A second parenthesized Fire row is rendered as conditional damage, so it is
+        // shown and rolled on its own but never added to the Divine Smite target's total,
+        // critical dice, or damage-dealt effects.
+        rollProperties.damages.push("2d4");
+        rollProperties["damage-types"].push("Fire (Efreeti’s Fury: second creature)");
+    } else if (choice.key === "marid" && !rollProperties["save-ability"]) {
+        rollProperties["save-ability"] = "Strength";
+        rollProperties["save-dc"] = saveDc;
+    }
+    rollProperties["feature-results"] = Array.isArray(rollProperties["feature-results"]) ? rollProperties["feature-results"] : [];
+    rollProperties["feature-results"].push({ name: choice.name, text: wayBeyond20ElementalStrikeSummary(choice, saveDc) });
+    addEffect(rollProperties, `Channel Divinity: ${choice.name}${route === "divine-smite" ? " (part of Divine Smite)" : ""}`);
+    rollProperties["waybeyond20-noble-genie-rider"] = { choice: choice.key, name: choice.name, route };
+    return choice;
+}
+
+async function wayBeyond20ExposeChannelDivinityControls() {
+    let result = wayBeyond20FindLimitedUseControls("Channel Divinity");
+    if (result.controls.length > 0) return result;
+
+    const actionsTab = wayBeyond20CharacterSheetTab("Actions");
+    if (!actionsTab || typeof actionsTab.click !== "function") return result;
+    actionsTab.click();
+    for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 125));
+        result = wayBeyond20FindLimitedUseControls("Channel Divinity");
+        if (result.controls.length > 0) break;
+    }
+    return result;
+}
+
+// One chooser for both the Divine Smite follow-up and the parent Elemental Strike row.
+// Each option is its own action button: the first click chooses and performs it
+// (Beyond20Prompt resolves on that click; no Proceed). Cancel/close chooses nothing.
+async function wayBeyond20QueryElementalStrike(dc, route = "divine-smite") {
+    if (typeof dndbeyondDiceRoller === "undefined" || !dndbeyondDiceRoller || !dndbeyondDiceRoller._prompter) return null;
+    let html = '<form class="waybeyond20-elemental-strike-query">';
+    html += `<p class="waybeyond20-smite-query-message">${route === "divine-smite"
+        ? "Elemental Strike: uses one Channel Divinity and this Divine Smite's Bonus Action."
+        : "Elemental Strike: uses one Channel Divinity."}</p>`;
+    html += '<div class="waybeyond20-elemental-strike-buttons">';
+    WAYBEYOND20_ELEMENTAL_STRIKE_CHOICES.forEach(choice => {
+        html += `<button type="button" class="waybeyond20-elemental-strike-button" data-elemental-strike="${choice.key}" ` +
+            `title="${wayBeyond20ElementalStrikeSummary(choice, dc).replace(/"/g, "&quot;")}">${choice.name}</button>`;
+    });
+    html += '</div></form>';
+    const result = await dndbeyondDiceRoller._prompter.prompt("Elemental Strike", html, "Choose", "Cancel");
+    if (!result) return null;
+    return wayBeyond20ElementalStrikeChoice(result.attr("data-selected"));
+}
+
+// Divine Smite route. Called once per Divine Smite cast, whatever its fuel or entry point.
+// Declining or cancelling removes only this rider; the Divine Smite continues unchanged.
+async function wayBeyond20MaybeAddElementalStrike(rollProperties, smiteName) {
+    if (!rollProperties || wayBeyond20NormalizeFeatureLabel(smiteName) !== "divine smite") return null;
+    if (rollProperties["waybeyond20-noble-genie-rider"]) return null;
+    if (!wayBeyond20HasElementalStrike()) return null;
+
+    const channelDivinity = await wayBeyond20ExposeChannelDivinityControls();
+    const remaining = channelDivinity.controls.filter(wayBeyond20LimitedUseControlIsUnused).length;
+    // Bill's ruling: offer the automatic popup only with a remaining Channel Divinity use.
+    // An unexposed counter is not evidence of a use, so nothing is offered or spent.
+    if (remaining <= 0) return null;
+
+    const dc = wayBeyond20PaladinSaveDC();
+    const choice = await wayBeyond20QueryElementalStrike(dc, "divine-smite");
+    if (!choice) return null;
+    wayBeyond20ApplyElementalStrikeEffect(rollProperties, choice.key, { route: "divine-smite", dc });
+    wayBeyond20AttachLimitedUse(rollProperties, "Channel Divinity", { name: choice.name });
+    return choice;
+}
+
+// Independent route: the option's own sheet row. Its turn resource comes only from that
+// row's activation; it never becomes an attack and never offers Divine Smite.
+async function wayBeyond20RollElementalStrikeOption(actionName, actionParent, description, properties, choiceKey = null) {
+    const choice = wayBeyond20ElementalStrikeChoice(choiceKey || actionName);
+    if (!choice) return null;
+    const rollName = choiceKey ? `${actionName}: ${choice.name}` : actionName;
+    const rollProperties = { name: rollName, description, source: actionParent, "source-type": "action" };
+    wayBeyond20ApplyElementalStrikeEffect(rollProperties, choice.key, { route: "independent" });
+    const rollType = Array.isArray(rollProperties.damages) && rollProperties.damages.length > 0 ? "spell-attack" : "trait";
+    wayBeyond20AttachActivationResource(rollProperties, properties, null, null, { name: rollName, rollType });
+    wayBeyond20AttachLimitedUse(rollProperties, "Channel Divinity", { name: rollName });
+    return sendRollWithCharacter(rollType, rollType === "trait" ? 0 : rollProperties.damages[0], rollProperties);
+}
+
+function wayBeyond20IsElementalStrikeParent(actionName) {
+    return /(^|\s)elemental (strike|smite)$/.test(wayBeyond20NormalizeFeatureLabel(actionName));
+}
+
+// Parent Elemental Strike row: the same chooser, then the chosen option on the independent
+// route with the parent row's own activation. An option row is already chosen and skips this.
+async function wayBeyond20RollElementalStrikeParent(actionName, actionParent, description, properties) {
+    const choice = await wayBeyond20QueryElementalStrike(wayBeyond20PaladinSaveDC(), "independent");
+    if (!choice) return null;
+    return wayBeyond20RollElementalStrikeOption(actionName, actionParent, description, properties, choice.key);
+}
+
+async function wayBeyond20MaybeAddSmite(rollProperties, isEligibleAttack) {
     if (!rollProperties || !isEligibleAttack || !rollProperties.rollDamage ||
         !Array.isArray(rollProperties.damages) || !Array.isArray(rollProperties["damage-types"])) return null;
-    const options = await wayBeyond20BuildPaladinSmiteOptions();
-    if (!options) return null;
-    const selection = await wayBeyond20QueryPaladinSmite(options);
-    if (!selection || !selection.smite || !selection.fuel) {
-        if (options.returnTab && typeof options.returnTab.click === "function") options.returnTab.click();
-        return null;
+    // Smite discovery may open Spells and the Elemental Strike rider may open Actions. Remember the
+    // tab the player was on and return to it on every exit (brief 1.11, F-L12). A successful
+    // selection hands the tab to sendRollWithCharacter, which restores it after its spends.
+    const originalTab = wayBeyond20ActiveCharacterSheetTab();
+    let handedOff = false;
+    try {
+        const selection = await wayBeyond20AddSelectedSmite(rollProperties, originalTab);
+        handedOff = !!selection;
+        return selection;
+    } finally {
+        if (!handedOff) wayBeyond20RestoreCharacterSheetTab(originalTab);
     }
+}
+
+async function wayBeyond20AddSelectedSmite(rollProperties, originalTab) {
+    const options = await wayBeyond20BuildSmiteOptions();
+    if (!options) return null;
+    const selection = await wayBeyond20QuerySmite(options);
+    if (!selection || !selection.smite || !selection.fuel) return null;
 
     const formula = wayBeyond20SmiteFormulaForSlot(
         selection.smite.formula, selection.fuel.level, selection.smite.level);
@@ -5705,6 +6566,7 @@ async function wayBeyond20MaybeAddPaladinSmite(rollProperties, isEligibleAttack)
     if (selection.smite.name === "Thunderous Smite") {
         addEffect(rollProperties, `Thunderous Smite: failed ${abbreviationToAbility(selection.smite.saveAbility || "STR")} save pushes the target 10 feet and knocks it Prone`);
     }
+    await wayBeyond20MaybeAddElementalStrike(rollProperties, selection.smite.name);
     const turnResourceOptions = {
         name: selection.smite.name,
         rollType: "attack"
@@ -5718,8 +6580,9 @@ async function wayBeyond20MaybeAddPaladinSmite(rollProperties, isEligibleAttack)
         fuel: selection.fuel.type,
         fuelLabel: selection.fuel.label,
         slotLevel: selection.fuel.level,
+        slotAvailable: selection.fuel.type === "spell-slot" ? selection.fuel.available : null,
         damage: formula,
-        returnTab: options.returnTab || null
+        returnTab: originalTab || null
     };
     return selection;
 }
@@ -5910,27 +6773,12 @@ async function wayBeyond20RollPaladinSpecialAction(actionName, actionParent, des
         return { handled: true, result: await sendRollWithCharacter("spell-attack", formula, rollProperties) };
     }
 
-    if (normalized.endsWith("daos crush")) {
-        const rollProperties = {
-            name: actionName,
-            description: `${description}\n\nEscape DC: ${dc}. This is applied after Divine Smite; it is not an initial attack roll or saving throw.`,
-            source: actionParent,
-            "source-type": "action"
-        };
-        wayBeyond20AttachActivationResource(rollProperties, properties, null, null, { name: actionName, rollType: "trait" });
-        wayBeyond20AttachLimitedUse(rollProperties, "Channel Divinity", { name: actionName });
-        return { handled: true, result: await sendRollWithCharacter("trait", 0, rollProperties) };
+    if (wayBeyond20IsElementalStrikeParent(actionName)) {
+        return { handled: true, result: await wayBeyond20RollElementalStrikeParent(actionName, actionParent, description, properties) };
     }
 
-    if (normalized.endsWith("djinnis escape")) {
-        const rollProperties = { name: actionName, description, source: actionParent, "source-type": "action" };
-        wayBeyond20AttachActivationResource(rollProperties, properties, null, null, { name: actionName, rollType: "trait" });
-        wayBeyond20AttachLimitedUse(rollProperties, "Channel Divinity", { name: actionName });
-        const result = await sendRollWithCharacter("trait", 0, rollProperties);
-        if (result === true) {
-            wayBeyond20TrackSelfFeatureEffect("Djinni’s Escape", "Until the end of your next turn", [], ["resistance", "condition-immunity"]);
-        }
-        return { handled: true, result };
+    if (wayBeyond20ElementalStrikeChoice(actionName)) {
+        return { handled: true, result: await wayBeyond20RollElementalStrikeOption(actionName, actionParent, description, properties) };
     }
 
     if (normalized === "activate noble scion" || normalized === "noble scion") {
@@ -6153,9 +7001,8 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
         if (character.hasClassFeature("Trance of Order") && character.getSetting("sorcerer-trance-of-order", false))
             roll_properties.d20 = "1d20min10";
 
-        // Apply batched updates to settings, if any:
-        if (Object.keys(settings_to_change).length > 0)
-            character.mergeCharacterSettings(settings_to_change);
+        // Apply batched updates to settings, if any, once the roll was actually dispatched:
+        wayBeyond20CommitAfterDispatch(roll_properties, () => wayBeyond20CommitRollSettings(settings_to_change));
 
         if (!force_damages_only) {
             wayBeyond20AttachActivationResource(roll_properties, properties, null, "action", {
@@ -6164,7 +7011,7 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
             });
             wayBeyond20AttachNativeActionUse(roll_properties, action_name);
         }
-        await wayBeyond20MaybeAddPaladinSmite(
+        await wayBeyond20MaybeAddSmite(
             roll_properties,
             wayBeyond20ActivationResource(properties, null, "action") !== "bonusAction" &&
                 (isMeleeAttack || properties["Attack Type"] === "Melee" || properties["Attack Type"] === "Unarmed Strike" ||
@@ -6589,6 +7436,150 @@ function handleSpecialHealingSpells(spell_name, damages=[], damage_types=[], {sp
     }
 }
 
+function wayBeyond20SpellCastLevel(level, castas) {
+    const castMatch = String(castas || "").match(/(\d+)/);
+    if (castMatch) return parseInt(castMatch[1]);
+    if (/cantrip/i.test(String(level || ""))) return 0;
+    const levelMatch = String(level || "").match(/\b(\d+)(?:st|nd|rd|th)?\b/);
+    return levelMatch ? parseInt(levelMatch[1]) : 0;
+}
+
+async function wayBeyond20ChooseRitualMode({ ritual, forceDisplay }) {
+    const canRitualCast = !!(character && (
+        character.hasClassFeature("Ritual Adept", true) ||
+        character.hasClassFeature("Ritual Casting", true) ||
+        character.hasFeat("Ritual Caster", true)
+    ));
+    if (forceDisplay || !ritual || !canRitualCast ||
+        !wayBeyond20CharacterHelperEnabled("waybeyond20-ritual-casting-helper")) return "normal";
+    return dndbeyondDiceRoller.queryGeneric(
+        "Ritual Casting",
+        "How would you like to handle this ritual spell?",
+        { normal: "Cast Normally", ritual: "Cast as Ritual", display: "Display Only" },
+        "waybeyond20-wizard-ritual-mode",
+        ["normal", "ritual", "display"],
+        "normal",
+        { prefix: "A ritual takes 10 additional minutes and does not expend a spell slot." }
+    );
+}
+
+function wayBeyond20CastingConflicts(components) {
+    if (!wayBeyond20CharacterHelperEnabled("waybeyond20-condition-casting-warning")) return [];
+    const conditions = Array.isArray(character._conditions) ? character._conditions : [];
+    const activeText = wayBeyond20GetTrackedSpellEffects().map(effect => [effect.name, effect.source, ...(effect.flags || [])].join(" "));
+    const normalized = [...conditions, ...activeText].map(value => String(value || "").toLowerCase());
+    const conflicts = [];
+    const blocking = ["incapacitated", "stunned", "paralyzed", "petrified", "unconscious"];
+    const blocked = blocking.filter(condition => normalized.some(value => new RegExp(`\\b${condition}\\b`).test(value)));
+    if (blocked.length) conflicts.push(`${blocked.join(", ")} normally prevents casting`);
+
+    const componentText = String(components || "").toUpperCase();
+    if (/\bV\b/.test(componentText) && normalized.some(value => /\b(silenced|gagged|speechless|cannot speak|can.?t speak)\b/.test(value))) {
+        conflicts.push("a verbal component conflicts with the detected inability to speak");
+    }
+    if (/\b[SM]\b/.test(componentText) && normalized.some(value => /\b(no free hand|cannot use hands|can.?t use hands|bound hands|hands bound)\b/.test(value))) {
+        conflicts.push("a somatic or material component conflicts with the detected hand restriction");
+    }
+    return conflicts;
+}
+
+async function wayBeyond20ConfirmCastingConflicts(spellName, components, forceDisplay) {
+    if (forceDisplay) return true;
+    const conflicts = wayBeyond20CastingConflicts(components);
+    if (!conflicts.length) return true;
+    const choice = await dndbeyondDiceRoller.queryGeneric(
+        "Casting Warning",
+        `${spellName || "This spell"}: ${conflicts.join("; ")}. Cast anyway?`,
+        { cancel: "Cancel", cast: "Cast Anyway" },
+        "waybeyond20-condition-casting-warning-choice",
+        ["cancel", "cast"],
+        "cancel"
+    );
+    return choice === "cast";
+}
+
+async function wayBeyond20ResolveIntrusionRoll(sides) {
+    try {
+        const roll = dndbeyondDiceRoller._roller.roll(`1d${sides}`);
+        await dndbeyondDiceRoller._roller.resolveRolls("Intrusion Die", [roll], {
+            character: character ? character.getDict() : null,
+            whisper: WhisperType.NO
+        });
+        return parseInt(roll.total);
+    } catch (error) {
+        wayBeyond20CharacterDebug("Intrusion die roll failed", { sides, error: String(error) });
+        return null;
+    }
+}
+
+function wayBeyond20IntrusionTableText(result, startingDie) {
+    const entries = {
+        1: "Until the end of your next turn, choose only one on your turn: take an Action, take a Bonus Action, or move.",
+        2: "Each creature in a 30-foot Emanation, including you, has its Speed halved until the end of your next turn.",
+        3: `The nearest other creature within 60 feet makes a CON save or takes 2d${startingDie} Necrotic damage; you regain HP equal to damage dealt.`,
+        4: "Until the end of your next turn, you and each creature that sees the tear make a WIS save or become Frightened while it exists.",
+        5: `For 1 minute, an alien limb makes Unarmed Strikes using your spell attack bonus and deals ${parseInt(character?._proficiency) || 2}d${startingDie} Acid damage instead.`,
+        6: "You are Blinded until the end of your next turn.",
+        7: "You are Incapacitated until the end of your next turn.",
+        8: `You take 2d${startingDie} Psychic damage, and your spell save DC increases by 2 for 1 minute.`,
+        9: "Regain one expended spell slot of level 5 or lower; take unavoidable Necrotic damage equal to twice the slot level.",
+        10: "Now and at the end of each of your turns for 1 minute, a 15-foot Emanation gives you and each creature in it the Prone condition.",
+        11: "For 1 hour, you have Disadvantage on Wisdom-based ability checks and saving throws.",
+        12: "The GM places an Aberration or Fiend of CR no greater than your Wizard level within 30 feet and decides its attitude and actions."
+    };
+    return entries[parseInt(result)] || "Consult the Intrusion table on D&D Beyond.";
+}
+
+async function wayBeyond20ApplyOccultistIntrusion(rollProperties, context) {
+    if (!rollProperties || !context || context.forceDisplay || context.ritualMode !== "normal" ||
+        !wayBeyond20CharacterHelperEnabled("wizard-occultist-intrusion-helper") || !wayBeyond20HasOccultistIntrusion()) return null;
+    const castLevel = wayBeyond20SpellCastLevel(context.level, context.castas);
+    if (castLevel < 1) return null;
+    const visibleSlot = wayBeyond20AvailableSpellSlots().some(slot => slot.level === castLevel && slot.available > 0);
+    if (!visibleSlot) return null;
+
+    const choice = await dndbeyondDiceRoller.queryGeneric(
+        "Occultist Intrusion",
+        "Apply an Intrusion to this spell-slot cast?",
+        { none: "No Intrusion", overwhelming: "Overwhelming Mind", seeking: "Seeking Eye" },
+        "waybeyond20-occultist-intrusion-choice",
+        ["none", "overwhelming", "seeking"],
+        "none"
+    );
+    if (!choice || choice === "none") return null;
+
+    const currentDie = wayBeyond20GetIntrusionDie();
+    const result = await wayBeyond20ResolveIntrusionRoll(currentDie);
+    if (!Number.isFinite(result)) return null;
+    let nextDie = currentDie;
+    let tableResult = null;
+    if (result === 1) {
+        nextDie = wayBeyond20StepIntrusionDie(currentDie, 1);
+        tableResult = await wayBeyond20ResolveIntrusionRoll(12);
+    } else {
+        nextDie = wayBeyond20StepIntrusionDie(currentDie, -1);
+    }
+
+    if (choice === "overwhelming") {
+        addEffect(rollProperties, "Overwhelming Mind: creatures have Disadvantage on the first saving throw they make against this spell");
+    } else if (choice === "seeking") {
+        if (rollProperties["to-hit"]) adjustRollAndKeyModifiersWithAdvantage(rollProperties);
+        addEffect(rollProperties, "Seeking Eye: Advantage on the first attack roll you make for this spell");
+    }
+    addEffect(rollProperties, `Intrusion Die d${currentDie}: ${result}; next die d${nextDie}`);
+    if (tableResult !== null) addEffect(rollProperties, `Intrusion Table ${tableResult}: ${wayBeyond20IntrusionTableText(tableResult, wayBeyond20OccultistStartingDie())}`);
+    rollProperties["waybeyond20-occultist-intrusion"] = { choice, result, currentDie, nextDie, tableResult };
+    return rollProperties["waybeyond20-occultist-intrusion"];
+}
+
+function wayBeyond20ApplyRitualMode(rollProperties, ritualMode) {
+    if (!rollProperties || ritualMode !== "ritual") return;
+    const castingTime = String(rollProperties["casting-time"] || "").trim();
+    rollProperties["casting-time"] = castingTime ? `${castingTime} + 10 minutes (Ritual)` : "10 minutes (Ritual)";
+    rollProperties.ritual = true;
+    addEffect(rollProperties, "Cast as a Ritual; no spell slot expended");
+}
+
 async function rollSpell(force_display = false, force_to_hit_only = false, force_damages_only = false) {
     const properties = propertyListToDict($(".ct-spell-pane .ct-spell-detail [role=list] > div"));
     //console.log("Properties are : " + String(properties));
@@ -6602,6 +7593,9 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
     const castas = $(".ct-spell-caster__casting-level-current").text();
     const level = $(".ct-spell-pane .ct-spell-detail__level-school-item").toArray().map((i) => i.textContent).join(" ");
     const ritual = $(".ct-spell-pane .ct-spell-name__icon--ritual,.ct-spell-pane .ddbc-spell-name__icon--ritual, .ct-spell-pane .ct-sidebar__header-primary ddbc-ritual-icon").length > 0;
+    const waybeyond20_ritual_mode = await wayBeyond20ChooseRitualMode({ ritual, forceDisplay: force_display });
+    if (waybeyond20_ritual_mode === null) return;
+    if (waybeyond20_ritual_mode === "display") force_display = true;
     let concentration = $(".ct-spell-pane .ct-spell-name__icon--concentration,.ct-spell-pane .ddbc-spell-name__icon--concentration, .ct-spell-pane .ct-sidebar__header-primary ddbc-concentration-icon").length > 0;
     let duration = properties["Duration"] || "";
     if (duration.includes("Concentration")) {
@@ -6749,15 +7743,16 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
         }
         for (let key in spell_properties)
             roll_properties[key] = spell_properties[key];
+        wayBeyond20ApplyRitualMode(roll_properties, waybeyond20_ritual_mode);
 
         if (castas != "" && !level.startsWith(castas))
             roll_properties["cast-at"] = castas;
 
-        let waybeyond20_spell_effect_update = null;
+        let waybeyond20_spell_effect_plan = null;
         if (!force_display && wayBeyond20ShouldTrackSpellEffect(concentration, duration)) {
             const waybeyond20_spell_effect = wayBeyond20BuildSpellEffect(character, spell_name, spell_source, level, castas, concentration, duration, properties, waybeyond20_talent);
-            waybeyond20_spell_effect_update = await wayBeyond20ApplySpellEffectWithTargets(character, settings_to_change, waybeyond20_spell_effect, waybeyond20_talent);
-            if (waybeyond20_spell_effect_update === null) return;
+            waybeyond20_spell_effect_plan = await wayBeyond20ApplySpellEffectWithTargets(character, waybeyond20_spell_effect, waybeyond20_talent);
+            if (waybeyond20_spell_effect_plan === null) return;
             roll_properties["waybeyond20-spell-effect"] = waybeyond20_spell_effect;
             if (concentration) roll_properties["waybeyond20-concentration"] = waybeyond20_spell_effect;
         }
@@ -6785,22 +7780,21 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
         // HACK: using versatile to allow toll the dead to roll both damage types separate
         if(spell_full_name.toLowerCase() === "toll the dead" && character.getSetting("toll-choice") === "both")
             roll_properties["is_versatile"] = true;
-        // Apply batched updates to settings, if any:
-        if (Object.keys(settings_to_change).length > 0) {
-            character.mergeCharacterSettings(settings_to_change, () => {
-                if (waybeyond20_spell_effect_update) {
-                    wayBeyond20SendEffectsUpdate(character, waybeyond20_spell_effect_update.activeEffects, waybeyond20_spell_effect_update.concentration);
-                }
-            });
-        } else if (waybeyond20_spell_effect_update) {
-            wayBeyond20SendEffectsUpdate(character, waybeyond20_spell_effect_update.activeEffects, waybeyond20_spell_effect_update.concentration);
-        }
-        if (!force_display && !force_damages_only) {
+        // Apply batched updates to settings, if any, once the roll was actually dispatched:
+        wayBeyond20CommitAfterDispatch(roll_properties, () =>
+            wayBeyond20CommitSpellRollSettings(settings_to_change, waybeyond20_spell_effect_plan));
+        if (!force_display && !force_damages_only && waybeyond20_ritual_mode !== "ritual") {
             wayBeyond20AttachActivationResource(roll_properties, properties, waybeyond20_talent, null, {
                 name: spell_name,
                 rollType: "spell-attack"
             });
         }
+        if (!await wayBeyond20ConfirmCastingConflicts(spell_name, roll_properties.components, force_display)) return;
+        // Casting Divine Smite directly is the same trigger as the attack follow-up dialog.
+        if (!force_display) await wayBeyond20MaybeAddElementalStrike(roll_properties, spell_name);
+        await wayBeyond20ApplyOccultistIntrusion(roll_properties, {
+            forceDisplay: force_display, ritualMode: waybeyond20_ritual_mode, level, castas
+        });
         return sendRollWithCharacter("spell-attack", damages[0] || "", roll_properties);
     } else {
         const roll_properties = {
@@ -6824,23 +7818,26 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
         }
         if (castas != "" && !level.startsWith(castas))
             roll_properties["cast-at"] = castas;
+        wayBeyond20ApplyRitualMode(roll_properties, waybeyond20_ritual_mode);
         if (!force_display && wayBeyond20ShouldTrackSpellEffect(concentration, duration)) {
-            const settings_to_change = {};
             const waybeyond20_spell_effect = wayBeyond20BuildSpellEffect(character, spell_name, spell_source, level, castas, concentration, duration, properties, waybeyond20_talent);
-            const waybeyond20_spell_effect_update = await wayBeyond20ApplySpellEffectWithTargets(character, settings_to_change, waybeyond20_spell_effect, waybeyond20_talent);
-            if (waybeyond20_spell_effect_update === null) return;
+            const waybeyond20_spell_effect_plan = await wayBeyond20ApplySpellEffectWithTargets(character, waybeyond20_spell_effect, waybeyond20_talent);
+            if (waybeyond20_spell_effect_plan === null) return;
             roll_properties["waybeyond20-spell-effect"] = waybeyond20_spell_effect;
             if (concentration) roll_properties["waybeyond20-concentration"] = waybeyond20_spell_effect;
-            character.mergeCharacterSettings(settings_to_change, () => {
-                wayBeyond20SendEffectsUpdate(character, waybeyond20_spell_effect_update.activeEffects, waybeyond20_spell_effect_update.concentration);
-            });
+            wayBeyond20CommitAfterDispatch(roll_properties, () =>
+                wayBeyond20CommitSpellRollSettings({}, waybeyond20_spell_effect_plan));
         }
-        if (!force_display && !force_damages_only) {
+        if (!force_display && !force_damages_only && waybeyond20_ritual_mode !== "ritual") {
             wayBeyond20AttachActivationResource(roll_properties, properties, waybeyond20_talent, null, {
                 name: spell_name,
                 rollType: "spell-card"
             });
         }
+        if (!await wayBeyond20ConfirmCastingConflicts(spell_name, roll_properties.components, force_display)) return;
+        await wayBeyond20ApplyOccultistIntrusion(roll_properties, {
+            forceDisplay: force_display, ritualMode: waybeyond20_ritual_mode, level, castas
+        });
         return sendRollWithCharacter("spell-card", 0, roll_properties);
     }
 }
@@ -8151,7 +9148,7 @@ function handleMessage(request, sender, sendResponse) {
         if (request.type == "general") {
             updateSettings(request.settings);
         } else if (request.type == "character" && request.id == character._id) {
-            character.updateSettings(request.settings);
+            character.updateSettings(request.settings, request.origin);
             wayBeyond20ScheduleActiveEffectBadgeRefresh();
         } else {
             console.log("Ignoring character settings, for ID: ", request.id);

@@ -738,23 +738,85 @@ if (!window.__beyond20_mb2_initialized__) {
         return !/(checked|selected|active|used)/.test(className);
     }
 
-    function b20LimitedUseControlMatchesFeature(control, featureName) {
-        const needle = String(featureName || "").replace(/\s+/g, " ").trim().toLowerCase();
-        if (!control || !needle) return false;
-        let node = control;
-        for (let depth = 0; node && depth < 12; depth++, node = node.parentElement) {
-            const text = String(node.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
-            if (!text.includes(needle)) continue;
-            const localControls = node.querySelectorAll?.("[role='checkbox'][aria-label='use' i], input[type='checkbox'][aria-label='use' i]").length || 0;
-            if (localControls > 0 && localControls <= 12) return true;
+    // Named limited-use ownership (brief 1.10). Same rule as content character.js
+    // wayBeyond20LimitedUseControlOwnerLabel: a control belongs only to the feature named by the primary
+    // label of its own nearest row; with no recognizable row, the nearest ancestor that adds a label owns
+    // it only when that ancestor adds no other controls and carries exactly one distinct label.
+    const B20_LIMITED_USE_LABEL_SELECTOR = ".ct-feature-snippet__heading,.ddbc-feature-snippet__heading,[class*='styles_heading']," +
+        ".ct-combat-attack__label,.ddbc-combat-attack__label,.ct-sidebar__heading,h1,h2,h3,h4,h5,h6";
+    const B20_LIMITED_USE_SELECTORS = {
+        control: "[role='checkbox'][aria-label='use' i],input[type='checkbox'][aria-label='use' i]",
+        row: ".ct-feature-snippet__option,.ddbc-feature-snippet__option,.ct-feature-snippet,.ddbc-feature-snippet," +
+            "[class*='ct-feature-snippet--'],[class*='ddbc-feature-snippet--']," +
+            ".ct-combat-attack,.ddbc-combat-attack,.b20-action-pane,.b20-custom-action-pane,.ct-custom-action-pane",
+        label: B20_LIMITED_USE_LABEL_SELECTOR,
+        fallbackLabel: "[class*='heading'],[class*='title'],[class*='name'],[class*='label']"
+    };
+
+    function b20LimitedUseLabelsWithin(node, control) {
+        const ownedElsewhere = candidate => {
+            const row = candidate.closest(B20_LIMITED_USE_SELECTORS.row);
+            if (!row) return false;
+            for (let current = control; current; current = current.parentElement) if (current === row) return false;
+            return true;
+        };
+        const distinct = selector => Array.from(new Set(Array.from(node.querySelectorAll(selector))
+            .filter(candidate => !ownedElsewhere(candidate))
+            .map(b20LimitedUseLabelText)
+            .filter(text => /[a-z]/.test(text))));
+        const headings = distinct(B20_LIMITED_USE_SELECTORS.label);
+        return headings.length ? headings : distinct(B20_LIMITED_USE_SELECTORS.fallbackLabel);
+    }
+
+    function b20NormalizeFeatureLabel(value) {
+        return String(value || "")
+            .replace(/[’']/g, "")
+            .replace(/[^a-z0-9]+/gi, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .toLowerCase();
+    }
+
+    function b20LimitedUseLabelText(element) {
+        if (!element) return "";
+        const ownText = Array.from(element.childNodes || [])
+            .filter(node => node.nodeType === 3)
+            .map(node => node.textContent)
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim();
+        return b20NormalizeFeatureLabel(ownText || element.textContent);
+    }
+
+    function b20LimitedUseControlOwnerLabel(control) {
+        if (!control?.closest) return "";
+        const selectors = B20_LIMITED_USE_SELECTORS;
+        const row = control.closest(selectors.row);
+        if (row) {
+            const primary = Array.from(row.querySelectorAll(selectors.label)).find(candidate =>
+                candidate.closest(selectors.row) === row && b20LimitedUseLabelText(candidate));
+            if (primary) return b20LimitedUseLabelText(primary);
         }
-        return false;
+        const controlsWithin = node => (node.matches?.(selectors.control) ? 1 : 0) +
+            node.querySelectorAll(selectors.control).length;
+        let node = row ? row.parentElement : control.parentElement;
+        const groupControls = row ? controlsWithin(row) : (node ? controlsWithin(node) : 1);
+        for (let depth = 0; node && depth < 12; depth++, node = node.parentElement) {
+            const labels = b20LimitedUseLabelsWithin(node, control);
+            if (labels.length === 0) continue;
+            return controlsWithin(node) === groupControls && labels.length === 1 ? labels[0] : "";
+        }
+        return "";
+    }
+
+    function b20LimitedUseControlMatchesFeature(control, featureName) {
+        const needle = b20NormalizeFeatureLabel(featureName);
+        return !!needle && b20LimitedUseControlOwnerLabel(control) === needle;
     }
 
     function b20FindLimitedUseControls(featureName) {
-        const raw = Array.from(document.querySelectorAll(
-            "[role='checkbox'][aria-label='use' i], input[type='checkbox'][aria-label='use' i]"
-        ));
+        if (!b20NormalizeFeatureLabel(featureName)) return [];
+        const raw = Array.from(document.querySelectorAll(B20_LIMITED_USE_SELECTORS.control));
         const unique = [];
         const seen = new Set();
         for (const element of raw) {
@@ -763,13 +825,8 @@ if (!window.__beyond20_mb2_initialized__) {
             seen.add(canonical);
             unique.push(canonical);
         }
-        const featureControls = unique.filter(control => b20LimitedUseControlMatchesFeature(control, featureName));
-        const labeledUseControls = unique.filter(control => {
-            const input = b20LimitedUseInputForControl(control);
-            return String(control.getAttribute?.("aria-label") || "").toLowerCase() === "use" ||
-                String(input?.getAttribute?.("aria-label") || "").toLowerCase() === "use";
-        });
-        return featureControls.length ? featureControls : (featureName ? [] : labeledUseControls);
+        // Never fall back to another labeled `use` control: no owned control means no match.
+        return unique.filter(control => b20LimitedUseControlMatchesFeature(control, featureName));
     }
 
     function b20BuildSyntheticReactEvent(type, target, currentTarget) {
@@ -891,6 +948,13 @@ if (!window.__beyond20_mb2_initialized__) {
         }
         let verification = await verify("main-native-click");
         if (verification.spent) return { spent: true, beforeUnused, afterUnused: verification.afterUnused, controlCount: verification.controls.length, method: "main-native-click", attempts };
+        // Re-read immediately before each fallback so a late native change is never doubled.
+        const spentLate = async method => {
+            const fresh = await b20WaitForLimitedUseChange(featureName, beforeUnused, 0);
+            return fresh.spent ? { spent: true, beforeUnused, afterUnused: fresh.afterUnused, controlCount: fresh.controls.length, method: `${method}-late`, attempts } : null;
+        };
+        let late = await spentLate("main-native-click");
+        if (late) return late;
 
         controls = verification.controls;
         unused = controls.find(b20LimitedUseControlUnused);
@@ -907,6 +971,8 @@ if (!window.__beyond20_mb2_initialized__) {
             }
             verification = await verify("main-input-change");
             if (verification.spent) return { spent: true, beforeUnused, afterUnused: verification.afterUnused, controlCount: verification.controls.length, method: "main-input-change", attempts };
+            late = await spentLate("main-input-change");
+            if (late) return late;
         }
 
         controls = verification.controls;
@@ -915,6 +981,8 @@ if (!window.__beyond20_mb2_initialized__) {
         attempts.push({ method: "react-onClick", handler: clickHandler });
         verification = await b20WaitForLimitedUseChange(featureName, beforeUnused, 5);
         if (verification.spent) return { spent: true, beforeUnused, afterUnused: verification.afterUnused, controlCount: verification.controls.length, method: "react-onClick", attempts };
+        late = await spentLate("react-onClick");
+        if (late) return late;
 
         controls = verification.controls;
         unused = controls.find(b20LimitedUseControlUnused);
@@ -924,10 +992,214 @@ if (!window.__beyond20_mb2_initialized__) {
         return { spent: verification.spent, beforeUnused, afterUnused: verification.afterUnused, controlCount: verification.controls.length, method: verification.spent ? "react-onChange" : "failed", attempts };
     }
 
+    // A request delivered twice (a duplicated event or listener) must not spend twice.
+    const b20HandledLimitedUseRequests = new Set();
+
     function spendLimitedUse(requestId, featureName, beforeUnused) {
+        if (requestId && b20HandledLimitedUseRequests.has(requestId)) return;
+        if (requestId) b20HandledLimitedUseRequests.add(requestId);
         b20SpendLimitedUseInPage(featureName, beforeUnused)
             .then(result => sendCustomEvent("WayBeyond20LimitedUseResult", [requestId, result]))
             .catch(error => sendCustomEvent("WayBeyond20LimitedUseResult", [requestId, {
+                spent: false,
+                method: "exception",
+                error: String(error)
+            }]));
+    }
+
+    function b20SpellSlotHeaderLevel(header) {
+        const text = String(header?.textContent || "").replace(/\s+/g, " ").trim();
+        const match = text.match(/\b(\d+)(?:st|nd|rd|th)\s+level\b/i);
+        return match ? parseInt(match[1]) : null;
+    }
+
+    function b20SpellSlotControls(level) {
+        const desiredLevel = parseInt(level);
+        if (!Number.isFinite(desiredLevel) || desiredLevel < 1) return [];
+        const headers = Array.from(document.querySelectorAll(
+            ".ct-content-group__header,.ddbc-content-group__header,[class*='contentGroup'][class*='header']"
+        ));
+        const header = headers.find(candidate => b20SpellSlotHeaderLevel(candidate) === desiredLevel);
+        if (!header) return [];
+        return Array.from(header.querySelectorAll(
+            "[role='checkbox'][aria-label='use' i],input[type='checkbox'][aria-label='use' i]"
+        )).map(b20LimitedUseCanonicalControl).filter((control, index, controls) =>
+            control && controls.indexOf(control) === index
+        );
+    }
+
+    function b20SpellSlotAvailable(control) {
+        return b20LimitedUseControlUnused(control);
+    }
+
+    async function b20WaitForSpellSlotChange(level, mode, beforeAvailable, attempts = 6) {
+        let controls = b20SpellSlotControls(level);
+        let afterAvailable = controls.filter(b20SpellSlotAvailable).length;
+        const changed = () => mode === "restore"
+            ? afterAvailable > beforeAvailable
+            : afterAvailable < beforeAvailable;
+        for (let attempt = 0; attempt < attempts && !changed(); attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 120));
+            controls = b20SpellSlotControls(level);
+            afterAvailable = controls.filter(b20SpellSlotAvailable).length;
+        }
+        return { controls, afterAvailable, changed: controls.length > 0 && changed() };
+    }
+
+    async function b20ChangeSpellSlotInPage(level, mode = "spend", requestedBeforeAvailable = null) {
+        let controls = b20SpellSlotControls(level);
+        const detectedBeforeAvailable = controls.filter(b20SpellSlotAvailable).length;
+        const beforeAvailable = Number.isFinite(Number(requestedBeforeAvailable))
+            ? Number(requestedBeforeAvailable)
+            : detectedBeforeAvailable;
+        const desiredControl = controls.find(control => mode === "restore"
+            ? !b20SpellSlotAvailable(control)
+            : b20SpellSlotAvailable(control));
+        if (!desiredControl) {
+            return { changed: false, method: "no-eligible-control", level, mode, beforeAvailable, afterAvailable: detectedBeforeAvailable };
+        }
+
+        const attempts = [];
+        const verify = async method => {
+            const result = await b20WaitForSpellSlotChange(level, mode, beforeAvailable, 5);
+            attempts.push({ method, afterAvailable: result.afterAvailable });
+            return result;
+        };
+        try {
+            desiredControl.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+            desiredControl.focus?.({ preventScroll: true });
+            desiredControl.click();
+        } catch (error) {
+            attempts.push({ method: "main-native-click", error: String(error) });
+        }
+        let verification = await verify("main-native-click");
+        if (verification.changed) return { changed: true, level, mode, beforeAvailable, afterAvailable: verification.afterAvailable, method: "main-native-click", attempts };
+        // Re-read immediately before each fallback so a late native change is never doubled.
+        const changedLate = async method => {
+            const fresh = await b20WaitForSpellSlotChange(level, mode, beforeAvailable, 0);
+            return fresh.changed ? { changed: true, level, mode, beforeAvailable, afterAvailable: fresh.afterAvailable, method: `${method}-late`, attempts } : null;
+        };
+        let late = await changedLate("main-native-click");
+        if (late) return late;
+
+        controls = verification.controls;
+        const retryControl = controls.find(control => mode === "restore"
+            ? !b20SpellSlotAvailable(control)
+            : b20SpellSlotAvailable(control));
+        const input = b20LimitedUseInputForControl(retryControl);
+        if (input && typeof HTMLInputElement !== "undefined") {
+            try {
+                const checkedSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked")?.set;
+                const checked = mode !== "restore";
+                if (checkedSetter) checkedSetter.call(input, checked);
+                else input.checked = checked;
+                input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+                input.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+            } catch (error) {
+                attempts.push({ method: "main-input-change", error: String(error) });
+            }
+            verification = await verify("main-input-change");
+            if (verification.changed) return { changed: true, level, mode, beforeAvailable, afterAvailable: verification.afterAvailable, method: "main-input-change", attempts };
+            late = await changedLate("main-input-change");
+            if (late) return late;
+        }
+
+        controls = verification.controls;
+        const reactControl = controls.find(control => mode === "restore"
+            ? !b20SpellSlotAvailable(control)
+            : b20SpellSlotAvailable(control));
+        const clickHandler = b20InvokeLimitedUseReactHandler(reactControl, "onClick");
+        attempts.push({ method: "react-onClick", handler: clickHandler });
+        verification = await b20WaitForSpellSlotChange(level, mode, beforeAvailable, 6);
+        if (verification.changed) return { changed: true, level, mode, beforeAvailable, afterAvailable: verification.afterAvailable, method: "react-onClick", attempts };
+        late = await changedLate("react-onClick");
+        if (late) return late;
+
+        const changeHandler = b20InvokeLimitedUseReactHandler(reactControl, "onChange");
+        attempts.push({ method: "react-onChange", handler: changeHandler });
+        verification = await b20WaitForSpellSlotChange(level, mode, beforeAvailable, 6);
+        return { changed: verification.changed, level, mode, beforeAvailable, afterAvailable: verification.afterAvailable, method: verification.changed ? "react-onChange" : "failed", attempts };
+    }
+
+    function changeSpellSlot(requestId, level, mode, beforeAvailable) {
+        b20ChangeSpellSlotInPage(level, mode, beforeAvailable)
+            .then(result => sendCustomEvent("WayBeyond20SpellSlotResult", [requestId, result]))
+            .catch(error => sendCustomEvent("WayBeyond20SpellSlotResult", [requestId, {
+                changed: false,
+                method: "exception",
+                error: String(error)
+            }]));
+    }
+
+    function b20PaladinSmiteUseEntry() {
+        const rows = Array.from(document.querySelectorAll(".ct-spells-spell,.ddbc-spells-spell"));
+        for (const row of rows) {
+            const name = String(row.querySelector(
+                ".ct-spells-spell__label,.ddbc-spells-spell__label,[class*='spellName']"
+            )?.textContent || "").replace(/\s+/g, " ").trim();
+            const meta = String(row.querySelector(
+                ".ct-spells-spell__meta,.ddbc-spells-spell__meta,[class*='spellMeta']"
+            )?.textContent || "").replace(/\s+/g, " ").trim();
+            const text = String(row.textContent || "").replace(/\s+/g, " ").trim();
+            if (name.toLowerCase() !== "divine smite" ||
+                !/paladin.?s smite/i.test(meta.replace(/[’']/g, "'")) ||
+                !/1\s*\/\s*(?:lr|long\s+rest)/i.test(text)) continue;
+            const button = Array.from(row.querySelectorAll("button")).find(candidate =>
+                /^use$/i.test(String(candidate.textContent || "").replace(/\s+/g, " ").trim()));
+            if (button) return { row, button };
+        }
+        return null;
+    }
+
+    // D&D Beyond keeps the row and its "Use" label once spent and shows "1/LR (Used)".
+    function b20PaladinSmiteUseIsUsed(entry) {
+        if (!entry || !entry.row || !entry.row.isConnected) return false;
+        const text = String(entry.row.textContent || "").replace(/\s+/g, " ");
+        return /\(\s*used\s*\)/i.test(text) ||
+            !!(entry.button && (entry.button.disabled || entry.button.getAttribute("aria-disabled") === "true"));
+    }
+
+    function b20PaladinSmiteUseAvailable(entry = b20PaladinSmiteUseEntry()) {
+        if (!entry || !entry.button || !entry.button.isConnected) return false;
+        return !b20PaladinSmiteUseIsUsed(entry);
+    }
+
+    async function b20SpendPaladinSmiteUseInPage() {
+        let entry = b20PaladinSmiteUseEntry();
+        if (!b20PaladinSmiteUseAvailable(entry)) return { spent: false, method: "no-available-use" };
+        const attempts = [];
+        // Success is the mounted row showing the use as spent. A row that disappeared
+        // (tab change, re-render) proves nothing and is not success.
+        const verify = async method => {
+            for (let attempt = 0; attempt < 8; attempt++) {
+                await new Promise(resolve => setTimeout(resolve, 120));
+                entry = b20PaladinSmiteUseEntry();
+                if (b20PaladinSmiteUseIsUsed(entry)) return { spent: true, method, attempts };
+            }
+            return null;
+        };
+        try {
+            entry.button.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+            entry.button.focus?.({ preventScroll: true });
+            entry.button.click();
+        } catch (error) {
+            attempts.push({ method: "main-native-click", error: String(error) });
+        }
+        let result = await verify("main-native-click");
+        if (result) return result;
+
+        entry = b20PaladinSmiteUseEntry();
+        if (!b20PaladinSmiteUseAvailable(entry)) return { spent: false, method: "row-unavailable-after-click", attempts };
+        const clickHandler = b20InvokeLimitedUseReactHandler(entry.button, "onClick");
+        attempts.push({ method: "react-onClick", handler: clickHandler });
+        result = await verify("react-onClick");
+        return result || { spent: false, method: "failed", attempts };
+    }
+
+    function spendPaladinSmiteUse(requestId) {
+        b20SpendPaladinSmiteUseInPage()
+            .then(result => sendCustomEvent("WayBeyond20PaladinSmiteUseResult", [requestId, result]))
+            .catch(error => sendCustomEvent("WayBeyond20PaladinSmiteUseResult", [requestId, {
                 spent: false,
                 method: "exception",
                 error: String(error)
@@ -962,6 +1234,8 @@ if (!window.__beyond20_mb2_initialized__) {
     registered_events.push(addCustomEventListener("MBPendingRoll", pendingRoll));
     registered_events.push(addCustomEventListener("MBFulfilledRoll", fulfilledRoll));
     registered_events.push(addCustomEventListener("WayBeyond20SpendLimitedUse", spendLimitedUse));
+    registered_events.push(addCustomEventListener("WayBeyond20ChangeSpellSlot", changeSpellSlot));
+    registered_events.push(addCustomEventListener("WayBeyond20SpendPaladinSmiteUse", spendPaladinSmiteUse));
     registered_events.push(addCustomEventListener("disconnect", disconnectAllEvents));
 
     window[EVENTS_KEY] = registered_events;

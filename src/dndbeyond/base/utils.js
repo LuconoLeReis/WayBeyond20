@@ -666,17 +666,112 @@ async function sendRoll(character, rollType, fallback, args) {
         }
     }
 
+    // Callers use this result only to decide whether a one-use effect or native resource may be
+    // consumed. true means the extension accepted the roll (a VTT tab received it, or the supported
+    // local D&D Beyond display handled it); it does not mean a remote VTT has already rendered it.
+    // false means nothing was sent, so nothing may be committed (brief 1.11, F-L4).
+    if (!wayBeyond20ExtensionContextAvailable()) {
+        wayBeyond20NotifyDispatchFailure("Extension context invalidated.");
+        return false;
+    }
     if (character.getGlobalSetting("use-digital-dice", false) && DigitalDiceManager.isEnabled()) {
         req.sendMessage = true;
-        dndbeyondDiceRoller.handleRollRequest(req);
-    } else {
-        console.log("Sending message: ", req);
-        chrome.runtime.sendMessage(req, (resp) => beyond20SendMessageFailure(character, resp));
+        const delivery = wayBeyond20TrackRollDelivery(req);
+        try {
+            await dndbeyondDiceRoller.handleRollRequest(req);
+        } catch (error) {
+            wayBeyond20RollDeliveries.delete(req);
+            wayBeyond20NotifyDispatchFailure(error && error.message ? error.message : error);
+            return false;
+        }
+        wayBeyond20RollDeliveries.delete(req);
+        // The renderer sends the rolled result through DNDBDisplayer.sendMessage. A roll it only
+        // displayed locally never reaches that send and keeps the existing local-only outcome.
+        if (!delivery.invoked) return true;
+        const outcome = await delivery.outcome;
+        if (!outcome.ok) {
+            wayBeyond20NotifyDispatchFailure(outcome.error);
+            return false;
+        }
+        return true;
     }
-    // Callers use this acknowledgement only to decide whether a one-use effect or
-    // native resource may be consumed. It means the roll was dispatched, not that a
-    // remote VTT has already rendered it.
+    console.log("Sending message: ", req);
+    const outcome = await wayBeyond20SendRuntimeMessage(req);
+    if (!outcome.ok) {
+        wayBeyond20NotifyDispatchFailure(outcome.error);
+        return false;
+    }
+    // A "no VTT found" or D&D Beyond-only response is still a handled roll: the background replied
+    // and the roll is displayed on D&D Beyond.
+    beyond20SendMessageFailure(character, outcome.response);
     return true;
+}
+
+// ---- Dispatch outcome (brief 1.11, F-L4) ---------------------------------------------------------
+// After the extension is reloaded, a D&D Beyond tab that was not refreshed keeps running an orphaned
+// content script: chrome.runtime calls throw "Extension context invalidated" or report lastError.
+// Such a roll never leaves the tab, so it must report failure instead of success.
+function wayBeyond20ExtensionContextAvailable() {
+    try {
+        return !!(typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.id);
+    } catch (error) {
+        return false;
+    }
+}
+
+function wayBeyond20SendRuntimeMessage(message) {
+    return new Promise(resolve => {
+        if (!wayBeyond20ExtensionContextAvailable()) {
+            resolve({ ok: false, error: "Extension context invalidated." });
+            return;
+        }
+        try {
+            chrome.runtime.sendMessage(message, response => {
+                let lastError = null;
+                try {
+                    lastError = chrome.runtime.lastError;
+                } catch (error) {
+                    lastError = error;
+                }
+                if (lastError) {
+                    resolve({ ok: false, error: String(lastError.message || lastError), response });
+                } else {
+                    resolve({ ok: true, response });
+                }
+            });
+        } catch (error) {
+            resolve({ ok: false, error: String(error && error.message ? error.message : error) });
+        }
+    });
+}
+
+// A digital-dice roll is sent by the renderer after the dice settle. The request object identifies
+// that later send so sendRoll can wait for its real outcome.
+const wayBeyond20RollDeliveries = new WeakMap();
+
+function wayBeyond20TrackRollDelivery(request) {
+    const delivery = { invoked: false, resolve: null, outcome: null };
+    delivery.outcome = new Promise(resolve => { delivery.resolve = resolve; });
+    wayBeyond20RollDeliveries.set(request, delivery);
+    return delivery;
+}
+
+let wayBeyond20LastDispatchFailureNotice = 0;
+
+function wayBeyond20NotifyDispatchFailure(error) {
+    console.warn("WayBeyond20: roll was not sent; nothing was spent.", error);
+    const now = Date.now();
+    if (now - wayBeyond20LastDispatchFailureNotice < 3000) return;
+    wayBeyond20LastDispatchFailureNotice = now;
+    const orphaned = /context invalidated/i.test(String(error || "")) || !wayBeyond20ExtensionContextAvailable();
+    const message = orphaned
+        ? "WayBeyond20 was updated or reloaded, so this D&D Beyond tab lost its connection. Nothing was sent and nothing was spent. Please reload this tab, then roll again."
+        : "WayBeyond20 could not send that roll, so nothing was spent. Please try again, or reload this D&D Beyond tab.";
+    try {
+        if (typeof alertify !== "undefined" && alertify.error) alertify.error(`<strong>WayBeyond20:</strong> ${message}`);
+    } catch (error) {
+        console.warn("WayBeyond20: could not show the dispatch failure notice.", error);
+    }
 }
 
 function adjustRollAndKeyModifiersWithAdvantage(roll_properties) {

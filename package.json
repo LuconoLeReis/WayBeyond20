@@ -1,12 +1,12 @@
 {
   "name": "waybeyond20",
-  "version": "2.20.65",
+  "version": "2.20.68",
   "description": "WayBeyond20: D&D Beyond & Roll20/Foundry VTT Integration",
   "directories": {
     "doc": "docs"
   },
   "scripts": {
-    "test": "node tests/v1.63-regressions.js && node tests/v1.64-smite.js",
+    "test": "node tests/v1.63-regressions.js && node tests/v1.64-smite.js && node tests/v1.65-wizard.js && node tests/v1.65-helper-settings.js && node tests/v1.65-draining-attack.js && node tests/v1.65-elemental-strike.js && node tests/v1.65-paladin-smite-spend.js && node tests/v1.65-named-resource.js && node tests/v1.65-spell-slot-spend.js && node tests/v1.65-sheet-route.js && node tests/v1.65-dispatch-failure.js && node tests/v1.65-settings-concurrency.js && node tests/v1.65-smite-tab-restore.js",
     "gulp": "gulp",
     "clean": "gulp clean",
     "build": "run-s clean build:*",

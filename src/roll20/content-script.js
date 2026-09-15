@@ -702,6 +702,10 @@ function convertRollToText(whisper, roll, standout = false) {
 
 function displayExtraInfo(request) {
     let extra = "";
+    if (Array.isArray(request["feature-results"])) {
+        request["feature-results"].filter(result => result && result.name && result.text)
+            .forEach(result => extra += result.name + ": " + result.text + "\n");
+    }
     if (request["mastery"]) {
         extra += "Mastery: " + request["mastery"] + "\n";
     }

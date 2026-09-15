@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WayBeyond20 v1.64.1 Release Notes</title>
+    <title>WayBeyond20 v1.65.2 Release Notes</title>
     <link rel="stylesheet" href="Updates.css">
 </head>
 <body>
@@ -12,10 +12,38 @@
             <img src="images/icons/icon128.png" alt="WayBeyond20">
             <div>
                 <p class="eyebrow">Development update</p>
-                <h1>WayBeyond20 v1.64.1</h1>
+                <h1>WayBeyond20 v1.65.2</h1>
                 <p class="lede">Complete changes from the Beyond20 2.20.1 base</p>
             </div>
         </header>
+
+        <section>
+            <h2>New in v1.65.2</h2>
+            <ol>
+                <li><strong>Named uses are spent on the right counter.</strong> A feature's use is matched to its own row on the sheet, so an option no longer spends a neighbouring pool, and an ordinary attack with no use of its own changes nothing.</li>
+                <li><strong>Paladin's Smite is marked used</strong> on D&amp;D Beyond after a Divine Smite paid for with the free cast.</li>
+                <li><strong>Spell-slot smites spend the chosen slot</strong> even when the Elemental Strike follow-up changed sheet tabs first.</li>
+                <li><strong>A roll that cannot be sent spends nothing.</strong> After the extension is reloaded or updated, a roll from a stale D&amp;D Beyond tab reports the problem and asks you to reload that tab instead of quietly consuming uses, slots or Channel Divinity.</li>
+                <li><strong>Simultaneous updates no longer overwrite each other.</strong> Attacking while hidden both clears Hidden and spends the Action; a concentration spell cast in combat spends the Action and keeps its Concentration tracking.</li>
+                <li><strong>The Smite check returns you to your tab,</strong> including when you have no smite, no fuel, or you cancel.</li>
+                <li><strong>Elemental Strike</strong> offers its four options as single-click buttons with the cost shown, works from the Actions list on its own, and leaves the native feature text intact.</li>
+                <li><strong>Draining Attack</strong> qualifies on the native Unarmed Strike and the Agile Strikes follow-up, and raises Temporary HP only when the new total is higher.</li>
+                <li><strong>Helper switches are per character.</strong></li>
+                <li><strong>The Combat window no longer draws on the Character Builder.</strong></li>
+            </ol>
+        </section>
+
+        <section>
+            <h2>Known limitations in v1.65.2</h2>
+            <ol>
+                <li><strong>Lay on Hands does not respond.</strong> Its amount box uses a browser prompt that Chrome hides when the window is not in front. Use D&amp;D Beyond's own controls until the replacement ships.</li>
+                <li><strong>The Concentration check helper</strong> uses the same kind of browser pop-up and runs only from the CONCENTRATION badge.</li>
+                <li><strong>Smite is offered on Breath Weapon.</strong> D&amp;D Beyond reports its range as "Reach"; cancel the prompt.</li>
+                <li><strong>A weapon attack rolled from an item does not count your Action</strong> in the Combat window.</li>
+                <li><strong>Rolling only a damage die</strong> on a saving-throw action does not spend its use or Action.</li>
+                <li><strong>Draining Attack cannot tell a hit from a miss</strong> when damage rolls automatically with the attack.</li>
+            </ol>
+        </section>
 
         <section>
             <h2>v1.64.1 smite correction</h2>

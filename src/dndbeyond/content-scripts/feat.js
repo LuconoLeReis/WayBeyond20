@@ -98,4 +98,3 @@ chrome.runtime.onMessage.addListener(handleMessage);
 chrome.runtime.sendMessage({ "action": "activate-icon" });
 updateSettings();
 addCustomEventListener("SendMessage", _sendCustomMessageToBeyond20);
-

@@ -644,11 +644,11 @@ class Character extends CharacterBase {
     }
     getClassLevel(name) {
         name = this.fixBloodHunterClassName(name);
-        return this._classes[name] || 0;
+        return (this._classes || {})[name] || 0;
     }
     hasClass(name) {
         name = this.fixBloodHunterClassName(name);
-        return this._classes[name] !== undefined;
+        return (this._classes || {})[name] !== undefined;
     }
     getAbility(abbr) {
         const ability = this._abilities.find(abi => abi[1] === abbr);
@@ -683,25 +683,47 @@ class Character extends CharacterBase {
                 callback(this._settings);
             return;
         }
+        // Keys written here but not yet saved stay authoritative in memory until their own write
+        // completes, so a settings snapshot from elsewhere cannot roll them back (brief 1.11, F-L11).
+        this._settingsWriteSequence = (this._settingsWriteSequence || 0) + 1;
+        const sequence = this._settingsWriteSequence;
+        this._pendingSettings = this._pendingSettings || {};
         const cb = (settings) => {
-            chrome.runtime.sendMessage({
-                "action": "settings",
-                "type": "character",
-                "id": this._id,
-                "settings": settings
-            });
+            for (let k in changedData) {
+                if (this._pendingSettings[k] && this._pendingSettings[k].sequence === sequence)
+                    delete this._pendingSettings[k];
+            }
+            try {
+                chrome.runtime.sendMessage({
+                    "action": "settings",
+                    "type": "character",
+                    "id": this._id,
+                    "settings": settings,
+                    "origin": wayBeyond20SettingsOrigin()
+                });
+            } catch (error) {
+                console.warn("WayBeyond20: could not broadcast character settings", error);
+            }
             if (callback)
                 callback(settings);
         }
         for (let k in changedData) {
             this._settings[k] = changedData[k];
+            this._pendingSettings[k] = { value: changedData[k], sequence };
         }
         mergeSettings(changedData, cb, "character-" + this._id, character_settings);
     }
 
-    updateSettings(new_settings = null) {
+    updateSettings(new_settings = null, origin = null) {
         if (new_settings) {
-            this._settings = new_settings;
+            // This page's own broadcast carries a snapshot no newer than what it already holds in
+            // memory, and such snapshots can arrive out of order. Snapshots from other pages (the
+            // popup, an import, another tab) apply, except keys this page is still saving.
+            if (origin && origin === wayBeyond20SettingsOrigin()) return;
+            const next = Object.assign({}, new_settings);
+            for (let k in (this._pendingSettings || {}))
+                next[k] = this._pendingSettings[k].value;
+            this._settings = next;
         } else {
             getStoredSettings((saved_settings) => {
                 this.updateSettings(saved_settings);

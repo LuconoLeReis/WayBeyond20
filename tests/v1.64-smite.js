@@ -82,6 +82,10 @@ assert.match(characterSource, /wayBeyond20AttachTurnResource\(rollProperties, "b
 assert.match(characterSource, /waybeyond20-paladin-smite-used/);
 assert.match(characterSource, /wayBeyond20SmiteNameIsEligible/);
 assert.doesNotMatch(characterSource, /WAYBEYOND20_PALADIN_SMITE_NAMES/);
+assert.doesNotMatch(
+    functionSource(characterSource, "wayBeyond20BuildSmiteOptions", "wayBeyond20QuerySmite"),
+    /hasClass\("Paladin"\)/
+);
 assert.match(characterSource, /data-smite-level/);
 assert.match(characterSource, /data-slot-level/);
 assert.match(utilsSource, /slotLevel >= smiteLevel/);
@@ -89,5 +93,12 @@ assert.match(characterSource, /wayBeyond20PreparedSmiteCache/);
 assert.match(characterSource, /wayBeyond20SpellSlotCache/);
 assert.match(characterSource, /wayBeyond20InstallSmiteSpellStateTracker\(\)/);
 assert.match(characterSource, /prepared: true, slots: false/);
+// Brief 1.7/1.8 (Bill): Elemental Strike follows any Divine Smite cast, whatever its fuel,
+// through a four-button chooser. Behavior is executed in tests/v1.65-elemental-strike.js.
+assert.match(characterSource, /await wayBeyond20MaybeAddElementalStrike\(rollProperties, selection\.smite\.name\)/);
+assert.doesNotMatch(characterSource, /selection\.fuel\.type !== "paladin-smite"/);
+assert.match(characterSource, /wayBeyond20AttachLimitedUse\(rollProperties, "Channel Divinity"/);
+assert.match(characterSource, /uses one Channel Divinity and this Divine Smite's Bonus Action/);
+assert.match(characterSource, /async function wayBeyond20SpendPaladinSmiteFreeUse[\s\S]*wayBeyond20CharacterSheetTab\("Spells"\)/);
 
 console.log("WayBeyond20 v1.64.1 smite checks passed.");

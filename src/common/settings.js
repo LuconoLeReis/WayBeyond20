@@ -734,6 +734,12 @@ const character_settings = {
         "type": "bool",
         "default": true
     },
+    "paladin-smite-prompt": {
+        "title": "Spellcasting: Smite Helper",
+        "description": "Offer eligible prepared Smite spells and their available fuel after a qualifying attack.",
+        "type": "bool",
+        "default": true
+    },
     "paladin-invincible-conqueror": {
         "title": "Paladin: Oath of Conquest: Invincible Conqueror",
         "description": "You can harness extraordinary martial prowess for 1 minute.",
@@ -897,6 +903,48 @@ const character_settings = {
         "type": "bool",
         "default": false
     },
+    "wizard-occultist-intrusion-helper": {
+        "title": "Wizard: Occultist Intrusion Helper",
+        "description": "Show the Intrusion die tracker and offer valid Intrusion options when casting a leveled spell with a spell slot.",
+        "type": "bool",
+        "default": true
+    },
+    "wizard-arcane-recovery-helper": {
+        "title": "Wizard: Arcane Recovery Helper",
+        "description": "Show a compact Arcane Recovery control with legal expended-slot choices.",
+        "type": "bool",
+        "default": true
+    },
+    "waybeyond20-ritual-casting-helper": {
+        "title": "Spellcasting: Ritual Casting Helper",
+        "description": "Offer Cast Normally, Cast as Ritual, and Display choices when a character with ritual-casting capability uses an eligible ritual spell.",
+        "type": "bool",
+        "default": true
+    },
+    "waybeyond20-mage-armor-helper": {
+        "title": "Spellcasting: Mage Armor Helper",
+        "description": "Show Mage Armor status and its calculated base Armor Class when the sheet exposes enough information.",
+        "type": "bool",
+        "default": true
+    },
+    "waybeyond20-concentration-check-helper": {
+        "title": "Spellcasting: Concentration Check Helper",
+        "description": "Let the Concentration badge calculate and roll a Constitution saving throw from entered damage before asking whether concentration ends.",
+        "type": "bool",
+        "default": true
+    },
+    "waybeyond20-condition-casting-warning": {
+        "title": "Spellcasting: Condition Conflict Warning",
+        "description": "Warn only when a detected condition or explicit effect conflicts with casting or with a spell's components; every warning can be bypassed.",
+        "type": "bool",
+        "default": true
+    },
+    "musician-rest-reminder": {
+        "title": "Feat: Musician Rest Reminder",
+        "description": "Show a friendly Musician reminder after a completed rest without automatically spending or assigning anything.",
+        "type": "bool",
+        "default": true
+    },
     "charger-feat": {
         "title": "Feat: Charger Extra Damage (Apply to next roll only, unless locked)",
         "description": "You charge into battle, lending weight to your blow!",
@@ -1026,6 +1074,19 @@ const character_settings = {
     }
 }
 
+// WayBeyond20 helper switches. They are character-specific (Bill ruling B2),
+// default on when absent, and are shown for every character in the popup.
+const WAYBEYOND20_CHARACTER_HELPER_SETTINGS = [
+    "paladin-smite-prompt",
+    "wizard-occultist-intrusion-helper",
+    "wizard-arcane-recovery-helper",
+    "waybeyond20-ritual-casting-helper",
+    "waybeyond20-mage-armor-helper",
+    "waybeyond20-concentration-check-helper",
+    "waybeyond20-condition-casting-warning",
+    "musician-rest-reminder"
+];
+
 
 const WAYBEYOND20_DEBUG_LOG_STORAGE_KEY = "waybeyond20-debug-log-lines";
 const WAYBEYOND20_DEBUG_LOG_MAX_ENTRIES = 750;
@@ -1101,10 +1162,11 @@ function storageGet(name, default_value, cb) {
     getStorage().get({ [name]: default_value }, (items) => cb(items[name]));
 }
 
-function storageSet(name, value, cb = null) {
+function storageSet(name, value, cb = null, onError = null) {
     getStorage().set({ [name]: value }, () => {
         if (chrome.runtime.lastError) {
             console.log('Chrome Runtime Error', chrome.runtime.lastError.message);
+            if (onError) onError(chrome.runtime.lastError);
         } else if (cb) {
             cb(value);
         }
@@ -1171,12 +1233,12 @@ function getStoredSettings(cb, key = "settings", _list = options_list) {
     });
 }
 
-function setSettings(settings, cb = null, key = "settings") {
+function setSettings(settings, cb = null, key = "settings", onError = null) {
     storageSet(key, settings, (settings) => {
         console.log("WayBeyond20: Saved settings (" + key + "): ", settings);
         if (cb)
             cb(settings);
-    });
+    }, onError);
 }
 
 function wayBeyond20SettingsValueEqual(value1, value2) {
@@ -1187,23 +1249,56 @@ function wayBeyond20SettingsValueEqual(value1, value2) {
     }
 }
 
+// mergeSettings reads the whole stored record, changes some keys and writes the record back. Two merges
+// of the same record that overlap would both read the old record, and the later write would silently
+// undo the earlier one (brief 1.11, F-L11: a Hidden attack lost its Action spend, an in-combat
+// concentration cast lost its effect). Merges of one storage key therefore run one at a time within
+// this page or extension context.
+const wayBeyond20SettingsMergeQueues = {};
+
 function mergeSettings(settings, cb = null, key = "settings", _list = options_list) {
-    getStoredSettings((stored_settings) => {
-        let changed = false;
-        for (let k in settings) {
-            if (!wayBeyond20SettingsValueEqual(stored_settings[k], settings[k])) {
-                stored_settings[k] = settings[k];
-                changed = true;
+    const run = () => new Promise(resolve => {
+        const finish = (result) => {
+            try {
+                if (cb)
+                    cb(result);
+            } finally {
+                resolve();
             }
-        }
-        if (!changed) {
-            if (cb)
-                cb(stored_settings);
-            return;
-        }
-        console.log("WayBeyond20: Saving changed settings (" + key + "): ", settings);
-        setSettings(stored_settings, cb, key);
-    }, key, _list);
+        };
+        getStoredSettings((stored_settings) => {
+            let changed = false;
+            for (let k in settings) {
+                if (!wayBeyond20SettingsValueEqual(stored_settings[k], settings[k])) {
+                    stored_settings[k] = settings[k];
+                    changed = true;
+                }
+            }
+            if (!changed) {
+                finish(stored_settings);
+                return;
+            }
+            console.log("WayBeyond20: Saving changed settings (" + key + "): ", settings);
+            setSettings(stored_settings, finish, key, () => resolve());
+        }, key, _list);
+    });
+    const previous = wayBeyond20SettingsMergeQueues[key] || Promise.resolve();
+    const next = previous.then(run).catch(error => {
+        console.warn("WayBeyond20: settings merge failed (" + key + ")", error);
+    });
+    wayBeyond20SettingsMergeQueues[key] = next;
+    return next;
+}
+
+// Identifies settings broadcasts written by this page, so the page does not re-apply its own older
+// snapshots over newer in-memory changes (brief 1.11, F-L11).
+let wayBeyond20SettingsOriginToken = "";
+
+function wayBeyond20SettingsOrigin() {
+    if (!wayBeyond20SettingsOriginToken) {
+        wayBeyond20SettingsOriginToken = `origin-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    }
+    return wayBeyond20SettingsOriginToken;
 }
 
 function resetSettings(cb = null, _list = options_list) {

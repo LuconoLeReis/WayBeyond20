@@ -58,9 +58,18 @@ class DNDBDisplayer {
         return req;
     }
     async sendMessage(request, title, html, character, whisper, play_sound, source, attributes, description, attack_rolls, roll_info, damage_rolls, total_damages, open) {
-        const req = await this.sendMessageToDOM(request, title, html, character, whisper, play_sound, source, attributes, description, attack_rolls, roll_info, damage_rolls, total_damages, open);        
+        // sendRoll waits on this send for a digital-dice roll (brief 1.11, F-L4).
+        const delivery = typeof wayBeyond20RollDeliveries !== "undefined" ? wayBeyond20RollDeliveries.get(request) : null;
+        if (delivery) {
+            wayBeyond20RollDeliveries.delete(request);
+            delivery.invoked = true;
+        }
+        const req = await this.sendMessageToDOM(request, title, html, character, whisper, play_sound, source, attributes, description, attack_rolls, roll_info, damage_rolls, total_damages, open);
         console.log("Sending message: ", req);
-        chrome.runtime.sendMessage(req, (resp) => beyond20SendMessageFailure(character, resp));
+        const outcome = await wayBeyond20SendRuntimeMessage(req);
+        if (outcome.ok) beyond20SendMessageFailure(character, outcome.response);
+        else if (!delivery) wayBeyond20NotifyDispatchFailure(outcome.error);
+        if (delivery) delivery.resolve(outcome);
     }
     displayError(message) {
         alertify.error(message);

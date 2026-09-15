@@ -272,6 +272,13 @@ function initializeAlertify() {
                     this.elements.content.innerHTML = this.get('content');
                     this.__internal.buttons[0].element.innerHTML = this.get('ok_label');
                     this.__internal.buttons[1].element.innerHTML = this.get('cancel_label');
+                    // The dialog instance is reused. Clear a Proceed lock left by an earlier
+                    // Smite or Elemental Strike query that was cancelled before a choice.
+                    const okButton = this.__internal.buttons[0].element;
+                    okButton.disabled = false;
+                    okButton.removeAttribute("aria-disabled");
+                    okButton.classList.remove("waybeyond20-query-proceed-disabled");
+                    okButton.style.display = "";
 
                     // WayBeyond20 smite queries use two radio groups. Keep the
                     // Proceed button disabled until both groups contain a legal
@@ -283,10 +290,6 @@ function initializeAlertify() {
                         const proceed = this.__internal.buttons[0].element;
                         const syncSmiteChoices = () => {
                             const smite = smiteForm.querySelector("input[name='smite-type']:checked");
-                            smiteForm.querySelectorAll("input[name='smite-type'],input[name='smite-fuel']").forEach(input => {
-                                const label = input.closest("label");
-                                if (label) label.classList.toggle("waybeyond20-smite-option-selected", input.checked);
-                            });
                             const fuelInputs = Array.from(smiteForm.querySelectorAll("input[name='smite-fuel']"));
                             fuelInputs.forEach(input => {
                                 const isFreeDivine = input.getAttribute("data-smite-fuel") === "paladin-smite";
@@ -299,11 +302,46 @@ function initializeAlertify() {
                                 if (label) label.classList.toggle("waybeyond20-smite-option-disabled", !legal);
                                 if (!legal && input.checked) input.checked = false;
                             });
+                            smiteForm.querySelectorAll("input[name='smite-type'],input[name='smite-fuel']").forEach(input => {
+                                const label = input.closest("label");
+                                if (label) label.classList.toggle("waybeyond20-smite-option-selected", input.checked);
+                            });
                             const fuel = smiteForm.querySelector("input[name='smite-fuel']:checked");
-                            proceed.disabled = !(smite && fuel && !fuel.disabled);
+                            const ready = !!(smite && fuel && !fuel.disabled);
+                            proceed.disabled = !ready;
+                            proceed.setAttribute("aria-disabled", String(!ready));
+                            proceed.classList.toggle("waybeyond20-query-proceed-disabled", !ready);
                         };
                         smiteForm.addEventListener("change", syncSmiteChoices);
+                        smiteForm.addEventListener("click", () => setTimeout(syncSmiteChoices, 0));
                         syncSmiteChoices();
+                    }
+
+                    // Elemental Strike chooser: each option is an action button. The first
+                    // click resolves the prompt with that option and closes it; the footer
+                    // confirm button is hidden and later clicks are ignored. Cancel/close
+                    // still resolves null through the callback.
+                    const elementalForm = this.elements.content.querySelector("form.waybeyond20-elemental-strike-query");
+                    if (elementalForm) {
+                        const dialog = this;
+                        const resolver = this.get('resolver');
+                        okButton.style.display = "none";
+                        elementalForm.addEventListener("submit", event => event.preventDefault());
+                        elementalForm.addEventListener("click", event => {
+                            const button = event.target && event.target.closest
+                                ? event.target.closest("button[data-elemental-strike]")
+                                : null;
+                            if (!button) return;
+                            event.preventDefault();
+                            if (elementalForm.getAttribute("data-selected")) return;
+                            elementalForm.setAttribute("data-selected", button.getAttribute("data-elemental-strike"));
+                            elementalForm.querySelectorAll("button[data-elemental-strike]").forEach(choice => {
+                                choice.disabled = true;
+                            });
+                            resolver.call(dialog, $(elementalForm));
+                            // Closing runs the cancel callback, which cannot change a resolved prompt.
+                            dialog.close();
+                        });
                     }
                 },
                 "callback": function (closeEvent) {

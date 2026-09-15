@@ -696,7 +696,14 @@ class Beyond20RollRenderer {
         if (request.quantity) {
             name = `${request.name} (${request.quantity})`;
         }
-        return this.postDescription(request, name, source, {}, request.description, [], [], [], true);
+        return this.postDescription(request, name, source, {}, request.description, [], this.featureResultInfo(request), [], true);
+    }
+
+    // Readable feature outcomes (for example an Elemental Strike option) shown as their own
+    // rows so the player can relay them; request["feature-results"] is [{ name, text }].
+    featureResultInfo(request) {
+        const results = Array.isArray(request["feature-results"]) ? request["feature-results"] : [];
+        return results.filter(result => result && result.name && result.text).map(result => [result.name, result.text]);
     }
 
     async queryDamageType(title, damage_types, type_id="damage-type") {
@@ -1034,7 +1041,7 @@ class Beyond20RollRenderer {
                 data["AoE Shape"] = request["aoe-shape"];
         }
 
-        const roll_info = [];
+        const roll_info = this.featureResultInfo(request);
         if (request["effects"] !== undefined)
             roll_info.push(["Effects", request["effects"].join(', ')]);
         if (request["mastery"] !== undefined)
@@ -1112,6 +1119,7 @@ class Beyond20RollRenderer {
                 }
             }
         }
+        roll_info.push(...this.featureResultInfo(request));
         if (request["effects"] !== undefined)
             roll_info.push(["Effects", request["effects"].join(', ')]);
         if (request["mastery"] !== undefined)

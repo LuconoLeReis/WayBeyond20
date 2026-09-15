@@ -1,4 +1,4 @@
-WAYBEYOND20 v1.64.1
+WAYBEYOND20 v1.65.2
 ===================
 
 WayBeyond20 is a customized version of Beyond20 for connecting D&D Beyond
@@ -54,7 +54,26 @@ RELEASE NOTES
 -------------
 
 Open Updates.html in this folder to see the complete list of changes from the
-base Beyond20 extension.
+base Beyond20 extension, including what is new in v1.65.2 and the known
+limitations of this test release.
+
+KNOWN LIMITATIONS IN v1.65.2
+----------------------------
+
+Lay on Hands does not respond when clicked. Use D&D Beyond's own controls for
+it until the replacement is released.
+
+The Concentration check helper uses browser pop-ups, which Chrome hides when
+the window is not in front, so it may appear to do nothing.
+
+The Smite prompt also appears on Dragonborn Breath Weapon. Cancel it; Breath
+Weapon is a saving throw, not a weapon attack.
+
+A weapon attack rolled from an item does not count your Action in the Combat
+window. Attacks listed as actions do.
+
+Draining Attack cannot tell a hit from a miss when damage rolls automatically
+with the attack, so it grants Temporary HP either way.
 
 TROUBLESHOOTING
 ---------------

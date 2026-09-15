@@ -24,11 +24,12 @@ Project location:
 
 | Item | Current value |
 | --- | --- |
-| WayBeyond20 candidate | v1.64.1 corrected smite prerelease |
-| Internal package/manifest version | 2.20.65 |
+| WayBeyond20 candidate | v1.65.2 test release |
+| Internal package/manifest version | 2.20.68 |
 | Extension platform | Chrome Manifest V3 |
 | Upstream baseline | Beyond20 2.20.1 |
-| Authoritative source | `WayBeyond20-Master`, `main` at tag `v1.64.1` |
+| Authoritative source | `WayBeyond20-Master`, `main`; v1.65.2 built from the working tree at `24e0447` plus the uncommitted v1.65 line |
+| Previous candidate | v1.64.1 corrected smite prerelease (2.20.65) |
 | Loadable Chrome build | `WayBeyond20-Dev` |
 | First shared release ZIP | `WayBeyond20-chrome-v1_63.zip` — SHA-256 `377086881D6EB90D2EEF9E20D36E1606B4868A6AC1A58E77D3D023FA12E6C503` |
 | Corrected smite ZIP | `WayBeyond20-chrome-v1_64_1.zip` — SHA-256 `E66B429DA59BA7EB6F8F36A2F49BF04650B9B0EF0A3DEEA4EE666D7BBE9AE2A0` |
@@ -42,7 +43,15 @@ Project location:
 - The v1.63 candidate retains the corrected natural-weapon-only Draining Attack behavior, exact Bardic limited-use matching, automatic Agile Strikes choices, and Dazzling Footwork improvements.
 - The character-sheet freeze was traced to unconditional Bardic card DOM writes inside a document-wide MutationObserver. v1.63 makes those writes idempotent.
 
-## Build and verification record
+## v1.65.2 build and verification record (September 15, 2026)
+
+- `package.json`, `package-lock.json`, `manifest.json`, and `manifest_ff.json` report 2.20.68; both manifests display WayBeyond20 1.65.2.
+- `npm test` passes thirteen suites, including the new dispatch-failure, settings-concurrency, and Smite tab-restore suites; changed authored JavaScript passes `node --check`, as does every built bundle.
+- `npm run build` completed for Chrome and Firefox, and `build\chrome` was mirrored to `WayBeyond20-Dev` with an identical 97-file SHA-256 inventory.
+- Live verified in Chrome and Roll20 on a dedicated test character: named-resource spending, Paladin's Smite marking, slot-fuelled smites across tab changes, the Elemental Strike chooser and its independent options, Breath Weapon's own counter, Draining Attack on the native Unarmed Strike and Agile Strikes, failed-dispatch safety, concurrent updates, and tab restoration.
+- Known limitations are listed in `WayBeyond20-CHANGELOG.md` and the packaged `Updates.html`: Lay on Hands does not respond, the Concentration helper uses browser pop-ups, Smite is offered on Breath Weapon, item-pane weapon attacks do not count the Action, damage-only rolls on saving-throw actions spend nothing, and Draining Attack cannot tell a hit from a miss on auto-rolled damage.
+
+## Earlier build and verification record (v1.64.1)
 
 - `package.json`, `package-lock.json`, `manifest.json`, and `manifest_ff.json` report 2.20.65; both manifests display WayBeyond20 1.64.1.
 - `npm test` passes the v1.63 regression checks and the v1.64.1 generalized smite checks.

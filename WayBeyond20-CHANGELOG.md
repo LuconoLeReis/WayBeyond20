@@ -1,5 +1,40 @@
 # WayBeyond20 Changelog
 
+## v1.65.2 — Resource accuracy and dispatch safety
+
+Prepared: September 15, 2026
+
+Extension version: 2.20.68
+
+Based on: Beyond20 2.20.1
+
+This release is for group testing. It collects the v1.65 work and two rounds of corrections found in live play.
+
+### Fixes
+
+- **Named uses are spent on the right counter.** A feature's use is matched to its own row on the sheet. Earlier builds could mark a neighbouring counter instead, for example spending a Breath Weapon use for a Channel Divinity option, or a Bardic Inspiration use for an ordinary attack. An ordinary attack with no limited use of its own now changes nothing. A counter whose row title includes the ancestry, such as "Breath Weapon (Fire)", is matched correctly.
+- **Paladin's Smite is marked used.** After a Divine Smite paid for with the free Paladin's Smite cast, D&D Beyond shows the row as used instead of leaving it available.
+- **Spell-slot smites spend the chosen slot** even when the Elemental Strike follow-up changed sheet tabs first.
+- **A roll that cannot be sent spends nothing.** If the extension was reloaded or updated while a D&D Beyond tab was open, a roll from that stale tab used to consume Channel Divinity, spell slots or uses without reaching the VTT. Such a roll now reports failure, spends nothing and asks you to reload the tab.
+- **Simultaneous updates no longer overwrite each other.** An attack made while hidden now both clears the Hidden effect and spends the Action; a concentration spell cast in combat both spends the Action and keeps its Concentration tracking.
+- **The Smite check returns you to your tab.** Looking for prepared smites briefly opens the Spells tab; you are now returned to the tab you started on, including when you have no smite, no fuel, or you cancel.
+- **The Combat window no longer draws on the Character Builder.**
+
+### Changes
+
+- **Elemental Strike** (Oath of the Noble Genies) offers Dao's Crush, Djinni's Escape, Efreeti's Fury and Marid's Surge as four single-click buttons with the cost shown, and Cancel keeps the Smite without spending Channel Divinity. Each option can also be used on its own from the Actions list, and the native feature text on the sheet is left intact.
+- **Draining Attack** qualifies on the native Unarmed Strike and on the Agile Strikes follow-up, not only on natural weapons, and raises Temporary HP only when the new total is higher.
+- **Helper switches are per character.** Turning a helper off on one character leaves your other characters alone.
+
+### Known limitations in this release
+
+- **Lay on Hands does not respond.** Its healing-amount box uses a browser prompt that Chrome suppresses when the window is not in front, and the action then stops with no message. A replacement interface is being built.
+- **The Concentration check helper** uses browser pop-ups and can fail the same way. It also runs only when you click the CONCENTRATION badge.
+- **Smite is offered on Breath Weapon.** D&D Beyond reports Breath Weapon's range as "Reach", so the Smite prompt appears on a saving-throw action. Cancel it; a rules-accurate trigger is coming.
+- **A weapon attack rolled from an item does not count the Action** in the Combat window. Attacks listed as actions do.
+- **Rolling only a damage die** on a saving-throw action such as Breath Weapon does not spend its use or Action; use the action's own roll button.
+- **Draining Attack cannot tell a hit from a miss** when damage is rolled automatically with the attack, so it awards Temporary HP either way. A confirm-the-hit flow is being built.
+
 ## v1.64.1 — Prepared smite discovery correction
 
 Prepared: September 12, 2026

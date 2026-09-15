@@ -149,6 +149,14 @@ function populateCharacter(response) {
         e = createHTMLOption("toll-choice", false, character_settings);
         options.append(e);
 
+        // Helper switches are offered for every character; each helper still
+        // checks for the actual feature, spell, or effect before it appears.
+        for (const helper of WAYBEYOND20_CHARACTER_HELPER_SETTINGS) {
+            e = createHTMLOption(helper, false, character_settings);
+            e.classList.add("waybeyond20-helper-option");
+            options.append(e);
+        }
+
         if (response["racial-traits"].includes("Lucky") ||
             response["racial-traits"].includes("Luck")) {
             e = createHTMLOption("halfling-lucky", false, character_settings);
@@ -399,7 +407,14 @@ function populateCharacter(response) {
             // Load character specific setttings after global settings in case
             // an option (like discord-target) needs the global variable `settings`
             // to be pre-populated
-            loadSettings(response.settings, character_settings);
+            // Helper switches default on; fill them if the sheet has not loaded
+            // its stored settings yet so a later save cannot write them off.
+            const characterSettings = Object.assign({}, response.settings);
+            for (const helper of WAYBEYOND20_CHARACTER_HELPER_SETTINGS) {
+                if (characterSettings[helper] === undefined)
+                    characterSettings[helper] = character_settings[helper].default;
+            }
+            loadSettings(characterSettings, character_settings);
             // When loading settings, the discord target combobox gets replaced in order to be filled,
             // so we need to fetch it again to add the advanced-option class to it
             $("#beyond20-option-discord-target").addClass("advanced-option");

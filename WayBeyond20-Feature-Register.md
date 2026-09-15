@@ -1,10 +1,10 @@
 # Complete WayBeyond20 Changes from Beyond20
 
-Last verified against source and build: September 11, 2026
+Last verified against source and build: September 15, 2026
 
 Baseline: Beyond20 2.20.1 (`Beyond20-Master`)
 
-Current WayBeyond20 source: 2.20.63 / v1.63 (`WayBeyond20-Master`)
+Current WayBeyond20 source: 2.20.68 / v1.65.2 (`WayBeyond20-Master`)
 
 This is the master list of meaningful features and behavior changes in WayBeyond20 compared with the base Beyond20 extension. It lists what the current source changes; it is not a history of internal builds, testing errors, or proposed future work.
 
@@ -97,6 +97,19 @@ This is the master list of meaningful features and behavior changes in WayBeyond
 61. **Oath of the Noble Genies: Noble Scion** — Sends the activation as a Bonus Action, marks the native use, and tracks the ten-minute self effect for its flight and Minor Wish reminder.
 62. **Utility and defensive spell casting** — Gives spells without attacks, damage, healing, or saves a real **Cast on VTT** action in addition to **Display**, allowing activation costs and persistent effects such as Shield of Faith to be tracked.
 63. **Prepared smite discovery and selection** — Caches the character's current prepared or Always Prepared D&D Beyond smite spell rows, invalidates that cache when preparation changes, presents every discovered eligible smite, and keeps Paladin's Smite fuel restricted to Divine Smite.
+
+## v1.65 line: additions and corrections
+
+64. **Per-character helper settings** — The helper switches (smite prompt, ritual, Mage Armor, concentration check, condition warnings, Musician reminder, and the Wizard helpers) are stored per character, so turning one off on one sheet leaves other characters unchanged.
+65. **Named limited-use ownership** — A feature's use is matched to its own bounded row on the sheet, both in the page and content scripts, so an option cannot spend a neighbouring pool and an ordinary attack with no use of its own attaches none. A row title that includes an ancestry, such as "Breath Weapon (Fire)", is matched to its own counter.
+66. **Paladin's Smite native use** — After a Divine Smite paid for with the free Paladin's Smite cast, the D&D Beyond row is marked used, including when the Elemental Strike follow-up changed sheet tabs first.
+67. **Spell-slot smite spending across tab changes** — The chosen slot is spent even when the sheet is showing the Actions tab at the time.
+68. **Elemental Strike chooser** — Dao's Crush, Djinni's Escape, Efreeti's Fury, and Marid's Surge appear as four single-click buttons with the Channel Divinity cost shown; Cancel keeps the Smite and spends nothing; each option is also available on its own from the Actions list; the native feature text is left intact.
+69. **Draining Attack qualification** — Qualifies on the native Unarmed Strike and on the Agile Strikes follow-up in addition to natural weapons, and raises Temporary HP only when the resolved damage exceeds the current value.
+70. **Sheet-only interface** — Sheet interface such as the Combat window is not drawn on the D&D Beyond Character Builder.
+71. **Failed dispatch spends nothing** — A roll that cannot reach the extension (for example from a tab left open across an extension reload) reports failure, commits no uses, slots, Paladin's Smite, turn resources, spell effects, or one-shot feature toggles, and asks the player to reload the tab.
+72. **Concurrent character-setting updates** — Two updates made in quick succession both survive, in storage and on the open sheet; an attack made while hidden clears Hidden and spends the Action, and a concentration spell cast in combat spends the Action and keeps its Concentration tracking.
+73. **Smite discovery restores the player's tab** — Looking for prepared smites may open the Spells tab; the player is returned to the tab they started on for every outcome, including no smite, no fuel, cancel, and after the roll.
 
 ## Internal register fields
 

@@ -482,6 +482,84 @@ span.dice-roll.beyond20-tooltip-content {
     margin-left: 12px;
 }
 
+.waybeyond20-wizard-tools {
+    align-items: center;
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-left: 10px;
+}
+
+.waybeyond20-intrusion-tracker {
+    align-items: center;
+    border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+    border-radius: 999px;
+    display: inline-flex;
+    font-size: 10px;
+    font-weight: 700;
+    gap: 4px;
+    padding: 2px 5px;
+}
+
+.waybeyond20-intrusion-tracker button,
+.waybeyond20-arcane-recovery-button {
+    background: color-mix(in srgb, currentColor 8%, transparent);
+    border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+    border-radius: 999px;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    line-height: 1.2;
+    padding: 2px 7px;
+}
+
+.waybeyond20-intrusion-tracker button {
+    min-width: 19px;
+    padding: 1px 5px;
+}
+
+.waybeyond20-intrusion-tracker button:disabled,
+.waybeyond20-arcane-recovery-button:disabled {
+    cursor: default;
+    opacity: 0.45;
+}
+
+.waybeyond20-arcane-recovery-query {
+    min-width: 300px;
+}
+
+.waybeyond20-arcane-recovery-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-top: 10px;
+}
+
+.waybeyond20-arcane-recovery-options label {
+    cursor: pointer;
+    position: relative;
+}
+
+.waybeyond20-arcane-recovery-options input {
+    opacity: 0;
+    position: absolute;
+    pointer-events: none;
+}
+
+.waybeyond20-arcane-recovery-options span {
+    background: color-mix(in srgb, currentColor 5%, transparent);
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    border-radius: 999px;
+    display: inline-block;
+    padding: 5px 9px;
+}
+
+.waybeyond20-arcane-recovery-options input:checked + span {
+    background: #b12424;
+    border-color: #8e1d1d;
+    color: #ffffff;
+}
+
 .waybeyond20-effects-popout {
     background: #ffffff;
     border: 1px solid #cfd6dd;
@@ -954,7 +1032,7 @@ span.dice-roll.beyond20-tooltip-content {
     border: 1px solid darkblue;
 }
 
-/* WayBeyond20 Paladin smite query */
+/* WayBeyond20 smite query */
 .waybeyond20-smite-query {
     min-width: 320px;
 }
@@ -1020,4 +1098,57 @@ span.dice-roll.beyond20-tooltip-content {
 .waybeyond20-smite-option-disabled {
     cursor: default;
     opacity: 0.4;
+}
+
+.waybeyond20-elemental-strike-query {
+    max-width: 420px;
+}
+
+.waybeyond20-elemental-strike-buttons {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 8px;
+}
+
+.waybeyond20-elemental-strike-button {
+    background: color-mix(in srgb, currentColor 6%, transparent);
+    border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+    border-radius: 999px;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 600;
+    padding: 7px 12px;
+    white-space: nowrap;
+}
+
+.waybeyond20-elemental-strike-button:hover {
+    background: color-mix(in srgb, currentColor 15%, transparent);
+    border-color: currentColor;
+}
+
+.waybeyond20-elemental-strike-button:focus-visible {
+    outline: 2px solid color-mix(in srgb, currentColor 60%, transparent);
+    outline-offset: 2px;
+}
+
+.waybeyond20-elemental-strike-button:active {
+    transform: scale(0.97);
+}
+
+.waybeyond20-elemental-strike-button:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+.ajs-dialog .ajs-footer .ajs-buttons .waybeyond20-query-proceed-disabled,
+.ajs-dialog .ajs-footer .ajs-buttons .waybeyond20-query-proceed-disabled:hover,
+.ajs-dialog .ajs-footer .ajs-buttons .waybeyond20-query-proceed-disabled:focus {
+    background: #9a9a9a;
+    border-color: #858585;
+    box-shadow: none;
+    color: #e5e5e5;
+    cursor: default;
+    opacity: 0.62;
 }
