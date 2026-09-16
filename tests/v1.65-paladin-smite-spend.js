@@ -1,4 +1,4 @@
-// WB20-0065 (Bill's live report, 2026-09-13): after a Divine Smite fueled by Paladin's Smite with
+// WB20-0065 (live report, 2026-09-13): after a Divine Smite fueled by Paladin's Smite with
 // the Elemental Strike rider, D&D Beyond still showed "Use" and "1/LR" on the Spells tab. The rider
 // shows the Actions tab to read Channel Divinity, so the Spells rows were unmounted when the spend
 // ran; the old code clicked a detached cached row and treated "row not found" as spent.
@@ -108,7 +108,7 @@ const pageLies = () => ({ spent: true, method: "main-native-click" });
 const pageFails = () => ({ spent: false, method: "no-available-use" });
 
 (async () => {
-    // 1. Bill's case: rider left the Actions tab showing. The spend opens Spells, marks D&D Beyond's
+  // 1. Reported case: rider left the Actions tab showing. The spend opens Spells, marks D&D Beyond's
     //    own use, and returns to Actions.
     {
         const sheet = makeSheet({ tab: "Actions" });

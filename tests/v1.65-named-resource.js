@@ -213,8 +213,8 @@ async function section(label, body) {
         assert.equal(attach("Marid’s Surge").feature, "Channel Divinity");
     });
 
-    // 3. Natural Attack and Unarmed Strike dispatch leave every pool unchanged (Bill's Bard evidence).
-    for (const name of ["Fangs/Claws (Dexterity)", "Unarmed Strike"]) await section(`3. Natural Attack and Unarmed Strike dispatch leave every pool unchanged (Bill's Bard evidence). [${name}]`, async () => {
+ // 3. Natural Attack and Unarmed Strike dispatch leave every pool unchanged (Bard regression evidence).
+ for (const name of ["Fangs/Claws (Dexterity)", "Unarmed Strike"]) await section(`3. Natural Attack and Unarmed Strike dispatch leave every pool unchanged (Bard regression evidence). [${name}]`, async () => {
         const sheet = buildSheet();
         const ctx = createSandbox(sheet);
         const request = attackRequest(name);

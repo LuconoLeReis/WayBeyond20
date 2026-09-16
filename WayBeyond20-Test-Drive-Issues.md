@@ -4,14 +4,14 @@ Test build: WayBeyond20 v1.61 / 2.20.61
 
 Started: 2026-09-07
 
-Purpose: Persistent observations from first-hand testing in Bill's connected Chrome profile. This file separates observed behavior from suspected causes and proposed changes.
+Purpose: Persistent observations from first-hand testing in a dedicated Chrome profile. This file separates observed behavior from suspected causes and proposed changes.
 
 ## Test environment
 
-- Browser: Chrome, Lucono profile
-- D&D Beyond character: Calan Avrenson
-- Character URL: https://www.dndbeyond.com/characters/168884333
-- VTT: Roll20 when opened by Bill
+- Browser: Chrome, dedicated test profile
+- D&D Beyond character: dedicated test Bard
+- Character URL: omitted from the public test record
+- VTT: Roll20 test campaign
 - Loaded extension source/build: to be verified in Chrome before testing
 
 ## Issue list
@@ -21,12 +21,12 @@ Purpose: Persistent observations from first-hand testing in Bill's connected Chr
 - Status: Confirmed by first-hand UI inspection
 - Severity: Moderate usability and rules-presentation defect
 - Surface: D&D Beyond Actions tab, Bonus Actions section
-- Observed in: WayBeyond20 v1.61 on Calan test character 168884333
+- Observed in: WayBeyond20 v1.61 on a dedicated Bard test character
 - Observed behavior:
   - Bardic Inspiration appears beneath the attack-style headers `ATTACK`, `RANGE`, `HIT / DC`, `DAMAGE`, and `NOTES`.
   - The row displays `-- Range --` even though the live Bardic Inspiration description on the same sheet says 60 ft.
   - The `Inspire` button is present and reports four uses remaining.
-  - The row displays `1 Use (4/4)` but does not display Calan's current Bardic Inspiration die, `d8`, as useful non-rollable information.
+  - The row displays `1 Use (4/4)` but does not display the character's current Bardic Inspiration die, `d8`, as useful non-rollable information.
   - After two native uses were expended, the `Inspire` button correctly reported two remaining and two native boxes were checked, but the custom row still displayed `1 Use (4/4)`. Its visible count is stale.
 - Expected behavior: A compact feature-oriented row showing Bardic Inspiration as a Bonus Action, its 60 ft. range, current d8 die, remaining uses, and a clear Inspire control without attack/melee semantics.
 - Cause: Not yet determined in this test drive. Existing source inspection indicates the custom activation is still inserted into D&D Beyond's Bonus Actions attack-table structure.
@@ -103,7 +103,7 @@ Purpose: Persistent observations from first-hand testing in Bill's connected Chr
 
 ## Confirmed working observations
 
-- The connected test character is Calan Avrenson, Dhampir Bard 8, character ID 168884333.
+- The test character is a level-8 Dhampir Bard; identifying details are intentionally omitted.
 - WayBeyond20 is injected into the character sheet.
 - The persistent Hit Dice tracker displays `8d8`, matching the test character's Bard level.
 - Bardic Inspiration exposes an `Inspire` button and detects four unused native uses before activation testing.
@@ -115,7 +115,7 @@ Purpose: Persistent observations from first-hand testing in Bill's connected Chr
 - The persistent Hit Dice controls work in both directions. Spending one changed the display from `8d8` to `7d8`; the state remained visible after subsequent feature rolls.
 - A direct Bardic Damage attack reached Roll20, and its deferred `Roll Damages` callback dealt 10 Bludgeoning damage. The callback successfully changed D&D Beyond Temporary HP from 0 to 10, but the automatic Draining Attack qualification is recorded as WB20-TD-005.
 - A direct Fangs/Claws (Dexterity) attack reached Roll20, and its deferred `Roll Damages` callback dealt 9 Slashing damage. Draining Attack then changed D&D Beyond Temporary HP from 0 to 9.
-- Clicking the direct Blood and Bone `d8` control sent a `Blood and Bone` healing result of 8 to Roll20 without spending Calan's own Hit Die; the tracker remained `7d8`.
+- Clicking the direct Blood and Bone `d8` control sent a `Blood and Bone` healing result of 8 to Roll20 without spending the character's own Hit Die; the tracker remained `7d8`.
 - Clicking Blood and Bone `Use` opened a target-facing selector labeled `Select your target's Hit Dice size`, defaulted to `d8`, with `ROLL` and `CANCEL` controls.
 - Starting an Initiative roll opened the Combat Window automatically as `D&D Beyond Initiative - Turn 1`, with Movement 30 ft., Action 1, Bonus Action 1, Reaction 1, New Turn, and End Combat controls.
 - The Initiative roll reached Roll20 as 18.16 with the configured Dexterity tiebreaker (`+3.16`). Roll20 also correctly warned that no valid token was selected for the turn tracker.
@@ -137,7 +137,7 @@ Purpose: Persistent observations from first-hand testing in Bill's connected Chr
 
 - Opening the sheet-level `WAYBEYOND20` settings control displays a Chrome extension UI that temporarily blocks the connected automation interface from controlling the D&D Beyond tab. This is an automation limitation, not yet classified as a WayBeyond20 product defect.
 - The connected browser-control API exposes click and keyboard actions but no hover action, so the hover-popup placement and exact `Combat Window` label could not be exercised directly. Automatic Combat Window behavior was tested instead.
-- Savage Attacker and Use Magic Device could not be exercised on this level-8 Calan test character because those features and their qualifying equipment/spellcasting paths are not present.
+- Savage Attacker and Use Magic Device could not be exercised on this level-8 test character because those features and their qualifying equipment/spellcasting paths are not present.
 
 ## Test notes
 

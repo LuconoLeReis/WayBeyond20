@@ -1074,7 +1074,7 @@ const character_settings = {
     }
 }
 
-// WayBeyond20 helper switches. They are character-specific (Bill ruling B2),
+ // WayBeyond20 helper switches. They are character-specific,
 // default on when absent, and are shown for every character in the popup.
 const WAYBEYOND20_CHARACTER_HELPER_SETTINGS = [
     "paladin-smite-prompt",

@@ -93,7 +93,7 @@ assert.match(characterSource, /wayBeyond20PreparedSmiteCache/);
 assert.match(characterSource, /wayBeyond20SpellSlotCache/);
 assert.match(characterSource, /wayBeyond20InstallSmiteSpellStateTracker\(\)/);
 assert.match(characterSource, /prepared: true, slots: false/);
-// Brief 1.7/1.8 (Bill): Elemental Strike follows any Divine Smite cast, whatever its fuel,
+ // Brief 1.7/1.8: Elemental Strike follows any Divine Smite cast, whatever its fuel,
 // through a four-button chooser. Behavior is executed in tests/v1.65-elemental-strike.js.
 assert.match(characterSource, /await wayBeyond20MaybeAddElementalStrike\(rollProperties, selection\.smite\.name\)/);
 assert.doesNotMatch(characterSource, /selection\.fuel\.type !== "paladin-smite"/);

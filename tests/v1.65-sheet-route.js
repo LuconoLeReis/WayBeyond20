@@ -1,4 +1,4 @@
-// WB20-0065 (Bill, live 2026-09-15): the Combat window drew on the Character Builder because the
+// WB20-0065 (live 2026-09-15): the Combat window drew on the Character Builder because the
 // main-sheet route test accepted /characters/<id>/builder/... . Runs the real route predicate.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

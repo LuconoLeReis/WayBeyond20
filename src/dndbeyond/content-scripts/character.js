@@ -3244,7 +3244,7 @@ function wayBeyond20SetTurnTrackerState(state, callback = null) {
 
 // The character sheet itself: /characters/<id> or a shared sheet link /characters/<id>/<shareId>.
 // The character builder (/characters/<id>/builder/...) is not a sheet; sheet-only UI such as the
-// Combat window must not draw there (Bill, live 2026-09-15).
+ // Combat window must not draw on the Character Builder.
 function wayBeyond20IsMainCharacterSheet(pathname = window.location.pathname) {
     const path = String(pathname || "");
     return /^\/characters\/\d+(?:\/[^/]+)?\/?$/.test(path) && !/^\/characters\/\d+\/builder(?:\/|$)/.test(path);
@@ -6074,7 +6074,7 @@ function wayBeyond20RequestPageSpellSlotChange(level, mode, beforeAvailable = nu
 }
 
 // D&D Beyond keeps the Paladin's Smite row and its "Use" label after the use is spent and
-// appends "(Used)" to the 1/LR text (Bill's live observation). That text is the spent marker.
+ // appends "(Used)" to the 1/LR text. That text is the spent marker.
 function wayBeyond20PaladinSmiteUseTextIsUsed(text) {
     return /\(\s*used\s*\)/i.test(String(text || ""));
 }
@@ -6481,7 +6481,7 @@ async function wayBeyond20MaybeAddElementalStrike(rollProperties, smiteName) {
 
     const channelDivinity = await wayBeyond20ExposeChannelDivinityControls();
     const remaining = channelDivinity.controls.filter(wayBeyond20LimitedUseControlIsUnused).length;
-    // Bill's ruling: offer the automatic popup only with a remaining Channel Divinity use.
+ // Offer the automatic popup only with a remaining Channel Divinity use.
     // An unexposed counter is not evidence of a use, so nothing is offered or spent.
     if (remaining <= 0) return null;
 

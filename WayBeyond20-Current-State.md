@@ -18,7 +18,7 @@ Never choose a folder merely because its name contains `src`, `Master`, or `Dev`
 
 Project location:
 
-`C:\Users\Bill Light\Solheim Enterprises Dropbox\Bill Light\Projects\Mods`
+Local WayBeyond20 Mods project folder
 
 ## Current release candidate
 
@@ -115,10 +115,10 @@ The official subclass name is **Oath of the Noble Genies**.
 - The downloaded GitHub asset was re-hashed on September 11, 2026: SHA-256 `377086881D6EB90D2EEF9E20D36E1606B4868A6AC1A58E77D3D023FA12E6C503`; size 1,239,019 bytes.
 
 1. Reload `WayBeyond20-Dev` from `chrome://extensions` and refresh D&D Beyond/Roll20 tabs.
-2. Load Calan and confirm the sheet remains responsive with the Bardic feature card present.
+2. Load the dedicated Bard test character and confirm the sheet remains responsive with the Bardic feature card present.
 3. Load every available character sheet and confirm WayBeyond20 injection without freezes or cross-character leakage.
-4. On Calan, recheck Bardic native counts, Short Rest isolation, Agile Strikes, Dazzling Footwork, natural-attack Draining qualification, generic-Unarmed exclusion, Stealth consumption, and one representative Savage Attacker path if available.
-5. On Balasar, check Watcher's Will, Abjure the Extraplanar, Lay on Hands, Breath Weapon, Shield of Faith, Action/Bonus Action handling, and native counter restoration after testing.
+4. On the dedicated Bard test character, recheck Bardic native counts, Short Rest isolation, Agile Strikes, Dazzling Footwork, natural-attack Draining qualification, generic-Unarmed exclusion, Stealth consumption, and one representative Savage Attacker path if available.
+5. On a dedicated Paladin test character, check Watcher's Will, Abjure the Extraplanar, Lay on Hands, Breath Weapon, Shield of Faith, Action/Bonus Action handling, and native counter restoration after testing.
 6. On the official Noble Genies sample, check all four Elemental Smite cards, Elemental Rebuke, Noble Scion, Genie’s Splendor, and Aura of Elemental Shielding without leaving resource mutations behind.
 7. Inspect representative results in Roll20.
 8. Rebuild after any correction, rerun syntax/regression checks, resynchronize `WayBeyond20-Dev`, and repeat the affected live checks.
