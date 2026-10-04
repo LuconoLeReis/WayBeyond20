@@ -1,4 +1,4 @@
-WAYBEYOND20 v1.65.3
+WAYBEYOND20 v1.65.5
 ===================
 
 WayBeyond20 is a customized version of Beyond20 for connecting D&D Beyond
@@ -54,10 +54,10 @@ RELEASE NOTES
 -------------
 
 Open Updates.html in this folder to see the complete list of changes from the
-base Beyond20 extension, including what is new in v1.65.3 and the known
-limitations of this test release.
+base Beyond20 extension, including what is new in v1.65.5 and the known
+limitations of this release.
 
-KNOWN LIMITATIONS IN v1.65.3
+KNOWN LIMITATIONS IN v1.65.5
 ----------------------------
 
 The Lay on Hands pool does not stay reduced. D&D Beyond does not record changes

@@ -18,6 +18,10 @@ const root = process.env.WB20_SOURCE_ROOT ? path.resolve(process.env.WB20_SOURCE
 const read = relative => fs.readFileSync(path.join(root, ...relative.split("/")), "utf8");
 const characterSource = read("src/dndbeyond/content-scripts/character.js");
 const commonUtilsSource = read("src/common/utils.js");
+const settingsSource = read("src/common/settings.js");
+// The real RollType class, so the roll-mode assertion compares against the real value.
+const ROLL_TYPE_CLASS = settingsSource.slice(settingsSource.indexOf("class RollType {"),
+    settingsSource.indexOf("\n}\n", settingsSource.indexOf("class RollType {")) + 3);
 
 function between(source, startText, endText) {
     const start = source.indexOf(startText);
@@ -133,6 +137,7 @@ const FLOW_FUNCTIONS = [
     "wayBeyond20RollIsUnarmedStrike", "wayBeyond20NormalizeAttackSemantics", "wayBeyond20ApplyDrainingAttackIntent",
     "wayBeyond20ElementalStrikeChoice", "wayBeyond20IsElementalStrikeParent",
     "wayBeyond20LayOnHandsKind", "wayBeyond20LayOnHandsQueryHtml", "wayBeyond20QueryLayOnHands",
+    "wayBeyond20CurrentHitPoints",
     "wayBeyond20RollLayOnHands", "wayBeyond20PerformLayOnHands", "wayBeyond20RollPaladinSpecialAction"
 ];
 
@@ -200,6 +205,7 @@ function createFlowSandbox({ pool = 15, answers = [], sendResult = true, poisone
     };
     vm.createContext(context);
     vm.runInContext([
+        ROLL_TYPE_CLASS,
         between(characterSource, "const WAYBEYOND20_ELEMENTAL_STRIKE_CHOICES", "function wayBeyond20ElementalStrikeChoice("),
         LAY_ON_HANDS_CONSTANTS,
         ...FLOW_FUNCTIONS.map(name => topLevelFunction(characterSource, name))
@@ -372,16 +378,42 @@ const lineOf = summary => summary.children.find(child => child.classList.contain
         assert.equal(f.input.value, "10", "+ cannot take points already promised to Purify Poison");
     });
 
-    await section("1b. Purify Poison is offered only while 5 points are still unallocated", async () => {
-        const f = layOnHandsForm(12);
+    await section("1b. Bill's screenshot: a full pool opens from Heal with Purify Poison selectable, not greyed", async () => {
+        // 1.65.3 prefilled healing with the whole pool and then disabled Purify because nothing was
+        // "unallocated", so on a full pool Purify opened greyed out every time (Bill, live,
+        // 2026-10-04). Purify must be offered whenever the pool can pay for it.
+        const f = layOnHandsForm(15);
         wireForm(f.form);
-        f.input.value = "12"; f.minus.click(); f.plus.click();
-        assert.equal(f.purify.disabled, true, "nothing spare, so it cannot be taken");
-        f.input.value = "7"; f.minus.click();
-        assert.equal(f.purify.disabled, false, "6 healing leaves 6 spare");
-        const short = layOnHandsForm(4);
-        wireForm(short.form);
-        assert.equal(short.purify.disabled, true, "a 4-point pool can never afford it");
+        assert.equal(f.input.value, "15", "healing is prefilled with the whole pool");
+        assert.equal(f.purify.disabled, false, "Purify Poison is selectable on a full pool");
+        f.purify.click();
+        assert.equal(f.purify.getAttribute("aria-pressed"), "true");
+        assert.equal(f.input.value, "10", "choosing Purify makes room for itself: healing trims to pool - 5");
+        assert.equal(f.remaining.textContent, "0", "10 healing + 5 Purify uses the whole pool");
+        f.plus.click();
+        assert.equal(f.input.value, "10", "healing cannot climb back into Purify's 5 points");
+    });
+
+    await section("1c. The option just chosen takes priority on small pools", async () => {
+        const five = layOnHandsForm(5);
+        wireForm(five.form);
+        assert.equal(five.purify.disabled, false, "a 5-point pool can afford Purify");
+        five.purify.click();
+        assert.equal(five.healing.getAttribute("aria-pressed"), "false", "nothing is left for healing, so Healing switches off");
+        assert.equal(five.remaining.textContent, "0");
+        five.healing.click();
+        assert.equal(five.purify.getAttribute("aria-pressed"), "false", "choosing Healing back turns Purify off in turn");
+        assert.equal(five.input.value, "5");
+
+        const four = layOnHandsForm(4);
+        wireForm(four.form);
+        assert.equal(four.purify.disabled, true, "a 4-point pool can never afford it");
+
+        const fromPurify = layOnHandsForm(15, { start: "purify" });
+        wireForm(fromPurify.form);
+        fromPurify.healing.click();
+        assert.equal(fromPurify.input.value, "10", "adding Healing to a Purify touch is capped at pool - 5");
+        assert.equal(fromPurify.purify.getAttribute("aria-pressed"), "true", "Purify stays selected");
     });
 
     await section("2. A confirm resolves once with the target and the allocation, then closes", async () => {
@@ -436,11 +468,11 @@ const lineOf = summary => summary.children.find(child => child.classList.contain
         const html = run(ctx, "wayBeyond20LayOnHandsQueryHtml");
         const heal = html("heal", { current: 12 });
         assert.match(heal, /^<form class="waybeyond20-lay-on-hands-query" data-kind="heal" data-pool="12" data-purify-cost="5">/);
-        assert.match(heal, /data-lay-on-hands-remaining>12<\/span> of 12 points left/);
-        assert.match(heal, /data-lay-on-hands-option="healing"[^>]*aria-pressed="true"/);
+        assert.match(heal, /data-lay-on-hands-remaining>12<\/span> left/);
+        assert.match(heal, /data-lay-on-hands-option="healing"[^>]*aria-pressed="false"/);
         assert.match(heal, /data-lay-on-hands-option="purify"[^>]*aria-pressed="false"/);
         assert.doesNotMatch(heal, /type="radio"/, "pill buttons, not radio buttons");
-        assert.match(heal, /<input type="number" name="lay-on-hands-amount" min="1" step="1" value="12"/);
+        assert.match(heal, /<input type="number" name="lay-on-hands-amount" min="1" step="1" value="1"/);
         assert.match(heal, /data-lay-on-hands-step="-1"/);
         assert.match(heal, /data-lay-on-hands-step="1"/);
         assert.match(heal, />Confirm on Self</);
@@ -448,8 +480,8 @@ const lineOf = summary => summary.children.find(child => child.classList.contain
         assert.match(heal, /waybeyond20-lay-on-hands-error/);
 
         const purify = html("purify", { current: 15 }, { poisoned: false });
-        assert.match(purify, /data-lay-on-hands-option="purify"[^>]*aria-pressed="true"/,
-            "the Purify pill opens with that option already chosen");
+        assert.match(purify, /data-lay-on-hands-option="purify"[^>]*aria-pressed="false"/,
+            "the Purify pill opens with no option pre-allocated");
         assert.match(purify, /do not have the Poisoned condition yourself/);
         assert.doesNotMatch(html("purify", { current: 15 }, { poisoned: true }), /do not have the Poisoned/);
 
@@ -746,6 +778,26 @@ const lineOf = summary => summary.children.find(child => child.classList.contain
         const fromHeading = run(actions.context, "wayBeyond20FindNumericFeaturePool")("Lay On Hands: Healing Pool");
         assert.equal(fromHeading.current, 9);
         assert.equal(run(actions.context, "wayBeyond20FindNumericFeaturePool")("Lay On Hands: Heal").current, null, "Heal is not the pool");
+    });
+
+    await section("19. Every Lay on Hands dispatch pins a Normal roll mode, so \"Ask every time\" never asks", async () => {
+        // Tester report, 2026-10-04: both confirms "ask me to roll dice". With the global Roll Type set
+        // to Ask every time, sendRoll poses the roll-mode query for any request whose advantage is
+        // unset -- a dialog whose only button reads "Roll" -- even though this card has no attack
+        // roll. Before the correction these requests carried no advantage at all.
+        const flows = [
+            ["heal on self", createFlowSandbox({ answers: [{ target: "self", healing: 6 }] }), "Lay On Hands: Heal"],
+            ["purify on other", createFlowSandbox({ answers: [{ target: "other", purify: true }] }), "Lay On Hands: Purify Poison"],
+            ["combined on self", createFlowSandbox({ answers: [{ target: "self", healing: 4, purify: true }], poisoned: true }), "Lay On Hands: Heal"],
+            ["Restoring Touch", createFlowSandbox(), "Restoring Touch"]
+        ];
+        for (const [label, ctx, feature] of flows) {
+            assert.equal(await roll(ctx, feature), true, `${label}: dispatched`);
+            const request = lastCard(ctx).request;
+            const normal = run(ctx, "RollType.NORMAL");
+            assert.equal(request.advantage, normal, `${label}: advantage is pinned to Normal`);
+            assert.notEqual(request.advantage, undefined, `${label}: advantage is set at all`);
+        }
     });
 
     await section("18. No browser prompt anywhere in the Lay on Hands path", async () => {

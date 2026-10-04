@@ -1277,3 +1277,21 @@ span.dice-roll.beyond20-tooltip-content {
     margin: 2px 0 0;
     font-size: 13px;
 }
+
+/* One control for the amount: hide the browser's own spinner beside the - and + buttons. */
+.waybeyond20-lay-on-hands-amount input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.waybeyond20-lay-on-hands-amount input[type="number"]::-webkit-inner-spin-button,
+.waybeyond20-lay-on-hands-amount input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.waybeyond20-lay-on-hands-step-disabled,
+.waybeyond20-lay-on-hands-step:disabled {
+    opacity: 0.35;
+    cursor: default;
+}

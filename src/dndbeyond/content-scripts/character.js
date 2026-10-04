@@ -6911,7 +6911,7 @@ function wayBeyond20LayOnHandsKind(actionName) {
     return normalized.includes("purify poison") ? "purify" : "heal";
 }
 
-function wayBeyond20LayOnHandsQueryHtml(kind, pool, { poisoned = null } = {}) {
+function wayBeyond20LayOnHandsQueryHtml(kind, pool, { poisoned = null, hp = null } = {}) {
     // One Lay On Hands use is one touch and one Bonus Action, and the player allocates the pool
     // across the options inside that use (03-DECISIONS, Bill 2026-10-04). The options are rendered
     // from a list so later ones -- Restoring Touch's conditions, for instance -- drop in without
@@ -6919,15 +6919,25 @@ function wayBeyond20LayOnHandsQueryHtml(kind, pool, { poisoned = null } = {}) {
     // Confirm dispatches successfully.
     const remaining = pool && pool.current !== null && pool.current !== undefined ? Math.max(0, pool.current) : null;
     const known = remaining !== null;
-    const poolText = known
-        ? `<span data-lay-on-hands-remaining>${remaining}</span> of ${remaining} point${remaining === 1 ? "" : "s"} left in the pool.`
-        : "WayBeyond20 can't see the Lay on Hands pool on this tab.";
-
     const options = [
         { key: "healing", label: "Healing", cost: "amount" },
         { key: "purify", label: "Purify Poison", cost: WAYBEYOND20_PURIFY_POISON_COST }
     ];
-    const startSelected = kind === "purify" ? "purify" : "healing";
+    // Opening the window creates no allocation. The player must choose Healing, Purify Poison,
+    // or both; opening it from a native Heal/Purify pill must not spend or pre-allocate points.
+    const startSelected = null;
+
+    // Suggest the Hit Points the character is missing, capped by the pool -- "heal me up" is the
+    // usual intent -- and fall back to the whole pool when they are already full or unknown.
+    // Prefilling the whole pool read as "0 left" the moment the window opened (Bill, 2026-10-04).
+    const missing = hp && Number.isFinite(hp.current) && Number.isFinite(hp.max) ? hp.max - hp.current : 0;
+    const suggested = known
+        ? (missing > 0 ? Math.max(1, Math.min(remaining, missing)) : 1)
+        : 1;
+    const using = 0;
+    const poolText = known
+        ? `<strong>${remaining}</strong> in the pool · this touch uses <span data-lay-on-hands-using>${using}</span> · <span data-lay-on-hands-remaining>${Math.max(0, remaining - using)}</span> left`
+        : "WayBeyond20 can't see the Lay on Hands pool on this tab.";
 
     let html = `<form class="waybeyond20-lay-on-hands-query" data-kind="${kind}"` +
         ` data-pool="${known ? remaining : ""}" data-purify-cost="${WAYBEYOND20_PURIFY_POISON_COST}">`;
@@ -6941,7 +6951,7 @@ function wayBeyond20LayOnHandsQueryHtml(kind, pool, { poisoned = null } = {}) {
     html += '</div>';
     html += `<div class="waybeyond20-lay-on-hands-amount" data-for-option="healing"${startSelected === "healing" ? "" : " hidden"}>` +
         '<button type="button" class="waybeyond20-lay-on-hands-step" data-lay-on-hands-step="-1" aria-label="One point less">−</button>' +
-        `<input type="number" name="lay-on-hands-amount" min="1" step="1" value="${known ? Math.max(1, remaining) : 1}" aria-label="Hit Points to restore">` +
+        `<input type="number" name="lay-on-hands-amount" min="1" step="1" value="${suggested}" aria-label="Hit Points to restore">` +
         '<button type="button" class="waybeyond20-lay-on-hands-step" data-lay-on-hands-step="1" aria-label="One point more">+</button>' +
         '</div>';
     html += `<p class="waybeyond20-lay-on-hands-note" data-for-option="purify"${startSelected === "purify" ? "" : " hidden"}>` +
@@ -7101,7 +7111,8 @@ async function wayBeyond20PerformLayOnHands(actionName, description, properties)
     let curePoison = false;
     if (kind === "heal" || kind === "purify") {
         const choice = await wayBeyond20QueryLayOnHands(kind, pool, {
-            poisoned: wayBeyond20SelfHasCondition("Poisoned")
+            poisoned: wayBeyond20SelfHasCondition("Poisoned"),
+            hp: wayBeyond20CurrentHitPoints()
         });
         if (!choice) return null;
         target = choice.target;
@@ -7133,7 +7144,11 @@ async function wayBeyond20PerformLayOnHands(actionName, description, properties)
     const rollProperties = {
         name,
         description,
-        "source-type": "action"
+        "source-type": "action",
+        // There is no attack roll here, so the roll-mode question can never apply. Left unset,
+        // the global Roll Type "Ask every time" would pose it anyway -- a dialog whose only button
+        // reads "Roll" -- on both confirms (tester report, 2026-10-04).
+        advantage: RollType.NORMAL
     };
     if (isHealing) {
         rollProperties.damages = [String(healed)];

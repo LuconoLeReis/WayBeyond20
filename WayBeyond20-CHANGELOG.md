@@ -1,5 +1,21 @@
 # WayBeyond20 Changelog
 
+## v1.65.5 — Lay on Hands allocation correction
+
+Prepared: October 4, 2026
+
+Extension version: 2.20.71
+
+Based on: Beyond20 2.20.1
+
+This stable patch corrects the Lay on Hands chooser before the first shared release of this interface.
+
+### Fixes
+
+- **Lay on Hands starts unallocated.** Opening the window no longer silently selects Healing, spends the entire pool, or disables Purify Poison before the player has chosen an option.
+- **Healing defaults to one point when appropriate.** A full-health target is not presented with an automatic full-pool allocation; the player explicitly chooses the amount and can adjust it with the controls.
+- **The public package and documentation now agree on the stable patch version.** The Chrome extension is 1.65.5 / 2.20.71; 1.65.4 was an internal emergency build and is not a public release.
+
 ## v1.65.2 — Resource accuracy and dispatch safety
 
 Prepared: September 15, 2026

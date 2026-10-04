@@ -233,6 +233,9 @@ function wayBeyond20WireLayOnHandsForm(form, { okButton = null, resolve, close }
     const input = form.querySelector("input[name='lay-on-hands-amount']");
     const error = form.querySelector(".waybeyond20-lay-on-hands-error");
     const remainingLabel = form.querySelector("[data-lay-on-hands-remaining]");
+    const usingLabel = form.querySelector("[data-lay-on-hands-using]");
+    const minusButton = form.querySelector("button[data-lay-on-hands-step='-1']");
+    const plusButton = form.querySelector("button[data-lay-on-hands-step='1']");
     const rawPool = form.getAttribute("data-pool");
     const pool = /^\d+$/.test(String(rawPool || "")) ? parseInt(rawPool) : null;
     const purifyCost = parseInt(form.getAttribute("data-purify-cost")) || 0;
@@ -260,11 +263,12 @@ function wayBeyond20WireLayOnHandsForm(form, { okButton = null, resolve, close }
             button.classList.toggle("waybeyond20-lay-on-hands-option-selected", selected);
             const panel = form.querySelector(`[data-for-option="${key}"]`);
             if (panel) panel.hidden = !selected;
-            // Purify Poison can only be taken while enough points are still unallocated for it.
-            if (key === "purify" && !selected && pool !== null) {
-                const healing = healingAmount();
-                const free = pool - (Number.isFinite(healing) ? healing : 0);
-                const affordable = free >= purifyCost;
+            // Purify Poison is offered whenever the pool can pay for it at all. It is not held
+            // hostage by the healing amount: the amount box is prefilled with the whole pool, so
+            // gating on "unallocated" points greyed Purify out on every full pool (1.65.3, Bill
+            // live 2026-10-04). Choosing Purify makes room for itself instead -- see the toggle.
+            if (key === "purify" && pool !== null) {
+                const affordable = pool >= purifyCost;
                 button.disabled = !affordable;
                 button.classList.toggle("waybeyond20-lay-on-hands-option-disabled", !affordable);
             } else if (key === "purify") {
@@ -272,9 +276,23 @@ function wayBeyond20WireLayOnHandsForm(form, { okButton = null, resolve, close }
                 button.classList.remove("waybeyond20-lay-on-hands-option-disabled");
             }
         }
+        const using = allocated();
+        if (usingLabel) usingLabel.textContent = String(using);
         if (remainingLabel && pool !== null) {
-            remainingLabel.textContent = String(Math.max(0, pool - allocated()));
+            remainingLabel.textContent = String(Math.max(0, pool - using));
         }
+        // The steppers grey out at their limits rather than silently doing nothing: + is dead
+        // at the top of the pool (or at pool - 5 with Purify in), - is dead at 1.
+        const healingOn = isSelected("healing");
+        const amount = healingAmount();
+        const ceiling = pool === null ? Infinity : pool - (isSelected("purify") ? purifyCost : 0);
+        const setStep = (button, disabled) => {
+            if (!button) return;
+            button.disabled = disabled;
+            button.classList.toggle("waybeyond20-lay-on-hands-step-disabled", disabled);
+        };
+        setStep(minusButton, !healingOn || !(Number.isFinite(amount) && amount > 1));
+        setStep(plusButton, !healingOn || (Number.isFinite(amount) && amount >= ceiling));
     };
 
     form.addEventListener("submit", event => event.preventDefault());
@@ -287,7 +305,27 @@ function wayBeyond20WireLayOnHandsForm(form, { okButton = null, resolve, close }
         if (option) {
             event.preventDefault();
             if (option.disabled) return;
-            option.setAttribute("aria-pressed", option.getAttribute("aria-pressed") === "true" ? "false" : "true");
+            const key = option.getAttribute("data-lay-on-hands-option");
+            const turningOn = option.getAttribute("aria-pressed") !== "true";
+            option.setAttribute("aria-pressed", turningOn ? "true" : "false");
+            // The option just chosen takes priority, and the other one makes room for it. With a
+            // known pool, healing may claim at most pool - 5 once Purify is in; if that leaves no
+            // healing at all, Healing switches off rather than sit at an impossible amount.
+            if (turningOn && pool !== null && input) {
+                const other = optionButtons.find(candidate => candidate !== option);
+                const otherOn = !!other && other.getAttribute("aria-pressed") === "true";
+                const room = pool - purifyCost;
+                if (key === "purify" && otherOn) {
+                    const healing = healingAmount();
+                    if (room < 1) other.setAttribute("aria-pressed", "false");
+                    else if (!Number.isFinite(healing) || healing > room) input.value = String(room);
+                } else if (key === "healing" && otherOn) {
+                    const value = String(input.value === undefined || input.value === null ? "" : input.value).trim();
+                    const healing = /^\d+$/.test(value) ? parseInt(value) : NaN;
+                    if (room < 1) other.setAttribute("aria-pressed", "false");
+                    else if (!Number.isFinite(healing) || healing > room) input.value = String(room);
+                }
+            }
             showError("");
             sync();
             return;
@@ -296,7 +334,7 @@ function wayBeyond20WireLayOnHandsForm(form, { okButton = null, resolve, close }
         const step = origin.closest("button[data-lay-on-hands-step]");
         if (step) {
             event.preventDefault();
-            if (!input) return;
+            if (!input || step.disabled) return;
             const current = healingAmount();
             const ceiling = pool === null ? Infinity : pool - (isSelected("purify") ? purifyCost : 0);
             const next = (Number.isFinite(current) ? current : 0) + (parseInt(step.getAttribute("data-lay-on-hands-step")) || 0);
