@@ -939,6 +939,12 @@ const character_settings = {
         "type": "bool",
         "default": true
     },
+    "waybeyond20-lay-on-hands-helper": {
+        "title": "Paladin: Lay On Hands Helper",
+        "description": "Show the Lay On Hands pill buttons and the allocation window. Turning this off hides them and leaves D&D Beyond's own controls alone; it does not change how resources or effects are processed elsewhere.",
+        "type": "bool",
+        "default": true
+    },
     "musician-rest-reminder": {
         "title": "Feat: Musician Rest Reminder",
         "description": "Show a friendly Musician reminder after a completed rest without automatically spending or assigning anything.",
@@ -1084,6 +1090,7 @@ const WAYBEYOND20_CHARACTER_HELPER_SETTINGS = [
     "waybeyond20-mage-armor-helper",
     "waybeyond20-concentration-check-helper",
     "waybeyond20-condition-casting-warning",
+    "waybeyond20-lay-on-hands-helper",
     "musician-rest-reminder"
 ];
 

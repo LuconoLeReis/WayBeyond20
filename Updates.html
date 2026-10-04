@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WayBeyond20 v1.65.2 Release Notes</title>
+    <title>WayBeyond20 v1.65.3 Release Notes</title>
     <link rel="stylesheet" href="Updates.css">
 </head>
 <body>
@@ -12,10 +12,24 @@
             <img src="images/icons/icon128.png" alt="WayBeyond20">
             <div>
                 <p class="eyebrow">Development update</p>
-                <h1>WayBeyond20 v1.65.2</h1>
+                <h1>WayBeyond20 v1.65.3</h1>
                 <p class="lede">Complete changes from the Beyond20 2.20.1 base</p>
             </div>
         </header>
+
+        <section>
+            <h2>New in v1.65.3</h2>
+            <ol>
+                <li><strong>A one-handed weapon now rolls its one-handed die.</strong> Clicking the smaller damage die on a Versatile weapon used to roll the two-handed die instead.</li>
+                <li><strong>Breath Weapon no longer offers a smite.</strong> Every smite is cast after hitting with a melee weapon or an unarmed strike, and a breath weapon is a saving throw with no attack roll.</li>
+                <li><strong>A weapon attack rolled from an item counts your Action,</strong> the same as one rolled from the Actions list.</li>
+                <li><strong>Extra Attack is understood.</strong> One Action buys the whole Attack action, so a second attack in the same turn no longer asks for a second Action.</li>
+                <li><strong>Finishing a long rest clears what has run out.</strong> Effects shorter than the rest end, concentration ends, and effects that outlast the rest are kept. Arming the rest button no longer resets anything before you confirm.</li>
+                <li><strong>Lay on Hands has a proper window.</strong> One touch and one bonus action: pick Healing, Purify Poison, or both, watch the pool total update as you allocate, and confirm on yourself or another creature. The 5 points for Purify Poison restore no hit points. It can be switched off per character.</li>
+                <li><strong>Declining a smite reads as declining.</strong> The buttons now say Add Smite and No Smite; saying no never calls off the attack.</li>
+                <li><strong>Damage from a second creature stays separate.</strong> Elemental Strike's second target no longer has its damage folded into the main target's total.</li>
+            </ol>
+        </section>
 
         <section>
             <h2>New in v1.65.2</h2>
@@ -34,12 +48,10 @@
         </section>
 
         <section>
-            <h2>Known limitations in v1.65.2</h2>
+            <h2>Known limitations in v1.65.3</h2>
             <ol>
-                <li><strong>Lay on Hands does not respond.</strong> Its amount box uses a browser prompt that Chrome hides when the window is not in front. Use D&amp;D Beyond's own controls until the replacement ships.</li>
-                <li><strong>The Concentration check helper</strong> uses the same kind of browser pop-up and runs only from the CONCENTRATION badge.</li>
-                <li><strong>Smite is offered on Breath Weapon.</strong> D&amp;D Beyond reports its range as "Reach"; cancel the prompt.</li>
-                <li><strong>A weapon attack rolled from an item does not count your Action</strong> in the Combat window.</li>
+                <li><strong>The Lay on Hands pool does not stay reduced.</strong> D&amp;D Beyond does not record changes to that counter, so the number returns when you reload the page. Track the pool yourself for now.</li>
+                <li><strong>The Concentration check helper</strong> uses a browser pop-up and runs only from the CONCENTRATION badge.</li>
                 <li><strong>Rolling only a damage die</strong> on a saving-throw action does not spend its use or Action.</li>
                 <li><strong>Draining Attack cannot tell a hit from a miss</strong> when damage rolls automatically with the attack.</li>
             </ol>

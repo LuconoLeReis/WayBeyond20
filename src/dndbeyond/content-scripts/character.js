@@ -41,6 +41,12 @@ async function wayBeyond20DispatchRollWithCharacter(rollType, fallback, args, in
     if (args && args["waybeyond20-turn-resources"]) delete args["waybeyond20-turn-resources"];
     const resourceRequests = [resourceRequest, ...additionalResourceRequests].filter(Boolean);
     for (const request of resourceRequests) {
+        // No Action is at stake when the attack is one the current Attack action still has left,
+        // so there is nothing to warn about. The Attack-action pool lives beside this dispatcher
+        // and is absent when the dispatcher is exercised on its own, so ask before using it.
+        if (request.actionType === "Attack" && request.resource === "action" &&
+            typeof wayBeyond20AttacksRemainingInAttackAction === "function" &&
+            wayBeyond20AttacksRemainingInAttackAction() > 0) continue;
         const allowed = await wayBeyond20PreflightTurnResource(request.resource, {
             name: request.name || args.name || fallback,
             rollType: request.rollType || rollType
@@ -80,11 +86,19 @@ async function wayBeyond20DispatchRollWithCharacter(rollType, fallback, args, in
     }
     const result = await sendRoll(character, rollType, fallback, args);
     if (result === true) {
-        resourceRequests.forEach(request => wayBeyond20SpendTurnResource(request.resource, {
-            forRoll: true,
-            name: request.name || args.name || fallback,
-            rollType: request.rollType || rollType
-        }));
+        resourceRequests.forEach(request => {
+            const options = {
+                forRoll: true,
+                name: request.name || args.name || fallback,
+                rollType: request.rollType || rollType
+            };
+            if (request.actionType === "Attack" && request.resource === "action" &&
+                typeof wayBeyond20SpendAttackAction === "function") {
+                wayBeyond20SpendAttackAction(options);
+            } else {
+                wayBeyond20SpendTurnResource(request.resource, options);
+            }
+        });
         afterDispatchCommits.forEach(commit => {
             try {
                 commit();
@@ -3280,6 +3294,10 @@ function wayBeyond20NormalizeTurnTrackerState(state, effects = null, options = {
     if (options.reset || current.bonusAction === undefined) current.bonusAction = defaults.bonusAction;
     if (options.reset || current.reaction === undefined) current.reaction = defaults.reaction;
     if (options.reset || current.movement === undefined) current.movement = defaults.movement;
+    // Attacks left in an Attack action already taken this turn. A new turn starts with none:
+    // the Attack action has not been taken yet.
+    if (options.reset || current.attacksRemaining === undefined) current.attacksRemaining = 0;
+    current.attacksRemaining = Math.max(0, wayBeyond20ParseInteger(current.attacksRemaining) ?? 0);
     if (options.reset || current.maxAction === undefined) current.maxAction = defaults.maxAction;
     if (options.reset || current.maxBonusAction === undefined) current.maxBonusAction = defaults.maxBonusAction;
     if (options.reset || current.maxReaction === undefined) current.maxReaction = defaults.maxReaction;
@@ -3480,12 +3498,83 @@ async function wayBeyond20UseTurnResource(resource, options = {}) {
     return true;
 }
 
+// ---- Action types (2024) --------------------------------------------------------------------
+// The economy slot alone -- Action, Bonus Action, Reaction -- cannot adjudicate a turn, because
+// the rules attach things to the *type* of action taken. The Attack action entry (PHB, Rules
+// Glossary, "Attack [Action]") buys an attack roll with a weapon or an Unarmed Strike; Extra
+// Attack adds further attacks *inside* that one Attack action; and a Dragonborn's Breath Weapon
+// trait (PHB, Species) replaces one of those attacks. So one Action can buy several attacks, and
+// an attack does not cost the same as an Action.
+const WAYBEYOND20_ACTION_TYPE_ATTACK = "Attack";
+
+// Read the action type from the feature's own words rather than its name: a Breath Weapon whose
+// text ties it to the Attack action belongs to that action, while one activated with a Magic
+// action does not, and both wordings exist across species.
+function wayBeyond20ActionTypeFromText(text) {
+    const lower = String(text || "").toLowerCase();
+    if (/\bmagic action\b/.test(lower)) return "Magic";
+    if (/\bwhen you take the attack action\b/.test(lower) ||
+        /\breplace one of your attacks\b/.test(lower) ||
+        /\breplace one of the attacks\b/.test(lower)) return WAYBEYOND20_ACTION_TYPE_ATTACK;
+    if (/\butilize action\b/.test(lower)) return "Utilize";
+    return null;
+}
+
+function wayBeyond20AttacksPerAttackAction() {
+    // Two, three and four attacks per Attack action at the levels those features are gained
+    // (PHB: Extra Attack, Two Extra Attacks, Three Extra Attacks).
+    if (!character || typeof character.hasClassFeature !== "function") return 1;
+    if (character.hasClassFeature("Three Extra Attacks", true)) return 4;
+    if (character.hasClassFeature("Two Extra Attacks", true)) return 3;
+    if (character.hasClassFeature("Extra Attack", true)) return 2;
+    return 1;
+}
+
+function wayBeyond20AttacksRemainingInAttackAction() {
+    if (!character) return 0;
+    const state = wayBeyond20NormalizeTurnTrackerState(wayBeyond20GetTurnTrackerState(), wayBeyond20GetTrackedSpellEffects());
+    if (!wayBeyond20HasActiveCombatState(state)) return 0;
+    return Math.max(0, wayBeyond20ParseInteger(state.attacksRemaining) ?? 0);
+}
+
+// An attack spends an Action only when it starts a new Attack action. Later attacks in the same
+// Attack action -- and a Breath Weapon replacing one of them -- come out of that action's own
+// pool of attacks and cost nothing further.
+function wayBeyond20SpendAttackAction(options = {}) {
+    if (!character) return false;
+    const activeEffects = wayBeyond20GetTrackedSpellEffects();
+    const state = wayBeyond20NormalizeTurnTrackerState(wayBeyond20GetTurnTrackerState(), activeEffects);
+    if (!wayBeyond20HasActiveCombatState(state)) return false;
+    const remaining = Math.max(0, wayBeyond20ParseInteger(state.attacksRemaining) ?? 0);
+    if (remaining > 0) {
+        state.attacksRemaining = remaining - 1;
+        wayBeyond20CharacterDebug("Attack taken from the current Attack action", {
+            before: remaining,
+            after: state.attacksRemaining,
+            name: options.name || ""
+        });
+        wayBeyond20SetTurnTrackerState(state, wayBeyond20ScheduleActiveEffectBadgeRefresh);
+        return true;
+    }
+    const spent = wayBeyond20SpendTurnResource("action", options);
+    if (!spent) return false;
+    const after = wayBeyond20NormalizeTurnTrackerState(wayBeyond20GetTurnTrackerState(), activeEffects);
+    after.attacksRemaining = Math.max(0, wayBeyond20AttacksPerAttackAction() - 1);
+    wayBeyond20CharacterDebug("Attack action taken", {
+        attacksRemaining: after.attacksRemaining,
+        name: options.name || ""
+    });
+    wayBeyond20SetTurnTrackerState(after, wayBeyond20ScheduleActiveEffectBadgeRefresh);
+    return true;
+}
+
 function wayBeyond20AttachTurnResource(rollProperties, resource, options = {}) {
     if (!rollProperties || !resource) return null;
     rollProperties["waybeyond20-turn-resource"] = {
         resource,
         name: options.name || rollProperties.name || "",
-        rollType: options.rollType || ""
+        rollType: options.rollType || "",
+        actionType: options.actionType || null
     };
     return resource;
 }
@@ -3510,6 +3599,16 @@ function wayBeyond20AttachActivationResource(rollProperties, properties = {}, ta
     const resource = wayBeyond20ActivationResource(properties, talent, fallback);
     if (resource) wayBeyond20AttachTurnResource(rollProperties, resource, options);
     return resource;
+}
+
+// An Action spent on an attack is an Attack action, so tag it as one. Everything else keeps the
+// plain economy slot until its own action type is established.
+function wayBeyond20AttachAttackActionResource(rollProperties, properties = {}, talent = null, fallback = "action", options = {}) {
+    const actionType = options.actionType ||
+        wayBeyond20ActionTypeFromText(options.description || rollProperties.description || "") ||
+        WAYBEYOND20_ACTION_TYPE_ATTACK;
+    return wayBeyond20AttachActivationResource(rollProperties, properties, talent, fallback,
+        Object.assign({}, options, { actionType }));
 }
 
 function wayBeyond20BuildTurnResourceChip(label, resource, count, isMovement = false) {
@@ -3740,6 +3839,68 @@ function wayBeyond20ShowMusicianRestReminder(restType) {
     }
 }
 
+// A rest is a span of game time, so the first thing that ends an effect is simply the clock: a
+// Long Rest runs at least eight hours and a Short Rest an hour (PHB, Rules Glossary: Long Rest,
+// Short Rest), so anything with a shorter duration has run out by the time the rest finishes --
+// Shield of Faith, for one, runs out after ten minutes.
+// Concentration ends a second way over a Long Rest: sleeping through it gives you the Unconscious
+// condition, Unconscious carries the Incapacitated condition, and Concentration ends while you
+// are Incapacitated (PHB, Rules Glossary: Long Rest, Unconscious, Concentration). A Short Rest
+// does not make you Unconscious, so it does not break Concentration on its own.
+// Effects with no readable duration ("until dispelled", "special", unparsed) are left alone --
+// we count the beans we can count and never silently discard what we cannot reason about.
+const WAYBEYOND20_REST_MINUTES = { short: 60, long: 480 };
+const WAYBEYOND20_DURATION_MINUTES_PER_UNIT = {
+    second: 1 / 60,
+    round: 0.1,
+    minute: 1,
+    hour: 60,
+    day: 1440,
+    year: 525600
+};
+
+function wayBeyond20EffectDurationMinutes(effect) {
+    if (!effect) return null;
+    const raw = effect.duration || (effect.talent && effect.talent.duration && effect.talent.duration.raw) || "";
+    if (!String(raw).trim()) return null;
+    const parsed = wayBeyond20ParseTalentDuration(String(raw), "");
+    if (parsed.updateMode === "instantaneous") return 0;
+    const value = parseInt(parsed.value);
+    if (!parsed.unit || isNaN(value)) return null;
+    const perUnit = WAYBEYOND20_DURATION_MINUTES_PER_UNIT[parsed.unit];
+    return perUnit === undefined ? null : value * perUnit;
+}
+
+function wayBeyond20EffectEndedByRest(effect, restType) {
+    if (!effect) return false;
+    const restMinutes = WAYBEYOND20_REST_MINUTES[restType];
+    if (!restMinutes) return false;
+    if (restType === "long" && (effect.concentration || (effect.flags || []).includes("concentration"))) return true;
+    const minutes = wayBeyond20EffectDurationMinutes(effect);
+    return minutes !== null && minutes <= restMinutes;
+}
+
+function wayBeyond20ExpireEffectsForRest(restType) {
+    if (!character || !WAYBEYOND20_REST_MINUTES[restType]) return;
+    const existing = character.getSetting("waybeyond20-active-effects", []);
+    const effects = Array.isArray(existing) ? existing : [];
+    const kept = effects.filter(effect => !wayBeyond20EffectEndedByRest(effect, restType));
+    const concentration = character.getSetting("waybeyond20-concentration", null);
+    const concentrationEnded = concentration && wayBeyond20EffectEndedByRest(concentration, restType);
+    if (kept.length === effects.length && !concentrationEnded) return;
+
+    const settings_to_change = { "waybeyond20-active-effects": kept };
+    if (concentrationEnded) settings_to_change["waybeyond20-concentration"] = null;
+    character.mergeCharacterSettings(settings_to_change, () => {
+        wayBeyond20SendEffectsUpdate(character, kept, concentrationEnded ? null : concentration);
+        wayBeyond20CharacterDebug("Effects ended by rest", {
+            restType,
+            removed: effects.filter(effect => wayBeyond20EffectEndedByRest(effect, restType)).map(effect => effect && effect.name),
+            concentrationEnded: !!concentrationEnded
+        });
+    });
+}
+
 function wayBeyond20InstallLongRestTracker() {
     // This listener is a WayBeyond20 addition. If Chrome reinjects the content
     // script into an existing D&D Beyond tab, replace our previous listener
@@ -3757,6 +3918,30 @@ function wayBeyond20InstallLongRestTracker() {
         const restType = label.includes("long rest") ? "long" : (label.includes("short rest") ? "short" : "");
         if (!restType || /(cancel|close|back|dismiss)/.test(label)) return;
 
+        // D&D Beyond arms the rest button first ("Take Long Rest"), then runs the rest only when
+        // the armed button is pressed again while it shows its countdown ("Take Long RestConfirm
+        // (3)", class ct-button--is-confirming). Only that second press finishes the rest. Acting
+        // on the arming click would reset resources -- and now expire effects -- for a player who
+        // is only looking at the button, or who changes their mind (F-L6).
+        const controlClasses = String(
+            (typeof control.className === "string" ? control.className : "") ||
+            (control.getAttribute ? control.getAttribute("class") : "") || ""
+        );
+        // D&D Beyond takes two presses to rest, and only the second one rests. Measured live
+        // (2026-10-04) by logging the class in a capture listener on both presses:
+        //   arming press     -> ct-button--confirm
+        //   confirming press -> ct-button--confirm ct-button--is-confirming
+        // So `is-confirming` is the only reliable signal. The label is not: it already reads
+        // "Take Long RestConfirm (2)" on the arming press, because the button arms on pointerdown
+        // before the click event reaches us. Acting on the arming press would reset resources and
+        // expire still-running effects for a player who then changes their mind (F-L6).
+        if (!/\bct-button--is-confirming\b/.test(controlClasses) && !/is-confirming/.test(controlClasses)) {
+            wayBeyond20CharacterDebug(`${restType === "long" ? "Long" : "Short"} Rest button armed; waiting for confirmation`, {
+                control: wayBeyond20DescribeElement(control)
+            });
+            return;
+        }
+
         const pane = $(control).closest("[role='dialog'],.ct-sidebar,.ddbc-sidebar,[class*='styles_modal'],[class*='styles_sidebar']");
         if (!pane.length) return;
         const paneText = String(pane.text() || "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -3772,6 +3957,7 @@ function wayBeyond20InstallLongRestTracker() {
             if (restType === "long" && character) character.mergeCharacterSettings({"waybeyond20-paladin-smite-used": false});
             wayBeyond20InvalidateSmiteSpellCache({ prepared: false, slots: true });
             if (restType === "long") wayBeyond20ResetHitDice("long-rest");
+            wayBeyond20ExpireEffectsForRest(restType);
             wayBeyond20RestWizardResources(restType);
             wayBeyond20ShowMusicianRestReminder(restType);
             wayBeyond20LongRestResetPending = false;
@@ -5609,12 +5795,24 @@ async function rollItem(force_display = false, force_to_hit_only = false, force_
 
         await wayBeyond20MaybeAddSmite(
             roll_properties,
-            properties["Attack Type"] === "Melee" || properties["Attack Type"] === "Unarmed Strike" ||
-                roll_properties["attack-type"] === "Melee" || roll_properties["attack-type"] === "Unarmed Strike"
+            wayBeyond20IsSmiteEligibleAttack(roll_properties, properties,
+                properties["Attack Type"] === "Melee" || properties["Attack Type"] === "Unarmed Strike" ||
+                    roll_properties["attack-type"] === "Melee" || roll_properties["attack-type"] === "Unarmed Strike")
         );
 
         // Apply batched updates to settings, if any, once the roll was actually dispatched:
         wayBeyond20CommitAfterDispatch(roll_properties, () => wayBeyond20CommitRollSettings(settings_to_change));
+
+        // The Attack action is what buys a weapon or Unarmed Strike attack roll (PHB, Rules
+        // Glossary: Attack [Action]). The cost belongs to making the attack, not to the pane it was
+        // clicked from, so an item-pane attack spends the same Attack action an Actions-row attack
+        // does (F-L14). Rolling damage on its own spends nothing.
+        if (!force_damages_only && !force_display) {
+            wayBeyond20AttachAttackActionResource(roll_properties, properties, null, "action", {
+                name: item_name || "",
+                rollType: "attack"
+            });
+        }
 
         return sendRollWithCharacter("attack", (roll_properties["damages"] || damages)[0], roll_properties);
     } else if (!force_display && (is_tool || is_instrument) && character._abilities.length > 0) {
@@ -6348,7 +6546,11 @@ async function wayBeyond20QuerySmite(options) {
     });
     html += '</div></div></form>';
 
-    const result = await dndbeyondDiceRoller._prompter.prompt("Smite", html, "Proceed", "Cancel");
+    // The attack has already hit by the time a smite is offered -- a smite is cast "immediately
+    // after hitting a target" -- so declining must never cancel the attack. It does not: the
+    // caller sends the roll whatever this returns. The buttons answer the question that is asked
+    // rather than reading as "Cancel", which looked like it would call off the attack.
+    const result = await dndbeyondDiceRoller._prompter.prompt("Smite", html, "Add Smite", "No Smite");
     if (!result) return null;
     const smiteName = result.find("input[name='smite-type']:checked").val();
     const fuelValue = result.find("input[name='smite-fuel']:checked").val();
@@ -6467,7 +6669,9 @@ async function wayBeyond20QueryElementalStrike(dc, route = "divine-smite") {
             `title="${wayBeyond20ElementalStrikeSummary(choice, dc).replace(/"/g, "&quot;")}">${choice.name}</button>`;
     });
     html += '</div></form>';
-    const result = await dndbeyondDiceRoller._prompter.prompt("Elemental Strike", html, "Choose", "Cancel");
+    // Same reasoning as the smite chooser: the Divine Smite has already been cast, so declining
+    // the rider leaves the roll alone rather than calling it off.
+    const result = await dndbeyondDiceRoller._prompter.prompt("Elemental Strike", html, "Choose", "No Elemental Strike");
     if (!result) return null;
     return wayBeyond20ElementalStrikeChoice(result.attr("data-selected"));
 }
@@ -6517,6 +6721,27 @@ async function wayBeyond20RollElementalStrikeParent(actionName, actionParent, de
     const choice = await wayBeyond20QueryElementalStrike(wayBeyond20PaladinSaveDC(), "independent");
     if (!choice) return null;
     return wayBeyond20RollElementalStrikeOption(actionName, actionParent, description, properties, choice.key);
+}
+
+// Every smite spell shares one casting time: a Bonus Action taken immediately after hitting a
+// target with a Melee weapon or an Unarmed Strike (PHB, Spell Descriptions: Divine Smite, Searing
+// Smite, Thunderous Smite, Blinding Smite, Staggering Smite, Banishing Smite -- the same wording
+// in all six). So a smite needs an attack roll made with a Melee weapon or an Unarmed Strike. A
+// feature resolved by a saving throw, such as a Dragonborn's Breath Weapon, can never qualify,
+// however its Range/Area reads: D&D Beyond writes "Reach" there, which buildAttackRoll maps to
+// a Melee attack type, and that alone used to be enough to offer the chooser (F-L2).
+// The sheet keeps the attack bonus even when only the damage die is rolled, so checking both
+// the request and the sheet's own properties keeps damage-only weapon rolls eligible.
+function wayBeyond20AttackRollPresent(rollProperties, properties) {
+    const present = value => value !== undefined && value !== null &&
+        String(value).trim() !== "" && String(value).trim() !== "--";
+    if (rollProperties && present(rollProperties["to-hit"])) return true;
+    return !!(properties && present(properties["To Hit"]));
+}
+
+function wayBeyond20IsSmiteEligibleAttack(rollProperties, properties, isMeleeShape) {
+    if (!isMeleeShape) return false;
+    return wayBeyond20AttackRollPresent(rollProperties, properties);
 }
 
 async function wayBeyond20MaybeAddSmite(rollProperties, isEligibleAttack) {
@@ -6613,19 +6838,36 @@ function wayBeyond20TrackSelfFeatureEffect(name, duration, data = [], flags = []
     return effect;
 }
 
+// The pool's action summary on Features & Traits reads "<name>: <activation>", for example
+// "Lay On Hands: Healing Pool: 1 Bonus Action"; the name is everything before the last colon.
+function wayBeyond20ActionSummaryParts(text) {
+    const summary = String(text || "").replace(/\s+/g, " ").trim();
+    const index = summary.lastIndexOf(":");
+    if (index <= 0) return { name: summary, activation: "" };
+    return { name: summary.slice(0, index).trim(), activation: summary.slice(index + 1).trim() };
+}
+
 function wayBeyond20FindNumericFeaturePool(featureHeading) {
     const normalizedHeading = wayBeyond20NormalizeFeatureLabel(featureHeading);
+    // Actions shows the pool as its own snippet heading; Features & Traits shows it as an action
+    // summary inside the parent feature. Either one anchors the search for its value and control.
     const headings = Array.from(document.querySelectorAll(
         ".ct-feature-snippet__heading,.ddbc-feature-snippet__heading,[class*='featureSnippet'] [class*='heading']"
     ));
-    const heading = headings.find(element => wayBeyond20NormalizeFeatureLabel(wayBeyond20ElementOwnText(element)) === normalizedHeading);
+    const summaries = Array.from(document.querySelectorAll(".ct-feature-snippet__action-summary,.ddbc-feature-snippet__action-summary"));
+    const heading = headings.find(element => wayBeyond20NormalizeFeatureLabel(wayBeyond20ElementOwnText(element)) === normalizedHeading) ||
+        summaries.find(element => wayBeyond20NormalizeFeatureLabel(wayBeyond20ActionSummaryParts(wayBeyond20ElementOwnText(element)).name) === normalizedHeading);
     if (!heading) return { container: $(), current: null, decrease: $() };
 
     let node = heading;
     for (let depth = 0; node && depth < 10; depth++, node = node.parentElement) {
         const container = $(node);
         const current = container.find(".ct-slot-manager-large__value--cur,.ddbc-slot-manager-large__value--cur,[class*='value--cur']").first();
-        const decrease = container.find("button.button-action-decrease,button[class*='action-decrease'],button[aria-label*='decrease' i]").first();
+        // Native query: jQuery 3.4's selector engine throws on the case-insensitive attribute flag.
+        const decreaseNode = container[0] && container[0].querySelector
+            ? container[0].querySelector("button.button-action-decrease,button[class*='action-decrease'],button[aria-label*='decrease' i]")
+            : null;
+        const decrease = decreaseNode ? $(decreaseNode) : $();
         if (current.length && decrease.length) {
             return { container, current: wayBeyond20ParseInteger(current.text()), decrease };
         }
@@ -6654,29 +6896,234 @@ async function wayBeyond20SpendNumericFeaturePool(featureHeading, amount) {
     return final.current !== null && final.current <= expected;
 }
 
-async function wayBeyond20RollLayOnHands(actionName, description, properties) {
+// Lay on Hands (Paladin): as a Bonus Action, touch a creature (which could be yourself) and restore
+// Hit Points up to what remains in the pool; or spend 5 points to remove the Poisoned condition,
+// restoring no Hit Points (Purify Poison). Restoring Touch keeps its 5-point card.
+const WAYBEYOND20_LAY_ON_HANDS_POOL = "Lay On Hands: Healing Pool";
+const WAYBEYOND20_PURIFY_POISON_COST = 5;
+let wayBeyond20LayOnHandsInFlight = false;
+
+function wayBeyond20LayOnHandsKind(actionName) {
     const normalized = wayBeyond20NormalizeFeatureLabel(actionName);
-    const poolHeading = "Lay On Hands: Healing Pool";
-    const pool = wayBeyond20FindNumericFeaturePool(poolHeading);
-    let amount = 5;
-    const isHealing = normalized.includes("heal") && !normalized.includes("healing pool");
-    if (isHealing) {
-        const raw = window.prompt(
-            `How many Lay on Hands points should heal the target?${pool.current === null ? "" : ` (${pool.current} available)`}`,
-            "1"
-        );
-        if (raw === null) return null;
-        amount = parseInt(raw);
-        if (!Number.isFinite(amount) || amount < 1) {
-            if (typeof alertify !== "undefined" && alertify.error) alertify.error("Enter a whole number of at least 1.");
-            return null;
+    if (normalized === "restoring touch") return "restoring-touch";
+    if (!normalized.includes("lay on hands")) return null;
+    // Heal, the Healing Pool row and the bare feature all open the Heal window.
+    return normalized.includes("purify poison") ? "purify" : "heal";
+}
+
+function wayBeyond20LayOnHandsQueryHtml(kind, pool, { poisoned = null } = {}) {
+    // One Lay On Hands use is one touch and one Bonus Action, and the player allocates the pool
+    // across the options inside that use (03-DECISIONS, Bill 2026-10-04). The options are rendered
+    // from a list so later ones -- Restoring Touch's conditions, for instance -- drop in without
+    // reshaping the window. The pool shown here is a working preview; nothing is spent until
+    // Confirm dispatches successfully.
+    const remaining = pool && pool.current !== null && pool.current !== undefined ? Math.max(0, pool.current) : null;
+    const known = remaining !== null;
+    const poolText = known
+        ? `<span data-lay-on-hands-remaining>${remaining}</span> of ${remaining} point${remaining === 1 ? "" : "s"} left in the pool.`
+        : "WayBeyond20 can't see the Lay on Hands pool on this tab.";
+
+    const options = [
+        { key: "healing", label: "Healing", cost: "amount" },
+        { key: "purify", label: "Purify Poison", cost: WAYBEYOND20_PURIFY_POISON_COST }
+    ];
+    const startSelected = kind === "purify" ? "purify" : "healing";
+
+    let html = `<form class="waybeyond20-lay-on-hands-query" data-kind="${kind}"` +
+        ` data-pool="${known ? remaining : ""}" data-purify-cost="${WAYBEYOND20_PURIFY_POISON_COST}">`;
+    html += `<p class="waybeyond20-lay-on-hands-pool">${poolText}</p>`;
+    html += '<div class="waybeyond20-lay-on-hands-options">';
+    for (const option of options) {
+        const selected = option.key === startSelected;
+        html += `<button type="button" class="waybeyond20-lay-on-hands-option${selected ? " waybeyond20-lay-on-hands-option-selected" : ""}"` +
+            ` data-lay-on-hands-option="${option.key}" data-cost="${option.cost}" aria-pressed="${selected}">${option.label}</button>`;
+    }
+    html += '</div>';
+    html += `<div class="waybeyond20-lay-on-hands-amount" data-for-option="healing"${startSelected === "healing" ? "" : " hidden"}>` +
+        '<button type="button" class="waybeyond20-lay-on-hands-step" data-lay-on-hands-step="-1" aria-label="One point less">−</button>' +
+        `<input type="number" name="lay-on-hands-amount" min="1" step="1" value="${known ? Math.max(1, remaining) : 1}" aria-label="Hit Points to restore">` +
+        '<button type="button" class="waybeyond20-lay-on-hands-step" data-lay-on-hands-step="1" aria-label="One point more">+</button>' +
+        '</div>';
+    html += `<p class="waybeyond20-lay-on-hands-note" data-for-option="purify"${startSelected === "purify" ? "" : " hidden"}>` +
+        `Spends ${WAYBEYOND20_PURIFY_POISON_COST} points and restores no Hit Points.</p>`;
+    if (poisoned === false) {
+        html += '<p class="waybeyond20-lay-on-hands-note">You do not have the Poisoned condition yourself.</p>';
+    }
+    html += '<p class="waybeyond20-lay-on-hands-error" role="alert"></p>';
+    html += '<div class="waybeyond20-elemental-strike-buttons">' +
+        '<button type="button" class="waybeyond20-elemental-strike-button" data-lay-on-hands-target="self">Confirm on Self</button>' +
+        '<button type="button" class="waybeyond20-elemental-strike-button" data-lay-on-hands-target="other">Confirm on Other</button>' +
+        '</div></form>';
+    return html;
+}
+
+// Resolves { target: "self" | "other", amount } or null for Cancel, close, or Enter.
+async function wayBeyond20QueryLayOnHands(kind, pool, options = {}) {
+    if (typeof dndbeyondDiceRoller === "undefined" || !dndbeyondDiceRoller || !dndbeyondDiceRoller._prompter) return null;
+    const result = await dndbeyondDiceRoller._prompter.prompt(
+        "Lay On Hands", wayBeyond20LayOnHandsQueryHtml(kind, pool, options), "Confirm", "Cancel");
+    if (!result) return null;
+    const target = result.attr("data-selected");
+    if (target !== "self" && target !== "other") return null;
+    const healing = parseInt(result.attr("data-healing")) || 0;
+    const purify = result.attr("data-purify") === "1";
+    if (healing <= 0 && !purify) return null;
+    return { target, healing, purify };
+}
+
+function wayBeyond20CurrentHitPoints() {
+    if (!character || typeof character.updateHP !== "function") return { current: null, max: null };
+    character.updateHP();
+    const current = parseInt(character._hp);
+    const max = parseInt(character._max_hp);
+    return { current: Number.isFinite(current) ? current : null, max: Number.isFinite(max) ? max : null };
+}
+
+// D&D Beyond's own Heal control: the "Hit Points Adjustment" box and the Heal button beside it.
+function wayBeyond20FindHitPointsAdjuster() {
+    const inputs = Array.from(document.querySelectorAll("input[aria-label='Hit Points Adjustment' i]"))
+        .filter(wayBeyond20IsVisibleElement);
+    for (const input of inputs) {
+        const container = input.parentElement;
+        const heal = container ? Array.from(container.querySelectorAll("button")).find(button =>
+            String(button.textContent || "").replace(/\s+/g, " ").trim().toLowerCase() === "heal") : null;
+        if (heal) return { input, heal };
+    }
+    return null;
+}
+
+// Healing WayBeyond20 applies to this character ends here after D&D Beyond applied it, so healing
+// triggers attach to one place instead of to each healing source (Bill, 2026-09-15).
+function wayBeyond20NotifyHealingReceived(detail) {
+    wayBeyond20CharacterDebug("Healing received", detail);
+    try {
+        document.dispatchEvent(new CustomEvent("WayBeyond20HealingReceived", { detail }));
+    } catch (error) {
+        console.warn("WayBeyond20: healing notification failed", error);
+    }
+}
+
+// Heals this character through D&D Beyond's Heal control, the way a player does, instead of
+// writing Hit Points directly; D&D Beyond then caps at the maximum and handles 0 HP itself.
+async function wayBeyond20ApplyHealingToSelf(amount, { source = "" } = {}) {
+    const requested = Math.max(0, parseInt(amount) || 0);
+    const before = wayBeyond20CurrentHitPoints();
+    const adjuster = requested ? wayBeyond20FindHitPointsAdjuster() : null;
+    if (!requested || !adjuster || before.current === null) {
+        wayBeyond20CharacterDebug("Healing not applied", { requested, source, control: !!adjuster, before });
+        return { applied: false, before: before.current, after: before.current };
+    }
+    wayBeyond20SetReactInputValue(adjuster.input, requested);
+    wayBeyond20NativeClick(adjuster.heal);
+    let after = before;
+    for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        after = wayBeyond20CurrentHitPoints();
+        if (after.current !== null && after.current > before.current) break;
+    }
+    const alreadyFull = before.max !== null && before.current >= before.max;
+    const applied = after.current !== null && (after.current > before.current || alreadyFull);
+    if (applied) {
+        wayBeyond20NotifyHealingReceived({ amount: requested, regained: Math.max(0, after.current - before.current), source });
+    }
+    return { applied, before: before.current, after: after.current };
+}
+
+// D&D Beyond lists the character's active conditions by name in the sheet's Conditions summary.
+function wayBeyond20SelfHasCondition(name) {
+    const wanted = wayBeyond20NormalizeFeatureLabel(name);
+    return Array.from(document.querySelectorAll(".ddbc-condition__name")).some(element =>
+        !element.closest(".ct-condition-manage-pane") && wayBeyond20NormalizeFeatureLabel(element.textContent) === wanted);
+}
+
+function wayBeyond20FindConditionToggle(name) {
+    const wanted = wayBeyond20NormalizeFeatureLabel(name);
+    const row = Array.from(document.querySelectorAll(".ct-condition-manage-pane .ct-condition-manage-pane__condition")).find(element => {
+        const label = element.querySelector(".ct-condition-manage-pane__condition-name");
+        return !!label && wayBeyond20NormalizeFeatureLabel(label.textContent) === wanted;
+    });
+    return row ? row.querySelector("button") : null;
+}
+
+function wayBeyond20ConditionToggleIsOn(toggle) {
+    if (!toggle) return false;
+    const pressed = toggle.getAttribute("aria-pressed");
+    if (pressed !== null) return pressed === "true";
+    return /checked|enabled/i.test(String(toggle.className || ""));
+}
+
+// Removes a condition with D&D Beyond's own toggle in its Conditions pane, opening the pane from
+// the condition's summary entry when needed, and verifies the toggle turned off.
+async function wayBeyond20RemoveConditionFromSelf(name) {
+    if (!wayBeyond20SelfHasCondition(name)) return { wasPresent: false, removed: false };
+    const wait = () => new Promise(resolve => setTimeout(resolve, 100));
+    let toggle = wayBeyond20FindConditionToggle(name);
+    if (!toggle) {
+        const wanted = wayBeyond20NormalizeFeatureLabel(name);
+        const entry = Array.from(document.querySelectorAll(".ddbc-condition__name")).find(element =>
+            !element.closest(".ct-condition-manage-pane") && wayBeyond20NormalizeFeatureLabel(element.textContent) === wanted);
+        if (entry) wayBeyond20NativeClick(entry);
+        for (let attempt = 0; attempt < 10 && !toggle; attempt++) {
+            await wait();
+            toggle = wayBeyond20FindConditionToggle(name);
         }
     }
+    if (!toggle) return { wasPresent: true, removed: false };
+    if (wayBeyond20ConditionToggleIsOn(toggle)) wayBeyond20NativeClick(toggle);
+    for (let attempt = 0; attempt < 10; attempt++) {
+        await wait();
+        if (!wayBeyond20ConditionToggleIsOn(wayBeyond20FindConditionToggle(name) || toggle)) return { wasPresent: true, removed: true };
+    }
+    return { wasPresent: true, removed: false };
+}
+
+async function wayBeyond20RollLayOnHands(actionName, description, properties) {
+    // Per-character helper switch (Contract F; Ian 2026-10-04). Off hides WayBeyond20's window and
+    // leaves D&D Beyond's own controls to handle the feature. It suppresses this presentation only;
+    // shared resource and effect processing elsewhere is untouched.
+    if (!wayBeyond20CharacterHelperEnabled("waybeyond20-lay-on-hands-helper")) return null;
+    // One Lay on Hands at a time: a double click opens one window and spends once.
+    if (wayBeyond20LayOnHandsInFlight) return null;
+    wayBeyond20LayOnHandsInFlight = true;
+    try {
+        return await wayBeyond20PerformLayOnHands(actionName, description, properties || {});
+    } finally {
+        wayBeyond20LayOnHandsInFlight = false;
+    }
+}
+
+async function wayBeyond20PerformLayOnHands(actionName, description, properties) {
+    const kind = wayBeyond20LayOnHandsKind(actionName) || "heal";
+    const pool = wayBeyond20FindNumericFeaturePool(WAYBEYOND20_LAY_ON_HANDS_POOL);
+    let name = actionName;
+    let target = null;
+    let healed = 0;
+    let curePoison = false;
+    if (kind === "heal" || kind === "purify") {
+        const choice = await wayBeyond20QueryLayOnHands(kind, pool, {
+            poisoned: wayBeyond20SelfHasCondition("Poisoned")
+        });
+        if (!choice) return null;
+        target = choice.target;
+        healed = choice.healing;
+        curePoison = choice.purify;
+        name = healed > 0 && curePoison
+            ? "Lay On Hands: Heal and Purify Poison"
+            : (healed > 0 ? "Lay On Hands: Heal" : "Lay On Hands: Purify Poison");
+    } else {
+        // Restoring Touch keeps its own fixed-cost card until its conditions are designed.
+        healed = 0;
+        curePoison = true;
+    }
+    // One touch spends everything the player allocated to it; the Purify points restore no Hit
+    // Points of their own (03-DECISIONS, Bill 2026-10-04).
+    const amount = healed + (curePoison ? WAYBEYOND20_PURIFY_POISON_COST : 0);
+    const isHealing = healed > 0;
 
     if (pool.current !== null && amount > pool.current) {
         const proceed = await wayBeyond20ConfirmChoice(
             "Not Enough Lay on Hands Points",
-            `${actionName} needs ${amount} points, but D&D Beyond shows ${pool.current}. Send the card without changing the pool?`,
+            `${name} needs ${amount} points, but D&D Beyond shows ${pool.current}. Continue without changing the pool?`,
             "Send Anyway",
             "Cancel"
         );
@@ -6684,26 +7131,110 @@ async function wayBeyond20RollLayOnHands(actionName, description, properties) {
     }
 
     const rollProperties = {
-        name: actionName,
+        name,
         description,
         "source-type": "action"
     };
     if (isHealing) {
-        rollProperties.damages = [String(amount)];
+        rollProperties.damages = [String(healed)];
         rollProperties["damage-types"] = ["Healing"];
+        // Built without buildAttackRoll, so ask for the damage row explicitly or the renderer
+        // posts the card without its Healing amount (live, 2026-09-17).
+        rollProperties.rollAttack = false;
+        rollProperties.rollDamage = true;
+        rollProperties.rollCritical = false;
     }
-    wayBeyond20AttachActivationResource(rollProperties, properties, null, null, {
-        name: actionName,
-        rollType: isHealing ? "spell-attack" : "trait"
-    });
-    const result = await sendRollWithCharacter(isHealing ? "spell-attack" : "trait", isHealing ? String(amount) : 0, rollProperties);
-    if (result === true && pool.current !== null && amount <= pool.current) {
-        const spent = await wayBeyond20SpendNumericFeaturePool(poolHeading, amount);
-        if (!spent && typeof alertify !== "undefined" && alertify.warning) {
-            alertify.warning(`WayBeyond20 sent ${actionName}, but D&D Beyond did not reduce Lay on Hands by ${amount}. Please adjust the pool manually.`);
+    if (curePoison) {
+        addEffect(rollProperties, `Removes the Poisoned condition (${WAYBEYOND20_PURIFY_POISON_COST} points; restores no Hit Points)`);
+        if (!isHealing) {
+            // Trait cards show the description, not the effects list, so the result leads it.
+            const result = `Purify Poison on ${target === "self" ? "self" : "another creature"}: removes the Poisoned condition (${WAYBEYOND20_PURIFY_POISON_COST} points; restores no Hit Points).`;
+            rollProperties.description = description ? `${result}
+
+${description}` : result;
         }
     }
+    if (target) addEffect(rollProperties, target === "self" ? "On self" : "On another creature");
+    wayBeyond20AttachActivationResource(rollProperties, properties, null, kind === "restoring-touch" ? null : "bonusAction", {
+        name,
+        rollType: isHealing ? "spell-attack" : "trait"
+    });
+    const result = await sendRollWithCharacter(isHealing ? "spell-attack" : "trait", isHealing ? String(healed) : 0, rollProperties);
+    if (result !== true) return result;
+
+    const warn = message => {
+        if (typeof alertify !== "undefined" && alertify.warning) alertify.warning(message);
+    };
+    if (target === "self" && isHealing) {
+        const healing = await wayBeyond20ApplyHealingToSelf(healed, { source: name });
+        if (!healing.applied) warn(`WayBeyond20 sent ${name}, but D&D Beyond did not apply the healing. Please add ${healed} Hit Points manually.`);
+    }
+    if (target === "self" && curePoison) {
+        const purified = await wayBeyond20RemoveConditionFromSelf("Poisoned");
+        if (purified.wasPresent && !purified.removed) warn(`WayBeyond20 sent ${name}, but D&D Beyond did not remove the Poisoned condition. Please remove it manually.`);
+    }
+    if (pool.current === null) {
+        warn(`WayBeyond20 sent ${name}, but could not find the Lay on Hands pool on this tab. Please reduce it by ${amount} manually.`);
+    } else if (amount <= pool.current) {
+        const spent = await wayBeyond20SpendNumericFeaturePool(WAYBEYOND20_LAY_ON_HANDS_POOL, amount);
+        if (!spent) warn(`WayBeyond20 sent ${name}, but D&D Beyond did not reduce Lay on Hands by ${amount}. Please adjust the pool manually.`);
+    }
     return result;
+}
+
+// Features & Traits lists "Lay On Hands: Heal: 1 Bonus Action" and "Lay On Hands: Purify Poison:
+// 1 Bonus Action". Bill's specification turns "Heal:" / "Purify Poison:" into a pill button that
+// opens the Lay on Hands window. D&D Beyond's own text node stays in place, hidden by CSS, so React
+// can keep updating it; the visible line is WayBeyond20's copy, rebuilt when the native text changes.
+const WAYBEYOND20_LAY_ON_HANDS_PILLS = [
+    { kind: "heal", option: "heal", label: "Heal" },
+    { kind: "purify", option: "purify poison", label: "Purify Poison" }
+];
+
+function wayBeyond20InjectLayOnHandsControls() {
+    if (!wayBeyond20CharacterHelperEnabled("waybeyond20-lay-on-hands-helper")) return;
+    const summaries = Array.from(document.querySelectorAll(".ct-feature-snippet__action-summary,.ddbc-feature-snippet__action-summary"));
+    for (const summary of summaries) {
+        const nativeText = wayBeyond20ElementOwnText(summary);
+        const parts = wayBeyond20ActionSummaryParts(nativeText);
+        const option = /^lay on hands\s*:\s*(.+)$/i.exec(parts.name);
+        const pill = option ? WAYBEYOND20_LAY_ON_HANDS_PILLS.find(entry => wayBeyond20NormalizeFeatureLabel(option[1]) === entry.option) : null;
+        let line = Array.from(summary.children).find(child => child.classList.contains("waybeyond20-loh-line")) || null;
+        if (!pill) {
+            if (line) {
+                line.remove();
+                summary.classList.remove("waybeyond20-loh-summary");
+            }
+            continue;
+        }
+        if (line && line.getAttribute("data-native-text") === nativeText) continue;
+        if (line) line.remove();
+        if (!summary.getAttribute("data-waybeyond20-font-size") && typeof getComputedStyle === "function") {
+            summary.setAttribute("data-waybeyond20-font-size", getComputedStyle(summary).fontSize || "");
+        }
+        line = document.createElement("span");
+        line.className = "waybeyond20-loh-line";
+        line.setAttribute("data-native-text", nativeText);
+        const fontSize = summary.getAttribute("data-waybeyond20-font-size");
+        if (fontSize) line.style.fontSize = fontSize;
+        const button = document.createElement("button");
+        button.setAttribute("type", "button");
+        button.className = "waybeyond20-loh-pill";
+        button.setAttribute("data-lay-on-hands", pill.kind);
+        button.textContent = pill.label;
+        const activation = parts.activation;
+        button.addEventListener("click", event => {
+            event.preventDefault();
+            event.stopPropagation();
+            const snippet = summary.closest(".ct-feature-snippet,.ddbc-feature-snippet");
+            const content = snippet ? snippet.querySelector(".ct-feature-snippet__content,.ddbc-feature-snippet__content") : null;
+            const description = content ? String(content.textContent || "").replace(/\s+/g, " ").trim() : "";
+            wayBeyond20RollLayOnHands(`Lay On Hands: ${pill.label}`, description, activation ? { "Action Type": activation } : {});
+        });
+        line.append("Lay On Hands: ", button, activation ? ` ${activation}` : "");
+        summary.classList.add("waybeyond20-loh-summary");
+        summary.append(line);
+    }
 }
 
 function wayBeyond20ChooseElementalDamageType() {
@@ -7005,18 +7536,20 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
         wayBeyond20CommitAfterDispatch(roll_properties, () => wayBeyond20CommitRollSettings(settings_to_change));
 
         if (!force_damages_only) {
-            wayBeyond20AttachActivationResource(roll_properties, properties, null, "action", {
+            wayBeyond20AttachAttackActionResource(roll_properties, properties, null, "action", {
                 name: action_name,
-                rollType: "attack"
+                rollType: "attack",
+                description
             });
             wayBeyond20AttachNativeActionUse(roll_properties, action_name);
         }
         await wayBeyond20MaybeAddSmite(
             roll_properties,
-            wayBeyond20ActivationResource(properties, null, "action") !== "bonusAction" &&
-                (isMeleeAttack || properties["Attack Type"] === "Melee" || properties["Attack Type"] === "Unarmed Strike" ||
-                roll_properties["attack-type"] === "Melee" || roll_properties["attack-type"] === "Unarmed Strike"
-                )
+            wayBeyond20IsSmiteEligibleAttack(roll_properties, properties,
+                wayBeyond20ActivationResource(properties, null, "action") !== "bonusAction" &&
+                    (isMeleeAttack || properties["Attack Type"] === "Melee" || properties["Attack Type"] === "Unarmed Strike" ||
+                    roll_properties["attack-type"] === "Melee" || roll_properties["attack-type"] === "Unarmed Strike"
+                    ))
         );
         return sendRollWithCharacter("attack", damages[0], roll_properties);
     } else {
@@ -8843,6 +9376,7 @@ function documentModified(mutations, observer) {
     injectCustomRollButton();
     wayBeyond20InjectBloodAndBoneAction();
     wayBeyond20InjectBardicInspirationButton();
+    wayBeyond20InjectLayOnHandsControls();
     activateQuickRolls();
     if (character._features_needs_refresh && !character._features_refresh_warning_displayed) {
         character._features_refresh_warning_displayed = true;
@@ -9086,6 +9620,7 @@ function wayBeyond20ResetTurnResourcesFromRoll20(turnInfo) {
     const isThisCharactersTurn = !!turnTokenId && (
         turnTokenId === storedTokenId || tokenIds.includes(turnTokenId) || tokenNameMatches
     );
+
     const persistedWasThisCharactersTurn = !!(previousState.currentRoll20Turn && previousState.currentRoll20Turn.isThisCharactersTurn);
     const wasThisCharactersTurn = wayBeyond20LastObservedRoll20TokenId
         ? wayBeyond20LastObservedRoll20WasCharacter
@@ -9195,7 +9730,16 @@ function handleCombatAttackIntegratedDie(button) {
     const isToHit = !!button.closest(".ct-combat-attack__tohit, .ddbc-combat-attack__tohit");
     const damageCell = button.closest(".ct-combat-attack__damage, .ddbc-combat-attack__damage");
     const isDamage = !!damageCell;
-    const forceVersatile = !!(damageCell && damageCell.previousElementSibling);
+    // Versatile (PHB, Equipment: weapon properties): the damage in parentheses applies only when
+    // the weapon is used with two hands, so the two-handed die is the second die in the
+    // damage cell. Test the clicked die itself; the cell always has a previous sibling
+    // (the action cell), which made every damage die roll the two-handed die.
+    let forceVersatile = false;
+    if (damageCell) {
+        const dice = Array.from(damageCell.querySelectorAll(".integrated-dice__container"));
+        const clicked = button.closest(".integrated-dice__container") || button;
+        forceVersatile = dice.indexOf(clicked) > 0;
+    }
 
     const name = $(row)
         .find(".ct-combat-attack__name .ct-combat-attack__label, .ddbc-combat-attack__name .ddbc-combat-attack__label")

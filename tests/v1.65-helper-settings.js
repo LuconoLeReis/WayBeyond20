@@ -21,6 +21,7 @@ const HELPERS = [
     "waybeyond20-mage-armor-helper",
     "waybeyond20-concentration-check-helper",
     "waybeyond20-condition-casting-warning",
+    "waybeyond20-lay-on-hands-helper",
     "musician-rest-reminder"
 ];
 
@@ -214,7 +215,7 @@ function createHelperJq() {
 
 async function exerciseHelpers(character, globalSettings) {
     const jq = createHelperJq();
-    const calls = { bonusAction: 0, query: 0, musician: 0, popout: 0, concentrationCheck: 0, upsert: [] };
+    const calls = { bonusAction: 0, query: 0, musician: 0, popout: 0, concentrationCheck: 0, upsert: [], layOnHands: 0 };
     const row = jq.newEl("div");
     const anchor = jq.newEl("span");
     anchor.parent = row;
@@ -241,10 +242,13 @@ async function exerciseHelpers(character, globalSettings) {
         wayBeyond20SpellTabAnchor: () => jq.make(anchor),
         wayBeyond20GetIntrusionDie: () => 8,
         wayBeyond20OccultistStartingDie: () => 8,
+        wayBeyond20PerformLayOnHands: async () => { calls.layOnHands++; return true; },
         WAYBEYOND20_INTRUSION_DICE: [2, 3, 4, 6, 8, 10, 12]
     };
     vm.createContext(ctx);
+    vm.runInContext("let wayBeyond20LayOnHandsInFlight = false;", ctx);
     for (const name of [
+        "wayBeyond20RollLayOnHands",
         "wayBeyond20CharacterHelperEnabled",
         "wayBeyond20ShowMusicianRestReminder",
         "wayBeyond20InjectWizardHelpers",
@@ -272,8 +276,10 @@ async function exerciseHelpers(character, globalSettings) {
     const queriesBeforeIntrusion = calls.query;
     await ctx.wayBeyond20ApplyOccultistIntrusion({}, { forceDisplay: false, ritualMode: "normal", level: "1st Level", castas: "" });
     const intrusionQueried = calls.query > queriesBeforeIntrusion;
+    await ctx.wayBeyond20RollLayOnHands("Lay On Hands: Heal", "", {});
 
     return {
+        "waybeyond20-lay-on-hands-helper": calls.layOnHands === 1,
         "musician-rest-reminder": calls.musician === 1,
         "wizard-occultist-intrusion-helper": toolText.includes("INTRUSION d8") && intrusionQueried,
         "wizard-arcane-recovery-helper": toolText.includes("ARCANE RECOVERY"),
@@ -291,7 +297,7 @@ async function exerciseHelpers(character, globalSettings) {
 }
 
 (async () => {
-    // Registry: all eight helpers are character settings, default on, and listed for the popup.
+    // Registry: every helper is a character setting, default on, and listed for the popup.
     {
         const { ctx } = createExtensionContext({}, []);
         const characterSettings = vm.runInContext("character_settings", ctx);

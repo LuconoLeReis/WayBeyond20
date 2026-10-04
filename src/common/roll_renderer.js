@@ -409,20 +409,22 @@ class Beyond20RollRenderer {
             const has2Handed = total_damages["2-Handed Damage"] || total_damages["Missing HP Damage"];
             const hasCritical1Handed = total_damages["Critical 1-Handed Damage"] || total_damages["Critical Full HP Damage"];
             const hasCritical2Handed = total_damages["Critical 2-Handed Damage"] || total_damages["Critical Missing HP Damage"];
-            const conditional = total_damages["Conditional"];
             
             const hasAttackRolls = attack_rolls && attack_rolls.length > 0;
             
+            // The combined totals are what this attack deals to its target, so conditional damage
+            // stays out of them. It is either damage dealt to a different creature -- Efreeti's
+            // Fury sends its second 2d4 Fire to a separate creature within 30 feet (Heroes of
+            // Faerun, Oath of the Noble Genies: Elemental Smite) -- or damage that applies only if
+            // its own condition is met. Either way a Critical Hit doubles the attack's damage dice
+            // against the target (PHB, Rules Glossary: Critical Hit), and this is neither. It keeps
+            // its own Conditional row on the card (B131-O4f).
             if (hasAttackRolls) {
                 if (has1Handed && hasCritical1Handed) {
-                    let formula = `${total_damages["1-Handed Damage"] || total_damages["Full HP Damage"]} + ${total_damages["Critical 1-Handed Damage"] || total_damages["Critical Full HP Damage"]}`;
-                    if (conditional) formula += ` + ${conditional}`;
-                    total_damages["Combined 1 Handed"] = formula;
+                    total_damages["Combined 1 Handed"] = `${total_damages["1-Handed Damage"] || total_damages["Full HP Damage"]} + ${total_damages["Critical 1-Handed Damage"] || total_damages["Critical Full HP Damage"]}`;
                 }
                 if (has2Handed && hasCritical2Handed) {
-                    let formula = `${total_damages["2-Handed Damage"] || total_damages["Missing HP Damage"]} + ${total_damages["Critical 2-Handed Damage"] || total_damages["Critical Missing HP Damage"]}`;
-                    if (conditional) formula += ` + ${conditional}`;
-                    total_damages["Combined 2 Handed"] = formula;
+                    total_damages["Combined 2 Handed"] = `${total_damages["2-Handed Damage"] || total_damages["Missing HP Damage"]} + ${total_damages["Critical 2-Handed Damage"] || total_damages["Critical Missing HP Damage"]}`;
                 }
             }
             

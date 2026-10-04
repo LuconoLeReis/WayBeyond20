@@ -154,7 +154,12 @@ class Element {
             _list: () => String(self.getAttribute("class") || "").split(/\s+/).filter(Boolean),
             contains: name => self.classList._list().includes(name),
             add: name => { if (!self.classList.contains(name)) self.setAttribute("class", [...self.classList._list(), name].join(" ")); },
-            remove: name => self.setAttribute("class", self.classList._list().filter(item => item !== name).join(" "))
+            remove: name => self.setAttribute("class", self.classList._list().filter(item => item !== name).join(" ")),
+            toggle: (name, force) => {
+                const on = force === undefined ? !self.classList.contains(name) : !!force;
+                if (on) self.classList.add(name); else self.classList.remove(name);
+                return on;
+            }
         };
         for (const [name, value] of Object.entries(attributes)) {
             if (name === "disabled") this.disabled = !!value;

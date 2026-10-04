@@ -315,7 +315,9 @@ function assertChooser(context, route) {
     assert.deepEqual(form.buttons.map(button => button.key), ["dao", "djinni", "efreeti", "marid"]);
     const html = context.log.prompts.find(prompt => prompt.title === "Elemental Strike").html;
     assert.doesNotMatch(html, /type="radio"|<input/, "no radio selection");
-    assert.equal(context.log.prompts.find(prompt => prompt.title === "Elemental Strike").cancel, "Cancel");
+    // The Divine Smite has already been cast when the rider is offered, so declining must read as
+    // declining the rider, not as calling off the roll (Bill, 2026-10-04).
+    assert.equal(context.log.prompts.find(prompt => prompt.title === "Elemental Strike").cancel, "No Elemental Strike");
     assert.equal(context.dialog.okButton.style.display, "none", "no Proceed/confirm step is shown");
     assert.equal(form.listenerCount("click"), 1, "one click handler per prepared chooser");
     assert.ok(html.includes(route === "divine-smite" ? "this Divine Smite's Bonus Action" : "uses one Channel Divinity."));

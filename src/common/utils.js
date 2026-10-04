@@ -221,6 +221,115 @@ E = new Proxy({}, {
 });
 
 
+// Lay on Hands window (Bill's specification, 2026-09-15): an amount box with [−]/[+] steppers
+// (Heal only; Purify Poison has a fixed cost) and one confirm button per target. A confirm click
+// resolves the prompt with the form (data-selected = self|other, data-amount) and closes it;
+// later clicks are ignored. The footer confirm button is hidden, so Enter, Cancel and close all
+// resolve without a target, which the caller treats as Cancel.
+function wayBeyond20WireLayOnHandsForm(form, { okButton = null, resolve, close }) {
+    // One touch, one Bonus Action, with the pool allocated across the selected options. The pool
+    // line is a working preview only: nothing is committed until Confirm dispatches successfully.
+    if (okButton) okButton.style.display = "none";
+    const input = form.querySelector("input[name='lay-on-hands-amount']");
+    const error = form.querySelector(".waybeyond20-lay-on-hands-error");
+    const remainingLabel = form.querySelector("[data-lay-on-hands-remaining]");
+    const rawPool = form.getAttribute("data-pool");
+    const pool = /^\d+$/.test(String(rawPool || "")) ? parseInt(rawPool) : null;
+    const purifyCost = parseInt(form.getAttribute("data-purify-cost")) || 0;
+    const optionButtons = Array.from(form.querySelectorAll("button[data-lay-on-hands-option]"));
+
+    const isSelected = key => {
+        const button = optionButtons.find(candidate => candidate.getAttribute("data-lay-on-hands-option") === key);
+        return !!button && button.getAttribute("aria-pressed") === "true";
+    };
+    const healingAmount = () => {
+        if (!isSelected("healing") || !input) return 0;
+        const value = String(input.value === undefined || input.value === null ? "" : input.value).trim();
+        return /^\d+$/.test(value) ? parseInt(value) : NaN;
+    };
+    const allocated = () => {
+        const healing = healingAmount();
+        return (Number.isFinite(healing) ? healing : 0) + (isSelected("purify") ? purifyCost : 0);
+    };
+    const showError = text => { if (error) error.textContent = text; };
+
+    const sync = () => {
+        for (const button of optionButtons) {
+            const key = button.getAttribute("data-lay-on-hands-option");
+            const selected = button.getAttribute("aria-pressed") === "true";
+            button.classList.toggle("waybeyond20-lay-on-hands-option-selected", selected);
+            const panel = form.querySelector(`[data-for-option="${key}"]`);
+            if (panel) panel.hidden = !selected;
+            // Purify Poison can only be taken while enough points are still unallocated for it.
+            if (key === "purify" && !selected && pool !== null) {
+                const healing = healingAmount();
+                const free = pool - (Number.isFinite(healing) ? healing : 0);
+                const affordable = free >= purifyCost;
+                button.disabled = !affordable;
+                button.classList.toggle("waybeyond20-lay-on-hands-option-disabled", !affordable);
+            } else if (key === "purify") {
+                button.disabled = false;
+                button.classList.remove("waybeyond20-lay-on-hands-option-disabled");
+            }
+        }
+        if (remainingLabel && pool !== null) {
+            remainingLabel.textContent = String(Math.max(0, pool - allocated()));
+        }
+    };
+
+    form.addEventListener("submit", event => event.preventDefault());
+    form.addEventListener("input", () => { showError(""); sync(); });
+    form.addEventListener("click", event => {
+        const origin = event.target && event.target.closest ? event.target : null;
+        if (!origin || form.getAttribute("data-selected")) return;
+
+        const option = origin.closest("button[data-lay-on-hands-option]");
+        if (option) {
+            event.preventDefault();
+            if (option.disabled) return;
+            option.setAttribute("aria-pressed", option.getAttribute("aria-pressed") === "true" ? "false" : "true");
+            showError("");
+            sync();
+            return;
+        }
+
+        const step = origin.closest("button[data-lay-on-hands-step]");
+        if (step) {
+            event.preventDefault();
+            if (!input) return;
+            const current = healingAmount();
+            const ceiling = pool === null ? Infinity : pool - (isSelected("purify") ? purifyCost : 0);
+            const next = (Number.isFinite(current) ? current : 0) + (parseInt(step.getAttribute("data-lay-on-hands-step")) || 0);
+            input.value = String(Math.min(ceiling, Math.max(1, next)));
+            showError("");
+            sync();
+            return;
+        }
+
+        const confirm = origin.closest("button[data-lay-on-hands-target]");
+        if (!confirm) return;
+        event.preventDefault();
+        const healing = healingAmount();
+        if (!isSelected("healing") && !isSelected("purify")) {
+            showError("Choose Healing, Purify Poison, or both.");
+            return;
+        }
+        if (isSelected("healing") && (!Number.isFinite(healing) || healing < 1)) {
+            showError("Enter a whole number of at least 1.");
+            return;
+        }
+        form.setAttribute("data-selected", confirm.getAttribute("data-lay-on-hands-target"));
+        form.setAttribute("data-healing", isSelected("healing") ? String(healing) : "0");
+        form.setAttribute("data-purify", isSelected("purify") ? "1" : "0");
+        form.querySelectorAll("button").forEach(button => { button.disabled = true; });
+        resolve(form);
+        // Closing runs the cancel callback, which cannot change a resolved prompt.
+        close();
+    });
+
+    sync();
+}
+
 function initializeAlertify() {
     alertify.set("alert", "title", "WayBeyond20");
     alertify.set("notifier", "position", "top-center");
@@ -341,6 +450,17 @@ function initializeAlertify() {
                             resolver.call(dialog, $(elementalForm));
                             // Closing runs the cancel callback, which cannot change a resolved prompt.
                             dialog.close();
+                        });
+                    }
+
+                    const layOnHandsForm = this.elements.content.querySelector("form.waybeyond20-lay-on-hands-query");
+                    if (layOnHandsForm) {
+                        const dialog = this;
+                        const resolver = this.get('resolver');
+                        wayBeyond20WireLayOnHandsForm(layOnHandsForm, {
+                            okButton,
+                            resolve: form => resolver.call(dialog, $(form)),
+                            close: () => dialog.close()
                         });
                     }
                 },

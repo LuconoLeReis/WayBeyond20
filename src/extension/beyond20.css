@@ -1142,6 +1142,97 @@ span.dice-roll.beyond20-tooltip-content {
     opacity: 0.5;
 }
 
+/* Lay on Hands: D&D Beyond's own summary text stays in the DOM (React owns it) but is hidden;
+   WayBeyond20's copy with the pill button is shown in its place. */
+.waybeyond20-loh-summary {
+    font-size: 0;
+}
+
+.waybeyond20-loh-summary > .waybeyond20-loh-line {
+    align-items: center;
+    display: inline-flex;
+    flex-wrap: wrap;
+    font-size: 12px;
+    gap: 4px;
+}
+
+.waybeyond20-loh-pill {
+    background: color-mix(in srgb, currentColor 6%, transparent);
+    border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+    border-radius: 999px;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+    line-height: 1.2;
+    padding: 1px 10px;
+}
+
+.waybeyond20-loh-pill:hover {
+    background: color-mix(in srgb, currentColor 15%, transparent);
+    border-color: currentColor;
+}
+
+.waybeyond20-loh-pill:focus-visible {
+    outline: 2px solid color-mix(in srgb, currentColor 60%, transparent);
+    outline-offset: 2px;
+}
+
+.waybeyond20-loh-pill:active {
+    transform: scale(0.97);
+}
+
+.waybeyond20-lay-on-hands-query {
+    max-width: 420px;
+}
+
+.waybeyond20-lay-on-hands-amount {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin: 6px 0;
+}
+
+.waybeyond20-lay-on-hands-amount input {
+    font: inherit;
+    font-size: 18px;
+    font-weight: 700;
+    padding: 4px 6px;
+    text-align: center;
+    width: 5em;
+}
+
+.waybeyond20-lay-on-hands-step {
+    background: color-mix(in srgb, currentColor 6%, transparent);
+    border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+    border-radius: 999px;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    font-size: 18px;
+    font-weight: 700;
+    height: 34px;
+    line-height: 1;
+    width: 34px;
+}
+
+.waybeyond20-lay-on-hands-step:hover {
+    background: color-mix(in srgb, currentColor 15%, transparent);
+    border-color: currentColor;
+}
+
+.waybeyond20-lay-on-hands-note {
+    font-style: italic;
+    margin: 4px 0;
+}
+
+.waybeyond20-lay-on-hands-error {
+    color: #c53131;
+    margin: 4px 0;
+    min-height: 1em;
+}
+
 .ajs-dialog .ajs-footer .ajs-buttons .waybeyond20-query-proceed-disabled,
 .ajs-dialog .ajs-footer .ajs-buttons .waybeyond20-query-proceed-disabled:hover,
 .ajs-dialog .ajs-footer .ajs-buttons .waybeyond20-query-proceed-disabled:focus {
@@ -1151,4 +1242,38 @@ span.dice-roll.beyond20-tooltip-content {
     color: #e5e5e5;
     cursor: default;
     opacity: 0.62;
+}
+
+.waybeyond20-lay-on-hands-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0 6px;
+}
+
+.waybeyond20-lay-on-hands-option {
+    border: 1px solid #8a6a2f;
+    border-radius: 999px;
+    background: #2b2b2b;
+    color: #e9e2d0;
+    padding: 3px 12px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.waybeyond20-lay-on-hands-option-selected {
+    background: #8a6a2f;
+    color: #1b1b1b;
+    box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.45);
+}
+
+.waybeyond20-lay-on-hands-option-disabled,
+.waybeyond20-lay-on-hands-option:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.waybeyond20-lay-on-hands-pool {
+    margin: 2px 0 0;
+    font-size: 13px;
 }
