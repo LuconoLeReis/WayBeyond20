@@ -6,7 +6,8 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
-const read = relative => fs.readFileSync(path.join(root, ...relative.split("/")), "utf8");
+// Source exports/checkouts may use CRLF or LF; fixture slicing must support both.
+const read = relative => fs.readFileSync(path.join(root, ...relative.split("/")), "utf8").replace(/\r\n/g, "\n");
 const settingsSource = read("src/common/settings.js");
 const baseSource = read("src/dndbeyond/base/base.js");
 const characterSource = read("src/dndbeyond/content-scripts/character.js");
