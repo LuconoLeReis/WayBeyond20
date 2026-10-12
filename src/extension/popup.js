@@ -204,6 +204,7 @@ function populateCharacter(response) {
             options.append(e);
         }
         if (response["feats"].includes("Savage Attacker") || response["feats"].includes("Savage Attacker 2024")) {
+            options.append(createHTMLOption("savage-attacker-prompt", false, character_settings));
             e = createHTMLOption("savage-attacker", false, character_settings);
             options.append(e);
         }

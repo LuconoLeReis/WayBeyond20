@@ -1,5 +1,15 @@
 # WayBeyond20 Test Drive Issues
 
+## v1.65.10 regression update — 2026-10-12
+
+The duplicate Roll20 damage-link defect found during follow-up testing is fixed in both rendered-card formats and verified live for automatic and deferred damage. Savage Attacker reroll, decline, tracked-turn reset and two-handed d10 selection passed live. Hit/Miss precedes Smite and on-hit resources; both Smite fuels and representative Elemental Strike results were exercised on the dedicated test sheet. Critical/Draining combined paths are automated-tested, not newly live-certified. Foundry connection testing was excluded. Remaining current limitations are in WayBeyond20-Current-State.md; older observations below remain historical.
+
+## Historical record notice — 2026-10-10
+
+The observations below describe v1.61 and must not be presented as current v1.65.5 failures. Later releases corrected several related paths; the exact historical cases require evidence mapping before closure. TD-005's natural-weapon-only expectation is superseded by later capability-based Draining Attack decisions. Current published limitations are recorded in the current-state document and changelog.
+
+## Original observations
+
 Test build: WayBeyond20 v1.61 / 2.20.61
 
 Started: 2026-09-07

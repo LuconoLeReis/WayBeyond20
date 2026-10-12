@@ -6,6 +6,12 @@ from elementmaker import E;
 console.log("WayBeyond20: Foundry VTT module loaded.");
 
 var settings = getDefaultSettings();
+// Only the opaque continuation ID goes back to the originating sheet; never a second roll.
+addCustomEventListener("ResumeAttack", continuation => {
+    if (!Number.isInteger(continuation?.tab) || typeof continuation?.id !== "string") return;
+    chrome.runtime.sendMessage({ action: "forward", tab: continuation.tab,
+        message: { action: "waybeyond20-continue-attack", id: continuation.id } });
+});
 
 function updateSettings(new_settings = null) {
     if (new_settings) {

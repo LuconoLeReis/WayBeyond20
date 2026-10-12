@@ -350,6 +350,10 @@ async function open(name, fn) {
             assert.equal(run(ctx, "handleCombatAttackIntegratedDie")(button), true);
             await new Promise(resolve => setTimeout(resolve, 20));
             assert.deepEqual(ctx.log.executed, [{ paneClass, options: { force_to_hit_only: true, force_damages_only: false, force_versatile: false } }]);
+            const icon = { closest: selector => selector === ".ct-combat-attack, .ddbc-combat-attack" ? row : null };
+            assert.equal(run(ctx, "handleCombatAttackIntegratedDie")(icon), true);
+            await new Promise(resolve => setTimeout(resolve, 20));
+            assert.deepEqual(ctx.log.executed[1], { paneClass, options: { force_to_hit_only: false, force_damages_only: false, force_versatile: false } }, "icon uses the full attack route, not attack-only or damage-only");
         }
     });
     await guard("1d Item-pane weapon attack spends one Action after dispatch, as the Actions row does (F-L14)", async () => {

@@ -1,5 +1,30 @@
 # Complete WayBeyond20 Changes from Beyond20
 
+## v1.65.10 update — 2026-10-12
+
+New register entries WB20-082 through WB20-086 describe hit-confirmed follow-ups, post-cast Elemental Strike, post-damage Savage Attacker, the one-click attack icon, and managed/deferred damage ownership. Live Chrome/D&D Beyond/Roll20 validation covers the representative paths stated in the current-state document; critical/Draining combinations retain automated-only qualification. This supersedes older pending statements only for those tested paths.
+
+## Reconciliation — 2026-10-10
+
+Current source/public baseline: v1.65.5 / 2.20.71, commit 3c68fe5. The synchronized CSV is the dated master register (WB20-001 through WB20-081). Dates/statuses in older rows retain their original evidence; they do not imply a current-browser retest. No new live gameplay test occurred during this reconciliation.
+
+| Added/updated capability | Register IDs | Current evidence / limitation |
+| --- | --- | --- |
+| Prepared Smite discovery, native fuel spending and tab restoration | WB20-063, 066, 067, 073 | Released; historical tests recorded in CSV |
+| Helper settings and exact named-resource ownership | WB20-064, 065 | Released; capability/route audit remains separate |
+| Four-choice Elemental Strike and path-independent Draining qualification | WB20-068, 069 | Released; hit confirmation still open |
+| Builder isolation, failed execution and concurrent settings | WB20-070..072 | Released; historical live evidence preserved |
+| Combined Lay on Hands window and allocation correction | WB20-074 | v1.65.5 automated pass; current live acceptance pending; pool persistence remains open |
+| Attack action/Extra Attack and Versatile selection | WB20-075, 076 | v1.65.3 corrections retained; group-report tests passed |
+| Smite eligibility and decline semantics | WB20-077 | Breath Weapon saving throw excluded; No Smite preserves base attack |
+| Completed-rest effect cleanup | WB20-078 | Recorded tests pass; full effect lifecycle is not complete |
+| Separate second-creature elemental damage | WB20-079 | Recorded tests pass; preserve distinct target totals |
+| Lay on Hands visibility switch and roll-mode suppression | WB20-080, 081 | Implemented; final-build live acceptance pending |
+
+The catalogue below describes earlier milestones. Later rows/decisions supersede older descriptions: Draining Attack is not limited to natural-weapon names; Lay on Hands is a combined allocation window, and native pool persistence is unresolved. Caster/Portent/Occultist and other helpers are not certified by this metadata update; detailed capability audit remains pending.
+
+## Earlier capability catalogue
+
 Last verified against source and build: September 15, 2026
 
 Baseline: Beyond20 2.20.1 (`Beyond20-Master`)

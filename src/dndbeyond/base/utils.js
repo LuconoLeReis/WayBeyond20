@@ -585,8 +585,9 @@ async function sendRoll(character, rollType, fallback, args) {
         advantage: advantage,
         whisper: whisper
     }
-    for (let key in args)
-        req[key] = args[key];
+    for (let key in args) {
+        if (key !== "waybeyond20-capture-result") req[key] = args[key];
+    }
     if (key_modifiers.advantage)
         req["advantage"] = RollType.ADVANTAGE;
     else if (key_modifiers.disadvantage)
@@ -648,6 +649,9 @@ async function sendRoll(character, rollType, fallback, args) {
         req.advantage = await dndbeyondDiceRoller.queryAdvantage(args.name || rollType, req["advantage-query"]);
         if (req.advantage === null) return false; // Query was cancelled
     }
+    // Carry the resolved privacy choice to later parts of this same cast without
+    // asking again or accidentally making a whispered follow-up public.
+    if (args["waybeyond20-elemental-after-cast"]) args["waybeyond20-resolved-whisper"] = req.whisper;
     if (character.getGlobalSetting("weapon-force-critical", false) || key_modifiers.force_critical) {
         req["rollCritical"] = true;
         if (req["to-hit"]) {
@@ -674,15 +678,20 @@ async function sendRoll(character, rollType, fallback, args) {
         wayBeyond20NotifyDispatchFailure("Extension context invalidated.");
         return false;
     }
-    if (character.getGlobalSetting("use-digital-dice", false) && DigitalDiceManager.isEnabled()) {
+    if (typeof args["waybeyond20-capture-result"] === "function" ||
+        (character.getGlobalSetting("use-digital-dice", false) && DigitalDiceManager.isEnabled())) {
         req.sendMessage = true;
         const delivery = wayBeyond20TrackRollDelivery(req);
+        if (typeof args["waybeyond20-capture-result"] === "function")
+            wayBeyond20ResolvedRollHooks.set(req, args["waybeyond20-capture-result"]);
         try {
             await dndbeyondDiceRoller.handleRollRequest(req);
         } catch (error) {
             wayBeyond20RollDeliveries.delete(req);
             wayBeyond20NotifyDispatchFailure(error && error.message ? error.message : error);
             return false;
+        } finally {
+            if (typeof wayBeyond20ResolvedRollHooks !== "undefined") wayBeyond20ResolvedRollHooks.delete(req);
         }
         wayBeyond20RollDeliveries.delete(req);
         // The renderer sends the rolled result through DNDBDisplayer.sendMessage. A roll it only
@@ -748,6 +757,12 @@ function wayBeyond20SendRuntimeMessage(message) {
 // A digital-dice roll is sent by the renderer after the dice settle. The request object identifies
 // that later send so sendRoll can wait for its real outcome.
 const wayBeyond20RollDeliveries = new WeakMap();
+const wayBeyond20ResolvedRollHooks = new WeakMap();
+
+function wayBeyond20CaptureResolvedRoll(request, attacks, damages) {
+    const capture = wayBeyond20ResolvedRollHooks.get(request);
+    if (capture) capture(request, attacks, damages);
+}
 
 function wayBeyond20TrackRollDelivery(request) {
     const delivery = { invoked: false, resolve: null, outcome: null };

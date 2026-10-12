@@ -831,7 +831,8 @@ async function handleOGLRenderedRoll(request) {
             atk_props["initiative"] = `[[${initiative.total} &{tracker}]]`;
     }
     if (originalRequest.damages && originalRequest.damages.length > 0 &&
-        originalRequest.rollAttack && !originalRequest.rollDamage) {
+        originalRequest.rollAttack && !originalRequest.rollDamage &&
+        !originalRequest["waybeyond20-managed-damage"]) {
         rollDamages = `beyond20-rendered-roll-button-${Math.random()}`;
         atk_props["rname"]  = `[${request.title}](!${rollDamages})`;
     }
@@ -988,7 +989,8 @@ async function handleRenderedRoll(request) {
     let rollDamages = null;
     const originalRequest = request.request;
     if (originalRequest.damages && originalRequest.damages.length > 0 &&
-        originalRequest.rollAttack && !originalRequest.rollDamage) {
+        originalRequest.rollAttack && !originalRequest.rollDamage &&
+        !originalRequest["waybeyond20-managed-damage"]) {
         rollDamages = `beyond20-rendered-roll-button-${Math.random()}`;
         properties["Roll Damages"] = `[Click](!${rollDamages})`;
     }

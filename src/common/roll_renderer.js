@@ -489,7 +489,7 @@ class Beyond20RollRenderer {
         }
 
         if (request.damages && request.damages.length > 0 && 
-            request.rollAttack && !request.rollDamage) {
+            request.rollAttack && !request.rollDamage && !request["waybeyond20-managed-damage"]) {
             html += '<button class="beyond20-button-roll-damages">Roll Damages</button>';
         }
 
@@ -999,7 +999,7 @@ class Beyond20RollRenderer {
             this.isCriticalHitD20(to_hit, critical_limit);
         }
 
-        if (request["waybeyond20-temp-hp-on-hit"] &&
+        if (request["waybeyond20-temp-hp-on-hit"] && !request["waybeyond20-await-hit"] &&
             typeof this._roller.applyDamageBasedTempHP === "function") {
             const totalDamage = damage_rolls.reduce((total, damageRoll) => {
                 const [, roll, flags] = damageRoll;
@@ -1016,6 +1016,8 @@ class Beyond20RollRenderer {
             }
         }
 
+        if (typeof wayBeyond20CaptureResolvedRoll === "function")
+            wayBeyond20CaptureResolvedRoll(request, to_hit, damage_rolls);
         return [to_hit, damage_rolls];
     }
 
@@ -1165,6 +1167,15 @@ class Beyond20RollRenderer {
     }
 
     handleRollRequest(request) {
+        if (request["waybeyond20-attack-continuation"] && !request.rollAttack && request.rollDamage) {
+            const continuation = request["waybeyond20-attack-continuation"];
+            const message = { action: "forward", tab: continuation.tab,
+                message: { action: "waybeyond20-continue-attack", id: continuation.id } };
+            if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage)
+                return chrome.runtime.sendMessage(message);
+            sendCustomEvent("ResumeAttack", [continuation]);
+            return;
+        }
         let custom_roll_dice = "";
         if (request.character.type == "Character" ||
             (request.character.type == "Creature" && request.character.creatureType === "Wild Shape")) {

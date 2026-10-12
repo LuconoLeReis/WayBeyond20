@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WayBeyond20 v1.65.5 Release Notes</title>
+    <title>WayBeyond20 v1.65.10 Release Notes</title>
     <link rel="stylesheet" href="Updates.css">
 </head>
 <body>
@@ -11,11 +11,24 @@
         <header>
             <img src="images/icons/icon128.png" alt="WayBeyond20">
             <div>
-                <p class="eyebrow">Development update</p>
-                <h1>WayBeyond20 v1.65.5</h1>
+                <p class="eyebrow">Stable release · October 12, 2026</p>
+                <h1>WayBeyond20 v1.65.10</h1>
                 <p class="lede">Complete changes from the Beyond20 2.20.1 base</p>
             </div>
         </header>
+
+        <section>
+            <h2>New in v1.65.10 — October 12, 2026</h2>
+            <p>Includes the attack improvements tested in internal builds 1.65.6–1.65.9. Extension version 2.20.76.</p>
+            <ul>
+                <li>Roll20 no longer offers another damage roll when automatic attack follow-ups already manage it. Genuine deferred damage links remain available.</li>
+                <li>Click an attack's compact red-bordered icon button to run its existing full attack. The centered icon has even padding and a gap before the name. Hover or keyboard focus highlights the shortcut; the name still opens its description.</li>
+                <li>Attack result first, then Hit or Miss / Skip. Optional Smite uses follow a confirmed hit; declining them does not undo the attack.</li>
+                <li>Divine Smite is performed before the existing four Elemental Strike choices. Declining the rider spends no Channel Divinity; selecting one does not cost another Bonus Action.</li>
+                <li>Savage Attacker can ask after weapon damage, keeping the higher weapon package without rerolling Smite or other rider damage. It asks once per tracked turn, including after a decline.</li>
+                <li>Automatic and deferred damage use the existing renderer. Keep the original character sheet open for deferred follow-ups. Savage Attacker replacement cards replace weapon damage, not add to it.</li>
+            </ul>
+        </section>
 
         <section>
             <h2>New in v1.65.5</h2>
@@ -55,12 +68,14 @@
         </section>
 
         <section>
-            <h2>Known limitations in v1.65.5</h2>
+            <h2>Known limitations and test scope in v1.65.10</h2>
             <ol>
                 <li><strong>The Lay on Hands pool does not stay reduced.</strong> D&amp;D Beyond does not record changes to that counter, so the number returns when you reload the page. Track the pool yourself for now.</li>
                 <li><strong>The Concentration check helper</strong> uses a browser pop-up and runs only from the CONCENTRATION badge.</li>
                 <li><strong>Rolling only a damage die</strong> on a saving-throw action does not spend its use or Action.</li>
-                <li><strong>Draining Attack cannot tell a hit from a miss</strong> when damage rolls automatically with the attack.</li>
+                <li><strong>Draining Attack now waits for hit confirmation</strong> in managed attacks. Its revised damage ordering and critical/versatile combinations have automated coverage, but not all combinations have been retested live.</li>
+                <li><strong>Deferred damage</strong> requires the original character sheet to remain open without refreshing it before using Roll Damages.</li>
+                <li><strong>Live validation</strong> covered Chrome, D&amp;D Beyond and Roll20. Foundry connection testing was outside this release's live scope.</li>
             </ol>
         </section>
 

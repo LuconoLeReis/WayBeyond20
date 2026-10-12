@@ -1,6 +1,9 @@
 console.log("WayBeyond20: D&D Beyond module loaded.");
 
 async function sendRollWithCharacter(rollType, fallback, args) {
+    if (typeof wayBeyond20NeedsAttackFollowup === "function" && wayBeyond20NeedsAttackFollowup(args)) {
+        return wayBeyond20RunAttackFollowup(rollType, fallback, args);
+    }
     const limitedUseRequest = args && args["waybeyond20-limited-use"];
     if (limitedUseRequest) delete args["waybeyond20-limited-use"];
     const smiteRequest = args && args["waybeyond20-smite"];
@@ -12,9 +15,15 @@ async function sendRollWithCharacter(rollType, fallback, args) {
     const afterDispatchCommits = args && Array.isArray(args["waybeyond20-after-dispatch"]) ? args["waybeyond20-after-dispatch"] : [];
     if (args && args["waybeyond20-after-dispatch"]) delete args["waybeyond20-after-dispatch"];
     try {
-        return await wayBeyond20DispatchRollWithCharacter(rollType, fallback, args, {
+        const result = await wayBeyond20DispatchRollWithCharacter(rollType, fallback, args, {
             limitedUseRequest, smiteRequest, nobleGenieRider, intrusionRequest, afterDispatchCommits
         });
+        if (result === true && args["waybeyond20-elemental-after-cast"] &&
+            typeof wayBeyond20AfterDivineSmite === "function") {
+            delete args["waybeyond20-elemental-after-cast"];
+            await wayBeyond20AfterDivineSmite(args);
+        }
+        return result;
     } finally {
         // The Smite helper may have changed sheet tabs; every exit returns the player to the tab
         // they started on (brief 1.11, F-L12), including a cancelled preflight or failed dispatch.
@@ -68,6 +77,9 @@ async function wayBeyond20DispatchRollWithCharacter(rollType, fallback, args, in
     if (args && ["attack", "spell-attack"].includes(rollType)) {
         wayBeyond20NormalizeAttackSemantics(args, args.name || fallback);
         wayBeyond20ApplyDrainingAttackIntent(args, args.name || fallback);
+        // The hit-confirmed continuation owns this award. Do not also ask a VTT
+        // damage callback to award it (or award it before the player answers).
+        if (args["waybeyond20-await-hit"]) delete args["waybeyond20-temp-hp-on-hit"];
     }
     wayBeyond20CharacterDebug("Roll request prepared", {
         rollType,
@@ -837,6 +849,8 @@ async function wayBeyond20RollAgileStrike() {
     );
     if (!rollProperties) return;
     rollProperties["waybeyond20-unarmed-strike"] = true;
+    if (typeof wayBeyond20QueueAttackFollowup === "function")
+        wayBeyond20QueueAttackFollowup(rollProperties, true);
     rollProperties["waybeyond20-unarmed-attack-ability"] = profile.attackAbility;
     rollProperties["waybeyond20-unarmed-damage-mode"] = profile.damageMode;
     if (Object.keys(settingsToChange).length > 0) character.mergeCharacterSettings(settingsToChange);
@@ -4927,7 +4941,8 @@ wayBeyond20RegisterManualTestEffectEvents();
 function wayBeyond20ApplySavageAttacker(character, roll_properties, action_pool, settings_to_change) {
     if (!roll_properties || !Array.isArray(action_pool) || action_pool.length === 0) return;
     if (!character.hasFeat("Savage Attacker") && !character.hasFeat("Savage Attacker 2024")) return;
-    if (!character.getSetting("savage-attacker", true)) return;
+    const promptAfterResult = character.getSetting("savage-attacker-prompt", true);
+    if (!promptAfterResult && !character.getSetting("savage-attacker", true)) return;
     if (!Array.isArray(roll_properties["damages"]) || !Array.isArray(roll_properties["damage-types"])) return;
 
     const selected = action_pool.filter(row => {
@@ -4950,7 +4965,7 @@ function wayBeyond20ApplySavageAttacker(character, roll_properties, action_pool,
     // system-neutral; Roll20, Foundry, and generic renderers each get the same
     // intent metadata and can render the dice syntax they support.
     roll_properties["waybeyond20-savage-attacker"] = {
-        mode: "reroll-formula-keep-higher",
+        mode: promptAfterResult ? "post-result" : "reroll-formula-keep-higher",
         selected: selected.map(row => row.id),
         selectedDamageIndexes: selectedIndices,
         originalDamages: selectedIndices.map(idx => ({
@@ -4961,7 +4976,7 @@ function wayBeyond20ApplySavageAttacker(character, roll_properties, action_pool,
     };
 
     const isLocked = character.getSetting("savage-attacker-lock", false);
-    if (!isLocked) settings_to_change["savage-attacker"] = false;
+    if (!promptAfterResult && !isLocked) settings_to_change["savage-attacker"] = false;
 }
 
 function isItemATool(item_name, source) {
@@ -6680,6 +6695,10 @@ async function wayBeyond20QueryElementalStrike(dc, route = "divine-smite") {
 // Declining or cancelling removes only this rider; the Divine Smite continues unchanged.
 async function wayBeyond20MaybeAddElementalStrike(rollProperties, smiteName) {
     if (!rollProperties || wayBeyond20NormalizeFeatureLabel(smiteName) !== "divine smite") return null;
+    if (typeof wayBeyond20AfterDivineSmite === "function" && rollProperties["waybeyond20-followup-phase"] !== "elemental") {
+        rollProperties["waybeyond20-elemental-after-cast"] = true;
+        return null;
+    }
     if (rollProperties["waybeyond20-noble-genie-rider"]) return null;
     if (!wayBeyond20HasElementalStrike()) return null;
 
@@ -6745,6 +6764,10 @@ function wayBeyond20IsSmiteEligibleAttack(rollProperties, properties, isMeleeSha
 }
 
 async function wayBeyond20MaybeAddSmite(rollProperties, isEligibleAttack) {
+    if (rollProperties && typeof wayBeyond20QueueAttackFollowup === "function" && !rollProperties["waybeyond20-hit-confirmed"]) {
+        wayBeyond20QueueAttackFollowup(rollProperties, isEligibleAttack);
+        return null;
+    }
     if (!rollProperties || !isEligibleAttack || !rollProperties.rollDamage ||
         !Array.isArray(rollProperties.damages) || !Array.isArray(rollProperties["damage-types"])) return null;
     // Smite discovery may open Spells and the Elemental Strike rider may open Actions. Remember the
@@ -9220,6 +9243,13 @@ function activateQuickRolls() {
         spells, spells_to_hit, spells_damage
     } = deactivateQuickRolls();
 
+    // The attack icon is a direct full-roll shortcut even when hover quick rolls are off.
+    actions.addClass("wb20-full-attack").attr({
+        role: "button", tabindex: "0",
+        title: "Roll attack and damage",
+        "aria-label": "Roll attack and damage"
+    });
+
     if (!settings["quick-rolls"])
         return;
 
@@ -9305,9 +9335,7 @@ function activateQuickRolls() {
         });
     }
 
-    for (let action of actions.toArray()) {
-        activateQRAction(action, false, false);
-    }
+    // Attack icons roll directly; do not add a second floating roll button over them.
     for (let action of actions_to_hit.toArray()) {
         activateQRAction(action, true, false);
     }
@@ -9693,6 +9721,10 @@ function wayBeyond20ResetTurnResourcesFromRoll20(turnInfo) {
 }
 
 function handleMessage(request, sender, sendResponse) {
+    if (request.action === "waybeyond20-continue-attack") {
+        wayBeyond20ContinueAttackDamage(request.id).then(sendResponse, () => sendResponse(false));
+        return true;
+    }
     console.log("Received message:", request);
     if (request.action == "settings") {
         if (request.type == "general") {
@@ -9989,6 +10021,8 @@ function installDDBRollHijack() {
     const selector = [
         "button.integrated-dice__container.beyond20-quick-roll-area",
         "button.integrated-dice__container",
+        ".ct-combat-attack .ct-combat-attack__icon",
+        ".ddbc-combat-attack .ddbc-combat-attack__icon",
 
         ".ct-saving-throws-summary__ability .ct-saving-throws-summary__ability-modifier",
         ".ddbc-saving-throws-summary__ability .ddbc-saving-throws-summary__ability-modifier",
