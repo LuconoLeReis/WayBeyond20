@@ -15,7 +15,8 @@ const vm = require("node:vm");
 const { h, createDocument, miniJQuery, TEXT_NODE } = require("./helpers/mini-dom");
 
 const root = process.env.WB20_SOURCE_ROOT ? path.resolve(process.env.WB20_SOURCE_ROOT) : path.resolve(__dirname, "..");
-const read = relative => fs.readFileSync(path.join(root, ...relative.split("/")), "utf8");
+// Function-boundary fixtures must work with both Windows and Git export line endings.
+const read = relative => fs.readFileSync(path.join(root, ...relative.split("/")), "utf8").replace(/\r\n/g, "\n");
 const characterSource = read("src/dndbeyond/content-scripts/character.js");
 const commonUtilsSource = read("src/common/utils.js");
 const settingsSource = read("src/common/settings.js");

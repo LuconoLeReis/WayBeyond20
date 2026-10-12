@@ -7,7 +7,8 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
-const read = relative => fs.readFileSync(path.join(root, ...relative.split("/")), "utf8");
+// Function-boundary fixtures must work with both Windows and Git export line endings.
+const read = relative => fs.readFileSync(path.join(root, ...relative.split("/")), "utf8").replace(/\r\n/g, "\n");
 const characterSource = read("src/dndbeyond/content-scripts/character.js");
 const baseUtilsSource = read("src/dndbeyond/base/utils.js");
 const diceSource = read("src/dndbeyond/base/dice.js");
