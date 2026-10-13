@@ -1,5 +1,9 @@
 # Complete WayBeyond20 Changes from Beyond20
 
+## v1.65.14 update — 2026-10-13
+
+New entries WB20-087 through WB20-090 cover the damage-triggered concentration window, native spell-list Cast/Use integration, utility/other-target correction, and readable buff layout. Source/build/representative Chrome and Roll20 acceptance completed 2026-10-13. Upcasts, ritual choices and temporary-HP spell branches have automated coverage; item/sidebar casting surfaces and Foundry are outside this acceptance. Earlier rows retain their historical evidence.
+
 ## v1.65.10 update — 2026-10-12
 
 New register entries WB20-082 through WB20-086 describe hit-confirmed follow-ups, post-cast Elemental Strike, post-damage Savage Attacker, the one-click attack icon, and managed/deferred damage ownership. Live Chrome/D&D Beyond/Roll20 validation covers the representative paths stated in the current-state document; critical/Draining combinations retain automated-only qualification. This supersedes older pending statements only for those tested paths.

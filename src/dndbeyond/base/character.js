@@ -216,9 +216,14 @@ class Character extends CharacterBase {
         }
         
         if (hp !== null && max_hp !== null && (this._hp != hp || this._max_hp != max_hp || this._temp_hp != temp_hp)) {
+            const previousHP = { hp: this._hp, temp: this._temp_hp, max: this._max_hp };
             this._hp = hp;
             this._max_hp = max_hp;
             this._temp_hp = temp_hp;
+            if (Number.isFinite(hp) && Number.isFinite(temp_hp) && max_hp > 0 && previousHP.max > 0 &&
+                typeof wayBeyond20ObserveConcentrationHP === "function") {
+                wayBeyond20ObserveConcentrationHP(this, previousHP, { hp, temp: temp_hp, max: max_hp });
+            }
             console.log("HP updated to : (" + hp + "+" + temp_hp + ")/" + max_hp);
 
             if (this.getGlobalSetting("update-hp", true)) {

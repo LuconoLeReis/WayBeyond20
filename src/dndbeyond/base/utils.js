@@ -642,7 +642,8 @@ async function sendRoll(character, rollType, fallback, args) {
         req.whisper = await dndbeyondDiceRoller.queryWhisper(args.name || rollType, is_monster);
         if (req.whisper === null) return false; // Query was cancelled
     }
-    if (rollType === "custom") {
+    // Cards have no d20: an advantage query cannot affect a utility cast.
+    if (["custom", "spell-card", "trait", "item"].includes(rollType)) {
         req.advantage = RollType.NORMAL;
     }
     if (req.advantage === RollType.QUERY) {

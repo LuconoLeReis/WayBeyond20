@@ -1,5 +1,11 @@
 # WayBeyond20 Test Drive Issues
 
+## v1.65.14 acceptance update — 2026-10-13
+
+Damage-triggered concentration, actual-save outcome handling, utility-card prompts, Other creature buff targeting, buff layout, and native spell-list Cast/Use integration have representative live Chrome/D&D Beyond/Roll20 acceptance. All 17 suites pass. The live native spell matrix includes damage-type selection, saving throws, healing, a feat-granted utility spell, separate daily-use and slot-funded versions of the same spell, and cancellation. Double-clicking Cast opened one chooser and Cancel spent nothing.
+
+Unrelated existing limitations are not closed: Lay on Hands pool persistence, saving-throw damage-only accounting, and the full critical/Draining interaction matrix. New coverage limits: native sidebar slot/item-charge surfaces and live higher-level/ritual/temp-HP spell cases remain unverified. Foundry remains outside scope. See current-state notes for release-specific qualifications.
+
 ## v1.65.10 regression update — 2026-10-12
 
 The duplicate Roll20 damage-link defect found during follow-up testing is fixed in both rendered-card formats and verified live for automatic and deferred damage. Savage Attacker reroll, decline, tracked-turn reset and two-handed d10 selection passed live. Hit/Miss precedes Smite and on-hit resources; both Smite fuels and representative Elemental Strike results were exercised on the dedicated test sheet. Critical/Draining combined paths are automated-tested, not newly live-certified. Foundry connection testing was excluded. Remaining current limitations are in WayBeyond20-Current-State.md; older observations below remain historical.

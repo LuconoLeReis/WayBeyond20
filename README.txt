@@ -1,7 +1,14 @@
-WAYBEYOND20 v1.65.10
+WAYBEYOND20 v1.65.14
 ===================
 
-STABLE RELEASE - 2026-10-12. Extension version 2.20.76.
+RELEASE - 2026-10-13. Extension version 2.20.80.
+Includes the concentration, spell-casting and buff-display improvements tested
+in internal builds 1.65.11 through 1.65.13.
+Native spell-row Cast/Use buttons now run the existing WayBeyond20 spell
+handling, including target/effect choices, and mark the native resource once
+after a successful cast. Cancelling before casting spends nothing.
+Active buffs appear below BUFFS beside DEFENSES, right-aligned in the native
+sheet text style. Click a buff name for its details and End control.
 Click the red-outlined attack icon for a full attack. Hover highlights it;
 the weapon name still opens its description. Existing attack options apply.
 Attack helpers now wait for the attack result and a Hit answer. Divine Smite
@@ -69,10 +76,10 @@ RELEASE NOTES
 -------------
 
 Open Updates.html in this folder to see the complete list of changes from the
-base Beyond20 extension, including what is new in v1.65.10 and the known
+base Beyond20 extension, including what is new in v1.65.14 and the known
 limitations of this release.
 
-KNOWN LIMITATIONS IN v1.65.10
+KNOWN LIMITATIONS IN v1.65.14
 ----------------------------
 
 The Lay on Hands pool does not stay reduced. D&D Beyond does not record changes
@@ -80,8 +87,14 @@ to that counter, so the number returns when you reload the page. Keep track of
 the pool yourself for now; healing, conditions and the bonus action are all
 applied correctly.
 
-The Concentration check helper uses browser pop-ups, which Chrome hides when
-the window is not in front, so it may appear to do nothing.
+The Concentration Check window opens after sheet damage while concentrating,
+or from the Concentration badge. Already-adjusted damage stays Unmodified.
+Conditional resistances need manual adjustment; unavailable roll results
+leave concentration unchanged. The window does not deduct HP again.
+Add source combines damage components for one check; use separate checks for
+separate hits. The native casting bridge covers the spell-list Cast and Use
+buttons, not the separate spell-sidebar slot buttons or item-charge controls.
+Use the spell-list buttons for the integrated casting/resource flow.
 
 Rolling only a damage die on a saving-throw action does not spend its use or
 your Action.

@@ -492,6 +492,10 @@ function initializeAlertify() {
                     }
 
                     const layOnHandsForm = this.elements.content.querySelector("form.waybeyond20-lay-on-hands-query");
+                    const concentrationForm = this.elements.content.querySelector("form.waybeyond20-concentration-query");
+                    if (concentrationForm && typeof wayBeyond20WireConcentrationForm === "function") {
+                        wayBeyond20WireConcentrationForm(concentrationForm, okButton);
+                    }
                     if (layOnHandsForm) {
                         const dialog = this;
                         const resolver = this.get('resolver');
@@ -504,6 +508,10 @@ function initializeAlertify() {
                 },
                 "callback": function (closeEvent) {
                     if (closeEvent.index == 0) {
+                        if (this.__internal.buttons[0].element.disabled) {
+                            closeEvent.cancel = true;
+                            return;
+                        }
                         this.get('resolver').call(this, $(this.elements.content.firstElementChild));
                     } else {
                         this.get('resolver').call(this, null);

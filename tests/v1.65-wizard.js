@@ -74,9 +74,9 @@ assert.match(characterSource, /wayBeyond20ConfirmCastingConflicts/);
 assert.match(characterSource, /const blocking = \["incapacitated", "stunned", "paralyzed", "petrified", "unconscious"\]/);
 assert.doesNotMatch(sourceBetween("function wayBeyond20CastingConflicts", "async function wayBeyond20ConfirmCastingConflicts"), /restrained/i);
 
-assert.match(characterSource, /Damage taken for this Concentration check/);
-assert.match(characterSource, /Math\.max\(10, Math\.floor\(damage \/ 2\)\)/);
-assert.match(characterSource, /Did the save fail/);
+assert.match(characterSource, /wayBeyond20ConcentrationQueryHtml/);
+assert.match(characterSource, /waybeyond20-capture-result/);
+assert.doesNotMatch(sourceBetween("async function wayBeyond20RunConcentrationCheck", "function wayBeyond20HandleConcentrationBadge"), /window\.(?:prompt|confirm)/);
 assert.match(characterSource, /wayBeyond20RemoveTrackedEffect/);
 assert.match(characterSource, /MAGE ARMOR AC/);
 assert.doesNotMatch(sourceBetween("function wayBeyond20InjectMageArmorBadge", "async function wayBeyond20RunConcentrationCheck"), /hasClass\("Wizard"\)/);

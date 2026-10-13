@@ -2561,7 +2561,8 @@ async function wayBeyond20SelectTalentTargets(character, talent, effect) {
     if (targetFlags.includes("ANOTHER_CREATURE")) {
         targets = targets.filter(target => target && target.relation !== "self");
     }
-    if (targets.length === 0) return [];
+    // An undiscovered creature is still a valid target; never default its buff to self.
+    targets.push({ key: "wb20-other", name: "Other creature", relation: "other", manual: true });
     const minTargets = Math.max(0, Number(targeting.min || 1));
     const maxTargets = Math.max(minTargets || 1, Number(targeting.max || 1));
     const inputName = "waybeyond20-target";
@@ -2586,7 +2587,9 @@ async function wayBeyond20SelectTalentTargets(character, talent, effect) {
         html += `<label class="waybeyond20-target-button" for="${safeId}">${wayBeyond20EscapeHtml(label)}</label>`;
     });
 
-    html += `</div>`;
+    html += `</div><label class="waybeyond20-other-target">Other creature's name (optional)` +
+        `<input name="waybeyond20-other-target" type="text" maxlength="100" placeholder="Other creature"></label>` +
+        `<small>Other creature tracks your concentration here; apply its target bonus at the table.</small>`;
     if (maxTargets > 1) {
         html += `<script>(function(){
             var form=document.currentScript && document.currentScript.closest('form');
@@ -2613,6 +2616,9 @@ async function wayBeyond20SelectTalentTargets(character, talent, effect) {
             html.find(`input[name='${inputName}']:checked`).each(function() {
                 selected.push($(this).val());
             });
+            const other = targets.find(target => target.key === "wb20-other");
+            const name = String(html.find("input[name='waybeyond20-other-target']").val() || "").trim();
+            if (other && name) other.name = name;
             resolve(selected);
         });
     });
@@ -2640,6 +2646,7 @@ function wayBeyond20ApplySelectedTargetToEffect(character, effect, target) {
 
 function wayBeyond20SendEffectToTarget(target, effect) {
     if (!target || !effect || !effect.name) return;
+    if (target.manual) return; // No fabricated character identity or blind broadcast.
     const targetCharacter = target.character || { name: target.name };
     if (typeof chrome !== "undefined" && chrome.runtime && typeof chrome.runtime.sendMessage === "function") {
         chrome.runtime.sendMessage({
@@ -2734,6 +2741,7 @@ async function wayBeyond20ApplySpellEffectWithTargets(character, effect, talent)
             target: wayBeyond20CurrentCharacterName(character),
             targetName: wayBeyond20CurrentCharacterName(character),
             targetRelation: "self",
+            castTargets: targets.map(target => target.name),
             data: [],
             flags: wayBeyond20NormalizeEffectFlags([...(effect.flags || []), "concentration"])
         });
@@ -4466,6 +4474,8 @@ function wayBeyond20UpsertEffectBadge(anchor, className, text, panelTitle, getEf
 function wayBeyond20InjectBuffsBadge(effects) {
     const existing = $(".waybeyond20-buffs-badge");
     if (!Array.isArray(effects) || effects.length === 0) {
+        $(".waybeyond20-buffs-list").remove();
+        $(".waybeyond20-defenses-with-buffs").removeClass("waybeyond20-defenses-with-buffs");
         const anchors = existing.parent();
         existing.remove();
         anchors.each(function() {
@@ -4478,9 +4488,31 @@ function wayBeyond20InjectBuffsBadge(effects) {
     }
     const defenseHeader = wayBeyond20FindVisibleTextElement("DEFENSES", { avoidTransientPanels: true, preferCompact: true });
     if (defenseHeader.length === 0) return;
-    const names = Array.from(new Set(effects.map(effect => String(effect.name || "").trim()).filter(Boolean)));
-    const label = names.length === 1 ? `BUFFS: ${names[0]}` : `BUFFS (${effects.length})`;
-    wayBeyond20UpsertEffectBadge(defenseHeader, "waybeyond20-buffs-badge", label, "Active Buffs", () => wayBeyond20GetTrackedSpellEffects());
+    wayBeyond20UpsertEffectBadge(defenseHeader, "waybeyond20-buffs-badge", "BUFFS", "Active Buffs", () => wayBeyond20GetTrackedSpellEffects());
+    const group = defenseHeader.parent().addClass("waybeyond20-defenses-with-buffs");
+    let list = group.find("> .waybeyond20-buffs-list").first();
+    if (!list.length) {
+        list = $("<div>").addClass("waybeyond20-buffs-list").attr("aria-label", "Active buffs");
+        group.append(list);
+    }
+    // Do not rebuild on every sheet mutation. These are presentation rows, not native
+    // defense entries: the resistance reader must never interpret buffs as resistances.
+    const rows = effects.filter(effect => effect && effect.name);
+    const signature = JSON.stringify(rows.map(effect => [wayBeyond20EffectKey(effect), effect.name]));
+    if (list.attr("data-effects") !== signature) {
+        list.attr("data-effects", signature).empty();
+        for (const effect of rows) {
+            const key = wayBeyond20EffectKey(effect);
+            const button = $("<button type='button'>").addClass("waybeyond20-buff-name").text(effect.name);
+            button.on("click.waybeyond20-effects", event => {
+                event.preventDefault();
+                event.stopPropagation();
+                wayBeyond20OpenEffectsPopout(button, effect.name,
+                    wayBeyond20GetTrackedSpellEffects().filter(current => wayBeyond20EffectKey(current) === key));
+            });
+            list.append(button);
+        }
+    }
 }
 
 function wayBeyond20SpellTabAnchor() {
@@ -4689,6 +4721,11 @@ function wayBeyond20InjectMageArmorBadge(effects) {
         removeExisting();
         return;
     }
+    // The shared buff list already exposes this effect and its AC details.
+    if ($(".waybeyond20-buffs-list").length) {
+        removeExisting();
+        return;
+    }
     const defenseHeader = wayBeyond20FindVisibleTextElement("DEFENSES", { avoidTransientPanels: true, preferCompact: true });
     if (!defenseHeader.length) return;
     const mechanics = wayBeyond20BuildActiveEffectMechanics([mageArmor]);
@@ -4696,17 +4733,21 @@ function wayBeyond20InjectMageArmorBadge(effects) {
     wayBeyond20UpsertEffectBadge(defenseHeader, "waybeyond20-mage-armor-badge", label, "Mage Armor", () => [mageArmor]);
 }
 
-async function wayBeyond20RunConcentrationCheck() {
-    const concentration = wayBeyond20GetConcentrationEffect();
+async function wayBeyond20RunConcentrationCheck(damage = 1, concentration = wayBeyond20GetConcentrationEffect()) {
     if (!concentration) return;
-    const raw = window.prompt("Damage taken for this Concentration check:", "1");
-    if (raw === null) return;
-    const damage = parseInt(raw);
-    if (!Number.isFinite(damage) || damage < 0) {
-        if (typeof alertify !== "undefined" && alertify.warning) alertify.warning("Enter a valid damage amount.");
-        return;
-    }
-    const dc = Math.max(10, Math.floor(damage / 2));
+    const owner = character;
+    const effectKey = wayBeyond20EffectKey(concentration);
+    const defenses = wayBeyond20ReadDamageDefenses();
+    const form = await dndbeyondDiceRoller._prompter.prompt("Concentration Check",
+        wayBeyond20ConcentrationQueryHtml(concentration, damage, defenses), "Roll Concentration", "Cancel");
+    if (!form || character !== owner) return;
+    const rows = form.find(".waybeyond20-concentration-source").toArray().map(row => ({
+        amount: row.querySelector("input").value, type: row.querySelector("select").value
+    }));
+    const result = wayBeyond20ConcentrationDamage(rows, defenses);
+    const currentBeforeRoll = wayBeyond20GetConcentrationEffect();
+    if (!result || result.total <= 0 || !currentBeforeRoll || wayBeyond20EffectKey(currentBeforeRoll) !== effectKey) return;
+    const dc = result.dc;
     const conRow = $(".ct-saving-throws-summary__ability,.ddbc-saving-throws-summary__ability").filter(function() {
         return $(this).find("abbr").first().text().trim().toUpperCase() === "CON";
     }).first();
@@ -4723,11 +4764,20 @@ async function wayBeyond20RunConcentrationCheck() {
         rollProperties.modifier = wayBeyond20FormatSigned(numericModifier);
         addEffect(rollProperties, "Bladesong");
     }
+    let resolved = [];
+    rollProperties["waybeyond20-capture-result"] = (request, rolls) => { resolved = rolls; };
     const sent = await sendRollWithCharacter("saving-throw", `1d20${rollProperties.modifier}`, rollProperties);
-    if (sent === true && window.confirm(`Concentration save DC ${dc} was rolled. Did the save fail?\n\nOK: end concentration\nCancel: keep concentrating`)) {
-        const current = wayBeyond20GetConcentrationEffect();
-        if (current) wayBeyond20RemoveTrackedEffect(wayBeyond20EffectKey(current));
+    if (sent !== true || character !== owner) return;
+    const active = resolved.filter(roll => !roll.isDiscarded() && Number.isFinite(roll.total));
+    if (active.length !== 1) {
+        alertify.warning("No single concentration result was available. Concentration is unchanged; use the badge to retry or end it manually.");
+        return;
     }
+    const current = wayBeyond20GetConcentrationEffect();
+    if (!current || wayBeyond20EffectKey(current) !== effectKey) return;
+    const total = active[0].total;
+    if (total < dc) wayBeyond20RemoveTrackedEffect(effectKey);
+    alertify.message(`${wayBeyond20EscapeHtml(concentration.name)}: ${total} vs DC ${dc} — concentration ${total < dc ? "ended" : "maintained"}.`);
 }
 
 function wayBeyond20HandleConcentrationBadge(event, badge) {
@@ -4735,7 +4785,7 @@ function wayBeyond20HandleConcentrationBadge(event, badge) {
     event.stopPropagation();
     const current = wayBeyond20GetConcentrationEffect();
     if (wayBeyond20CharacterHelperEnabled("waybeyond20-concentration-check-helper") && current) {
-        wayBeyond20RunConcentrationCheck();
+        wayBeyond20QueueConcentrationCheck(1, character, current);
     } else {
         wayBeyond20OpenEffectsPopout(badge, "Concentration", current ? [current] : []);
     }
@@ -6044,6 +6094,103 @@ function wayBeyond20EnsureSmiteCacheOwner() {
 function wayBeyond20InvalidateSmiteSpellCache({ prepared = true, slots = true } = {}) {
     if (prepared) wayBeyond20PreparedSmiteCache = null;
     if (slots) wayBeyond20SpellSlotCache = null;
+}
+
+const wayBeyond20NativeCastReplays = new WeakSet();
+let wayBeyond20NativeCastPending = false;
+
+function wayBeyond20NativeSpellIdentity(row) {
+    const label = row && row.querySelector(".ct-spell-name,.ddbc-spell-name,span[class*='styles_spellName']");
+    if (!label) return null;
+    const source = row.querySelector(".ct-spells-spell__meta,.ddbc-spells-spell__meta");
+    return {
+        name: label.textContent.trim(),
+        source: source ? source.textContent.trim() : "",
+        level: wayBeyond20SpellRowLevel(row),
+        label
+    };
+}
+
+function wayBeyond20NativeSpellPaneMatches(identity) {
+    const pane = document.querySelector(".ct-spell-pane");
+    if (!pane) return false;
+    const name = pane.querySelector(".ct-sidebar__heading .ct-spell-name,.ct-sidebar__heading .ddbc-spell-name,.ct-sidebar__heading span[class*='styles_spellName']");
+    const header = pane.querySelector(".ct-sidebar__header");
+    const source = header && header.querySelector(".ct-sidebar__header-parent, :scope > div:not(.ct-sidebar__header-primary)");
+    const level = pane.querySelector(".ct-spell-caster__casting-level-current");
+    return !!name && name.textContent.trim() === identity.name &&
+        (!identity.source || !!source && source.textContent.trim() === identity.source) &&
+        !!level && parseInt(level.textContent) === identity.level;
+}
+
+function wayBeyond20CommitNativeSpellCast(owner, identity, action) {
+    let committed = false;
+    return () => {
+        if (committed || character !== owner) return;
+        committed = true;
+        // React may have replaced the row while the target dialog was open. Match
+        // name, source, casting level and Cast/Use, never a neighboring slot/button.
+        const matches = Array.from(document.querySelectorAll(".ct-spells-spell,.ddbc-spells-spell"))
+            .filter(row => {
+                const current = wayBeyond20NativeSpellIdentity(row);
+                return current && current.name === identity.name && current.source === identity.source && current.level === identity.level;
+            }).flatMap(row => Array.from(row.querySelectorAll(".ct-spells-spell__action button,.ddbc-spells-spell__action button")))
+            .filter(button => button.textContent.trim().toLowerCase() === action && !button.disabled);
+        if (matches.length !== 1) {
+            alertify.warning("Spell cast, but its D&D Beyond resource control could not be identified. Please mark that use manually.");
+            return;
+        }
+        const button = matches[0];
+        wayBeyond20NativeCastReplays.add(button);
+        try { button.click(); }
+        finally { wayBeyond20NativeCastReplays.delete(button); }
+    };
+}
+
+async function wayBeyond20RunNativeSpellCast(row, action) {
+    const owner = character;
+    const identity = wayBeyond20NativeSpellIdentity(row);
+    if (!identity) return;
+    try {
+        resetHijackQuickRollState();
+        if (!wayBeyond20NativeSpellPaneMatches(identity)) {
+            // Reuse the normal spell-name route so DDB supplies complete live rules.
+            // Force a fresh pane when its previous casting level/source differs.
+            if (document.querySelector(".ct-spell-pane")) $(".ddbc-character-tidbits__menu-callout").trigger("click");
+            identity.label.click();
+        }
+        for (let attempt = 0; attempt < 20 && character === owner; attempt++) {
+            if (wayBeyond20NativeSpellPaneMatches(identity)) {
+                await execute("ct-spell-pane", {
+                    nativeCast: wayBeyond20CommitNativeSpellCast(owner, identity, action)
+                });
+                return;
+            }
+            await new Promise(resolve => setTimeout(resolve, 75));
+        }
+        alertify.warning("The selected spell details did not finish opening. No use was spent; please try again from its spell pane.");
+    } catch (error) {
+        console.warn("WayBeyond20: native spell cast failed", error);
+        alertify.warning("The spell could not complete. Please check its effect and resource counters before retrying.");
+    }
+}
+
+function wayBeyond20InstallNativeSpellCasting() {
+    if (window.__wayBeyond20NativeSpellCastingInstalled) return;
+    window.__wayBeyond20NativeSpellCastingInstalled = true;
+    document.addEventListener("click", event => {
+        const button = event.target && event.target.closest && event.target.closest("button");
+        if (!button || button.disabled || wayBeyond20NativeCastReplays.has(button)) return;
+        const row = button.closest(".ct-spells-spell,.ddbc-spells-spell");
+        if (!row || !button.closest(".ct-spells-spell__action,.ddbc-spells-spell__action")) return;
+        const action = button.textContent.trim().toLowerCase();
+        if (!["cast", "use"].includes(action) || !wayBeyond20NativeSpellIdentity(row)) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (wayBeyond20NativeCastPending) return; // One cast, not two on a double-click.
+        wayBeyond20NativeCastPending = true;
+        wayBeyond20RunNativeSpellCast(row, action).finally(() => { wayBeyond20NativeCastPending = false; });
+    }, true);
 }
 
 function wayBeyond20InstallSmiteSpellStateTracker() {
@@ -8151,7 +8298,7 @@ function wayBeyond20ApplyRitualMode(rollProperties, ritualMode) {
     addEffect(rollProperties, "Cast as a Ritual; no spell slot expended");
 }
 
-async function rollSpell(force_display = false, force_to_hit_only = false, force_damages_only = false) {
+async function rollSpell(force_display = false, force_to_hit_only = false, force_damages_only = false, nativeCast = null) {
     const properties = propertyListToDict($(".ct-spell-pane .ct-spell-detail [role=list] > div"));
     //console.log("Properties are : " + String(properties));
     const spell_source = $(".ct-sidebar__header-parent").text() || $(".ct-sidebar__header > div").text();
@@ -8204,7 +8351,8 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
     if (key_modifiers["display_attack"]) {
         force_display = true;
     }
-    if (!force_display && (damage_modifiers.length > 0 || healing_modifiers.length > 0 || temp_hp_modifiers.length > 0 || to_hit !== null || properties["Attack/Save"] !== undefined)) {
+    const hasSave = properties["Attack/Save"] && !/^(?:none|--|—)$/i.test(properties["Attack/Save"].trim());
+    if (!force_display && (damage_modifiers.length > 0 || healing_modifiers.length > 0 || temp_hp_modifiers.length > 0 || to_hit !== null || hasSave)) {
         const damages = [];
         let damage_types = [];
         const settings_to_change = {}
@@ -8366,6 +8514,8 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
         await wayBeyond20ApplyOccultistIntrusion(roll_properties, {
             forceDisplay: force_display, ritualMode: waybeyond20_ritual_mode, level, castas
         });
+        if (!force_display && waybeyond20_ritual_mode === "normal" && nativeCast)
+            wayBeyond20CommitAfterDispatch(roll_properties, nativeCast);
         return sendRollWithCharacter("spell-attack", damages[0] || "", roll_properties);
     } else {
         const roll_properties = {
@@ -8409,6 +8559,8 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
         await wayBeyond20ApplyOccultistIntrusion(roll_properties, {
             forceDisplay: force_display, ritualMode: waybeyond20_ritual_mode, level, castas
         });
+        if (!force_display && waybeyond20_ritual_mode === "normal" && nativeCast)
+            wayBeyond20CommitAfterDispatch(roll_properties, nativeCast);
         return sendRollWithCharacter("spell-card", 0, roll_properties);
     }
 }
@@ -8523,7 +8675,7 @@ function handleCustomText(paneClass) {
     return customRolls;
 }
 
-async function execute(paneClass, {force_to_hit_only = false, force_damages_only = false, force_versatile = false, spell_group=null}={}) {
+async function execute(paneClass, {force_to_hit_only = false, force_damages_only = false, force_versatile = false, spell_group=null, nativeCast=null}={}) {
     console.log("WayBeyond20: Executing panel : " + paneClass, force_to_hit_only, force_damages_only, force_versatile);
     const rollCustomText = async (customTextList) => {
         for (const customText of customTextList) {
@@ -8554,7 +8706,7 @@ async function execute(paneClass, {force_to_hit_only = false, force_damages_only
             else if (["b20-action-pane", "ct-custom-action-pane", "b20-custom-action-pane"].includes(paneClass))
                 await rollAction(paneClass, force_to_hit_only, force_damages_only);
             else if (paneClass == "ct-spell-pane")
-                await rollSpell(false, force_to_hit_only, force_damages_only);
+                await rollSpell(false, force_to_hit_only, force_damages_only, nativeCast);
             else
                 await displayPanel(paneClass);
         } finally {
@@ -10111,6 +10263,7 @@ var creature = null;
 updateSettings();
 installDDBRollHijack();
 wayBeyond20InstallSmiteSpellStateTracker();
+wayBeyond20InstallNativeSpellCasting();
 wayBeyond20InstallLongRestTracker();
 wayBeyond20InstallGameLogDebugRelay();
 chrome.runtime.onMessage.addListener(handleMessage);

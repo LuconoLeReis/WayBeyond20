@@ -506,6 +506,53 @@ span.dice-roll.beyond20-tooltip-content {
     margin-left: 12px;
 }
 
+/* Preserve native defenses on the left; effects get their own readable column. */
+.waybeyond20-defenses-with-buffs {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    column-gap: 6px;
+    align-content: start;
+}
+.waybeyond20-defenses-with-buffs > .waybeyond20-effect-header-split {
+    grid-column: 1 / -1;
+    min-width: 0;
+}
+.waybeyond20-defenses-with-buffs > .ct-defenses-summary,
+.waybeyond20-defenses-with-buffs > .ddbc-defenses-summary {
+    grid-column: 1;
+    grid-row: 2;
+    min-width: 0;
+}
+.waybeyond20-buffs-list {
+    grid-column: 2;
+    grid-row: 2;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    text-align: right;
+    line-height: 1.2;
+}
+.waybeyond20-buff-name {
+    display: block;
+    width: 100%;
+    background: none;
+    border: 0;
+    padding: 0;
+    margin: 0 0 2px;
+    color: inherit;
+    font: inherit;
+    text-align: right;
+    text-transform: none;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+.waybeyond20-buff-name:hover,
+.waybeyond20-buff-name:focus-visible {
+    text-decoration: underline;
+}
+
 .waybeyond20-wizard-tools {
     align-items: center;
     display: inline-flex;
@@ -711,6 +758,51 @@ span.dice-roll.beyond20-tooltip-content {
 }
 
 /* WayBeyond20 target selector */
+.waybeyond20-concentration-query {
+    max-width: 440px;
+    line-height: 1.45;
+}
+.waybeyond20-concentration-source {
+    display: grid;
+    grid-template-columns: 90px minmax(130px, 1fr) 30px;
+    gap: 6px 10px;
+    align-items: end;
+    margin: 10px 0;
+}
+.waybeyond20-concentration-source label,
+.waybeyond20-other-target {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+}
+.waybeyond20-concentration-source input,
+.waybeyond20-concentration-source select,
+.waybeyond20-other-target input {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid #9998;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+}
+.waybeyond20-concentration-query button {
+    padding: 5px 10px;
+    border: 1px solid #9998;
+    border-radius: 14px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+.waybeyond20-concentration-query button:hover:not(:disabled) { background: #8882; }
+.waybeyond20-concentration-query button:disabled { opacity: .4; cursor: default; }
+.waybeyond20-concentration-source small { grid-column: 1 / -1; opacity: .8; }
+.waybeyond20-concentration-total { font-weight: 600; border-top: 1px solid #9995; padding-top: 10px; }
+.waybeyond20-other-target { margin: 10px 0; }
+
 .waybeyond20-target-help {
     margin: 4px 0 8px;
     font-size: 12px;

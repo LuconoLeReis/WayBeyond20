@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WayBeyond20 v1.65.10 Release Notes</title>
+    <title>WayBeyond20 v1.65.14 Release Notes</title>
     <link rel="stylesheet" href="Updates.css">
 </head>
 <body>
@@ -11,12 +11,23 @@
         <header>
             <img src="images/icons/icon128.png" alt="WayBeyond20">
             <div>
-                <p class="eyebrow">Stable release · October 12, 2026</p>
-                <h1>WayBeyond20 v1.65.10</h1>
+                <p class="eyebrow">Release · October 13, 2026</p>
+                <h1>WayBeyond20 v1.65.14</h1>
                 <p class="lede">Complete changes from the Beyond20 2.20.1 base</p>
             </div>
         </header>
 
+        <section>
+            <h2>New in v1.65.14 — October 13, 2026</h2>
+            <p>Includes the improvements tested in internal builds 1.65.11–1.65.13. Extension version 2.20.80.</p>
+            <ul>
+                <li>Native spell-row Cast/Use buttons use the existing spell flow, including targets and effects. D&amp;D Beyond marks the chosen resource once after casting; cancelled choices spend nothing.</li>
+                <li>BUFFS now sits beside DEFENSES, with right-aligned buff names below in native-sized text. Names wrap instead of clipping; click a name for its details and End control.</li>
+                <li>Damage entered while concentrating opens an editable Concentration Check window. Add damage components and optionally select types; Unmodified never applies resistance. This window does not change HP.</li>
+                <li>The existing Constitution roller now reports its actual result to the helper. A verified failed save ends the same tracked concentration effect; cancellation, unavailable results and failed dispatch leave it unchanged.</li>
+                <li>Utility spell cards no longer ask for advantage. Targeted buffs such as Shield of Faith allow Other creature even when no target sheet is known. The caster retains concentration without receiving the other creature's AC bonus.</li>
+            </ul>
+        </section>
         <section>
             <h2>New in v1.65.10 — October 12, 2026</h2>
             <p>Includes the attack improvements tested in internal builds 1.65.6–1.65.9. Extension version 2.20.76.</p>
@@ -68,14 +79,17 @@
         </section>
 
         <section>
-            <h2>Known limitations and test scope in v1.65.10</h2>
+            <h2>Known limitations and test scope in v1.65.14</h2>
             <ol>
                 <li><strong>The Lay on Hands pool does not stay reduced.</strong> D&amp;D Beyond does not record changes to that counter, so the number returns when you reload the page. Track the pool yourself for now.</li>
-                <li><strong>The Concentration check helper</strong> uses a browser pop-up and runs only from the CONCENTRATION badge.</li>
+                <li><strong>The Concentration check helper</strong> opens when HP damage is entered while concentrating, or manually from the CONCENTRATION badge. Leave already-adjusted damage Unmodified. Conditional resistances require manual adjustment; unavailable roll results leave concentration unchanged.</li>
+                <li><strong>Damage components:</strong> Add source combines components for one concentration check; use separate checks for separate hits. The dialog never deducts HP again.</li>
+                <li><strong>Native casting scope:</strong> the shared casting bridge covers Cast and Use in the spell list, not separate sidebar slot buttons or item-charge controls. Use the spell-list buttons for integrated casting and resource tracking.</li>
                 <li><strong>Rolling only a damage die</strong> on a saving-throw action does not spend its use or Action.</li>
                 <li><strong>Draining Attack now waits for hit confirmation</strong> in managed attacks. Its revised damage ordering and critical/versatile combinations have automated coverage, but not all combinations have been retested live.</li>
                 <li><strong>Deferred damage</strong> requires the original character sheet to remain open without refreshing it before using Roll Damages.</li>
                 <li><strong>Live validation</strong> covered Chrome, D&amp;D Beyond and Roll20. Foundry connection testing was outside this release's live scope.</li>
+                <li><strong>Additional coverage:</strong> all 17 automated suites passed. Native attack, save/damage, healing, buff and daily-use spell-list routes were tested live. Upcasts, ritual/display-only handling and temporary-HP spell branches have automated coverage, not equivalent live acceptance on every character or casting surface.</li>
             </ol>
         </section>
 

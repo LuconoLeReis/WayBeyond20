@@ -138,6 +138,7 @@ const SRC_FILES = {
         "src/dndbeyond/base/extras.js",
         "src/dndbeyond/base/character.js",
         "src/dndbeyond/content-scripts/attack-followups.js",
+        "src/dndbeyond/content-scripts/concentration.js",
         "src/dndbeyond/content-scripts/character.js",
     ],
     dndbeyond_source: [

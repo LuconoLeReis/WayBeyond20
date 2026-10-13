@@ -232,7 +232,7 @@ async function exerciseHelpers(character, globalSettings) {
         wayBeyond20SpellCastLevel: () => 1,
         wayBeyond20AvailableSpellSlots: () => [{ level: 1, available: 1 }],
         wayBeyond20GetConcentrationEffect: () => ({ name: "Bless" }),
-        wayBeyond20RunConcentrationCheck: () => { calls.concentrationCheck++; },
+        wayBeyond20QueueConcentrationCheck: () => { calls.concentrationCheck++; },
         wayBeyond20OpenEffectsPopout: () => { calls.popout++; },
         wayBeyond20EffectName: effect => String(effect.name).toLowerCase(),
         wayBeyond20FindVisibleTextElement: () => jq.make(jq.newEl("h2")),

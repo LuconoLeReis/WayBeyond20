@@ -642,6 +642,8 @@ class Beyond20RollRenderer {
         await this._roller.resolveRolls(title, rolls, request);
         this.processToHitAdvantage(request.advantage, rolls);
         this.wayBeyond20HandleResolvedD20(request, rolls, type);
+        if (typeof wayBeyond20CaptureResolvedRoll === "function")
+            wayBeyond20CaptureResolvedRoll(request, rolls, []);
 
         const roll_info = [];
         if (Array.isArray(request["effects"]) && request["effects"].length > 0)
