@@ -1,5 +1,14 @@
 # Complete WayBeyond20 Changes from Beyond20
 
+## v1.65.16 update — 2026-10-14
+
+WB20-091 adds shared prompt serialization; WB20-082's existing attack flow is
+corrected to weapon damage before optional Smite and Elemental Strike, not
+duplicated as a new feature. Full automated suite and representative DDB-only
+Ask-each-time live sequence passed. Cross-renderer overlap reproduced with the
+actual popup library. Separate elemental totals and cancellation preserved.
+Broader critical/Draining/deferred destination coverage remains automated.
+
 ## v1.65.14 update — 2026-10-13
 
 New entries WB20-087 through WB20-090 cover the damage-triggered concentration window, native spell-list Cast/Use integration, utility/other-target correction, and readable buff layout. Source/build/representative Chrome and Roll20 acceptance completed 2026-10-13. Upcasts, ritual choices and temporary-HP spell branches have automated coverage; item/sidebar casting surfaces and Foundry are outside this acceptance. Earlier rows retain their historical evidence.

@@ -40,9 +40,7 @@ class Roll20Roller {
 
 class Roll20Prompter {
     async prompt(title, html, ok_label = "OK", cancel_label = "Cancel") {
-        return new Promise((resolve, reject) => {
-            alertify.Beyond20Prompt(title, html, ok_label, cancel_label, resolve);
-        });
+        return wayBeyond20Prompt(title, html, ok_label, cancel_label);
     }
 }
 

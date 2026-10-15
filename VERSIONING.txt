@@ -1,0 +1,34 @@
+WAYBEYOND20 VERSION AND COMPATIBILITY POLICY
+Effective October 14, 2026
+
+Public release labels follow Semantic Versioning 2.0.0:
+https://semver.org/spec/v2.0.0.html
+
+The compatibility contract includes documented roll-message fields/events
+used by VTT destinations, supported settings and migration behavior, documented
+helper controls, and installation/update behavior. Internal helper functions
+and third-party website markup are not a public API. A fix restoring promised
+behavior is not a new capability.
+
+PATCH: compatible bug fixes. MINOR: compatible additions or deprecations;
+reset patch to zero. MAJOR: incompatible contract changes; reset minor and
+patch to zero and document migration. The highest-impact change controls;
+there is no minimum number of fixes needed for a release.
+
+Chrome's numeric manifest version is a separate monotonically increasing
+build identity, governed by:
+https://developer.chrome.com/docs/extensions/reference/manifest/version
+version_name displays the public label. Current 1.65.16 maps to 2.20.82;
+the existing numeric line is retained to avoid a downgrade for installations.
+Both manifests, package.json and package-lock build versions must agree.
+
+Each changed executable test candidate gets a new numeric identity. Internal
+development labels may use -dev.N; public prereleases are not the default.
+Promotion can retain the tested numeric identity only if executable bytes
+are unchanged. Release-only documentation changes are rebuilt and checked.
+
+Release gates: independent implementation/review approval, regression tests,
+representative live acceptance, exact source/build/archive provenance, license
+and installation checks, and public-download hash verification. Known limits
+are disclosed. Published version contents/tags/assets are immutable; a later
+correction gets a new version. Unpacked installations require manual updates.

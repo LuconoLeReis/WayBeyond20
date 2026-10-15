@@ -91,27 +91,8 @@ async function wayBeyond20ResolveAttackFollowup(rollType, fallback, args) {
     }
 
     const critical = !!args.rollCritical || resolved.attacks.some(roll => !roll.isDiscarded() && roll.isCriticalHit());
-    const riderDamage = [];
-    if (smiteOptions) {
-        const smite = {
-            name: args.name, description: "", rollAttack: false, rollDamage: true, rollCritical: critical,
-            damages: [], "damage-types": [], "critical-damages": [], "critical-damage-types": [],
-            advantage: RollType.NORMAL,
-            "waybeyond20-followup-phase": "smite", "waybeyond20-hit-confirmed": true
-        };
-        if (resolved.request) smite.whisper = resolved.request.whisper;
-        const selection = await wayBeyond20MaybeAddSmite(smite, true);
-        if (selection) {
-            smite.name = selection.smite.name;
-            smite.description = selection.smite.description || "";
-            let rolled = [];
-            smite["waybeyond20-capture-result"] = (request, attacks, damages) => { rolled = damages; };
-            if (await sendRollWithCharacter("spell-attack", smite.damages[0], smite) === true)
-                riderDamage.push(...rolled, ...(smite["waybeyond20-elemental-damage"] || []));
-        }
-    }
     const pending = { ready: true, owner: character, args, rollType, fallback, critical,
-        whisper: resolved.request?.whisper, savage, draining, riderDamage };
+        whisper: resolved.request?.whisper, savage, draining, smiteOptions };
     if (args.rollDamage) await wayBeyond20FinishAttackDamage(pending);
     else if (continuation) wayBeyond20PendingAttackDamage.set(continuation.id, pending);
     return true;
@@ -119,7 +100,7 @@ async function wayBeyond20ResolveAttackFollowup(rollType, fallback, args) {
 
 async function wayBeyond20FinishAttackDamage(pending) {
     if (pending.owner !== character) return false;
-    const { args, rollType, fallback, critical, savage, draining, riderDamage } = pending;
+    const { args, rollType, fallback, critical, savage, draining, smiteOptions } = pending;
     const damageArgs = { ...args, rollAttack: false, rollDamage: true, rollCritical: critical,
         advantage: RollType.NORMAL, "waybeyond20-await-hit": true, "waybeyond20-followup-phase": "damage" };
     // This is the damage from an already-performed attack, not another attack/action.
@@ -132,6 +113,29 @@ async function wayBeyond20FinishAttackDamage(pending) {
     if (await sendRollWithCharacter(rollType, fallback, damageArgs) !== true || !resolved) return false;
     if (savage)
         await wayBeyond20ResolveSavageAttacker(resolved.request, resolved.damages, savage);
+    // Complete weapon damage (including its optional replacement) before displaying
+    // on-hit riders. Deferred damage follows this same path when its button is used;
+    // it must not spend Smite/CD while still waiting for the weapon damage roll.
+    const riderDamage = [];
+    if (smiteOptions && pending.owner === character) {
+        const smite = {
+            name: args.name, description: "", rollAttack: false, rollDamage: true, rollCritical: critical,
+            damages: [], "damage-types": [], "critical-damages": [], "critical-damage-types": [],
+            advantage: RollType.NORMAL,
+            "waybeyond20-followup-phase": "smite", "waybeyond20-hit-confirmed": true
+        };
+        // Use the actual damage request's privacy choice for damage-only entry too.
+        if (resolved.request) smite.whisper = resolved.request.whisper;
+        const selection = await wayBeyond20MaybeAddSmite(smite, true);
+        if (selection) {
+            smite.name = selection.smite.name;
+            smite.description = selection.smite.description || "";
+            let rolled = [];
+            smite["waybeyond20-capture-result"] = (request, attacks, damages) => { rolled = damages; };
+            if (await sendRollWithCharacter("spell-attack", smite.damages[0], smite) === true)
+                riderDamage.push(...rolled, ...(smite["waybeyond20-elemental-damage"] || []));
+        }
+    }
     if (draining) {
         const damage = resolved.damages.concat(riderDamage).reduce((sum, [, roll, flags]) => {
             if (flags & (DAMAGE_FLAGS.HEALING | DAMAGE_FLAGS.VERSATILE | DAMAGE_FLAGS.CONDITIONAL)) return sum;

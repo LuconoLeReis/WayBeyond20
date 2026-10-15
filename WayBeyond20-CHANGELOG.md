@@ -1,5 +1,17 @@
 # WayBeyond20 Changelog
 
+## v1.65.16 — Prompt reliability and attack order, 2026-10-14
+
+Extension version 2.20.82. Includes the internal-only 1.65.15 ordering repair.
+
+- Overlapping questions share a queue, preserving each popup's title, form and answer.
+- Confirmed attacks show weapon damage before optional Smite and Elemental Strike; deferred damage uses the same continuation.
+- Existing cancellation, exactly-once resource use, Savage Attacker and Draining handling remain covered by regressions.
+- All 17 automated suites pass. D&D Beyond-only Ask-each-time live testing covers full hit/weapon/Divine Smite/Efreeti sequence, four choices, separate elemental totals, resource changes and cancellation.
+- The recorded late d8 corresponds to weapon damage, not a replacement Efreeti formula. Exact original overlap trigger remains unknown; the title/body defect is independently reproduced with the actual dialog library.
+- Existing Lay on Hands pool persistence and saving-throw damage-only accounting limitations remain. Foundry and broad critical/Draining live coverage are not claimed.
+- Public version classification and separate numeric build identity are now documented under Semantic Versioning and Chrome's manifest rules.
+
 ## v1.65.14 — Concentration and native spell casting, 2026-10-13
 
 Extension version 2.20.80. Full release collecting internal builds 1.65.11–1.65.13; those were not separate public releases.

@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WayBeyond20 v1.65.14 Release Notes</title>
+    <title>WayBeyond20 v1.65.16</title>
     <link rel="stylesheet" href="Updates.css">
 </head>
 <body>
@@ -11,12 +11,21 @@
         <header>
             <img src="images/icons/icon128.png" alt="WayBeyond20">
             <div>
-                <p class="eyebrow">Release · October 13, 2026</p>
-                <h1>WayBeyond20 v1.65.14</h1>
+                <p class="eyebrow">Release · October 14, 2026</p>
+                <h1>WayBeyond20 v1.65.16</h1>
                 <p class="lede">Complete changes from the Beyond20 2.20.1 base</p>
             </div>
         </header>
 
+        <section>
+            <h2>New in v1.65.16 — shared prompt handling</h2>
+            <p>Extension version 2.20.82. Overlapping prompts now wait their turn rather than showing one question's title over another question's contents. All shared prompt callers use the same queue; choosing or cancelling one question does not answer another. The defect is reproduced with the actual dialog library and covered by regression tests. Live D&amp;D Beyond-only testing passed the full attack, damage, Smite and Elemental Strike sequence with Ask each time, separate elemental results and cancellation checks.</p>
+        </section>
+        <section>
+            <p>Roll20 rendering passed automated regression checks; final live verification was inconclusive because the test tabletop also failed to display native Roll20 dice rolls. Foundry was not live-tested in this patch.</p>
+            <h2>Local v1.65.15 — attack result order</h2>
+            <p>Extension version 2.20.81. After a confirmed hit, weapon damage now precedes optional Smite and Elemental Strike. Deferred damage follows the same sequence when its button is clicked. Existing resource, Savage Attacker and Draining Attack handling is retained. Automated tests and a D&amp;D Beyond-only live sequence with Ask each time passed. Lay on Hands pool persistence remains open.</p>
+        </section>
         <section>
             <h2>New in v1.65.14 — October 13, 2026</h2>
             <p>Includes the improvements tested in internal builds 1.65.11–1.65.13. Extension version 2.20.80.</p>

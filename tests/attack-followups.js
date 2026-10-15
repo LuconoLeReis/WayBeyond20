@@ -100,10 +100,79 @@ function sandbox({hit = true, chooseSmite = true, fail = '', smites = true, sava
 const count=(c,event)=>c.log.filter(x=>x===event).length;
 async function test(name, body) {await body();console.log('PASS',name);}
 (async()=>{
-    await test('attack dispatch/cost precedes Hit; Smite commits before Elemental; no duplicate attack cost',async()=>{
+    await test('overlapping prompts cannot replace the active title/resolver or leave stale roll-mode contents',async()=>{
+        const shown=[];
+        let active=null;
+        const c={Promise,alertify:{Beyond20Prompt:(title,html,yes,no,resolve)=>{
+            // Alertify 1.12 only runs prepare() when its singleton is not already open.
+            // Calling it while open updates the title/settings, not the rendered body.
+            if(active) {active.title=title;active.resolve=resolve;return active;}
+            const dialog={title,html,resolve,close:()=>{active=null;}};
+            active=dialog;shown.push(dialog);return dialog;
+        }}};
+        vm.createContext(c);
+        vm.runInContext(extractFunction('wayBeyond20Prompt',read('src/common/utils.js')),c);
+        const dice=read('src/dndbeyond/base/dice.js');
+        vm.runInContext(dice.slice(dice.indexOf('class DNDBPrompter'),dice.indexOf('const dndbeyondDiceRoller'))+
+            '\nthis.Prompter=DNDBPrompter;',c);
+        const prompter=new c.Prompter();
+        const first=prompter.prompt('Longsword','Select roll mode','Roll','Cancel');
+        const generic=read('src/generic-site/renderer.js'), roll20=read('src/roll20/renderer.js');
+        vm.runInContext(generic.slice(generic.indexOf('class GenericPrompter'),generic.indexOf('var roll_renderer'))+
+            roll20.slice(roll20.indexOf('class Roll20Prompter'),roll20.indexOf('var roll_renderer'))+
+            '\nthis.Generic=GenericPrompter;this.Roll20=Roll20Prompter;',c);
+        const second=new c.Generic().prompt('Elemental Strike','four elemental choices','Choose','No Elemental Strike');
+        await Promise.resolve();
+        assert.equal(active.title,'Longsword');assert.equal(active.html,'Select roll mode');
+        active.resolve('normal');assert.equal(await first,'normal');
+        await Promise.resolve();
+        assert.equal(active.title,'Elemental Strike');assert.equal(active.html,'four elemental choices');
+        active.resolve(null);assert.equal(await second,null);assert.equal(active,null);
+        const third=new c.Roll20().prompt('Smite','Smite choices');await Promise.resolve();
+        active.resolve('selected');assert.equal(await third,'selected');
+        assert.deepEqual(shown.map(d=>d.title),['Longsword','Elemental Strike','Smite']);
+    });
+    await test('real sendRoll and renderer query only the attack; damage, Smite and Elemental retain resolved privacy',async()=>{
+        const c=sandbox();
+        Object.assign(c, {crypto:require('node:crypto').webcrypto, key_modifiers:{},cleanRoll:String,
+            WhisperType:{NO:0,YES:1,QUERY:2,HIDE_NAMES:3},CriticalRules:{PHB:0},
+            wayBeyond20ExtensionContextAvailable:()=>true,
+            DigitalDiceManager:{isEnabled:()=>false},
+            wayBeyond20RollDeliveries:new WeakMap(),wayBeyond20ResolvedRollHooks:new WeakMap(),
+            wayBeyond20TrackRollDelivery:()=>({invoked:false}),
+            wayBeyond20NotifyDispatchFailure:message=>{throw Error(message);},
+            wayBeyond20CaptureResolvedRoll:(request,attacks,damages)=>
+                c.wayBeyond20ResolvedRollHooks.get(request)?.(request,attacks,damages)});
+        Object.assign(c.RollType,{QUERY:2,DOUBLE:1,ADVANTAGE:3,DISADVANTAGE:4,THRICE:5,
+            SUPER_ADVANTAGE:6,SUPER_DISADVANTAGE:7,OVERRIDE_ADVANTAGE:8,OVERRIDE_DISADVANTAGE:9});
+        Object.assign(c.character,{type:()=> 'Character',
+            getDict:()=>({type:'Character',name:'Fixture',settings:{}}),
+            getGlobalSetting:(key,fallback)=>['roll-type','whisper-type'].includes(key)?2:fallback});
+        vm.runInContext(read('src/common/dice.js')+'\n'+read('src/common/roll_renderer.js')+
+            '\nthis.Renderer=Beyond20RollRenderer;this.Roll=DNDBRoll;'+
+            extractFunction('sendRoll',read('src/dndbeyond/base/utils.js')),c);
+        const prompts=[],requests=[];
+        c.dndbeyondDiceRoller=new c.Renderer({roll:formula=>new c.Roll(formula),
+            resolveRolls:async(name,rolls)=>Promise.all(rolls.map(r=>r.roll()))},
+            {prompt:async(title,html)=>{
+                prompts.push({title,html});
+                return html.includes('whisper-mode') ? {find:()=>({val:()=> '1'})} :
+                    html.includes('roll-mode') ? {find:()=>({val:()=> '0'})} : true;
+            }},null);
+        c.dndbeyondDiceRoller.postDescription=async request=>{requests.push(request);return true;};
+        await c.sendRollWithCharacter('attack','1d8+3',c.attack());
+        assert.deepEqual(prompts.map(p=>p.title),['Test weapon','Test weapon','Attack result']);
+        assert.deepEqual(requests.map(r=>r.name),['Test weapon','Test weapon','Divine Smite','Efreeti’s Fury']);
+        assert.ok(requests.every(r=>r.whisper===1 && r.advantage===0));
+        assert.deepEqual(Array.from(requests[1].damages),['1d8+3']);
+        assert.deepEqual(Array.from(requests[2].damages),['2d8']);
+        assert.deepEqual(Array.from(requests[3].damages),['2d4','2d4']);
+        assert.equal(count(c,'slot:1'),1);assert.equal(count(c,'spend:Channel Divinity'),1);
+    });
+    await test('confirmed hit sends weapon damage before Smite and Elemental, with exactly-once costs',async()=>{
         const c=sandbox();await c.sendRollWithCharacter('attack','1d8',c.attack());
-        const order=['send:base','spend:action','prompt:Attack result','smite-choice','send:smite',
-            'spend:bonusAction','slot:1','elemental-choice','send:elemental','spend:Channel Divinity','send:damage'];
+        const order=['send:base','spend:action','prompt:Attack result','send:damage','smite-choice','send:smite',
+            'spend:bonusAction','slot:1','elemental-choice','send:elemental','spend:Channel Divinity'];
         let last=-1;for(const event of order){const next=c.log.indexOf(event);assert.ok(next>last,event);last=next;}
         assert.equal(count(c,'spend:action'),1);assert.equal(count(c,'spend:bonusAction'),1);
         assert.equal(c.lastBase.rollDamage,false);assert.equal(c.lastDamage.rollCritical,true);
@@ -138,10 +207,18 @@ async function test(name, body) {await body();console.log('PASS',name);}
         await c.sendRollWithCharacter('attack','',args);assert.equal(count(c,'spend:action'),0);
         const d=sandbox();await d.sendRollWithCharacter('attack','',d.attack({rollDamage:false}));
         assert.equal(count(d,'send:damage'),0);
+        assert.equal(count(d,'smite-choice'),0);assert.equal(count(d,'slot:1'),0);
         const id=d.lastBase['waybeyond20-attack-continuation'].id;
         await Promise.all([d.wayBeyond20ContinueAttackDamage(id),d.wayBeyond20ContinueAttackDamage(id)]);
         assert.equal(count(d,'send:damage'),1);assert.equal(count(d,'smite-choice'),1);
         assert.equal(count(d,'prompt:Attack result'),1);assert.equal(count(d,'spend:action'),1);
+        assert.ok(d.log.indexOf('send:damage')<d.log.indexOf('send:smite'));
+        assert.equal(count(d,'slot:1'),1);assert.equal(count(d,'spend:Channel Divinity'),1);
+    });
+    await test('failed weapon damage does not offer or spend optional riders',async()=>{
+        const c=sandbox({fail:'damage'});await c.sendRollWithCharacter('attack','',c.attack());
+        assert.equal(count(c,'spend:action'),1);assert.equal(count(c,'smite-choice'),0);
+        assert.equal(count(c,'slot:1'),0);assert.equal(count(c,'spend:Channel Divinity'),0);
     });
     await test('missed deferred attack cannot roll damage through its stale button',async()=>{
         const c=sandbox({hit:false});await c.sendRollWithCharacter('attack','',c.attack({rollDamage:false}));
@@ -271,6 +348,8 @@ async function test(name, body) {await body();console.log('PASS',name);}
         await c.sendRollWithCharacter('attack','',args);
         assert.equal(count(c,'thp:19'),1); // kept weapon 9 + Smite 5 + first-target fire 5
         assert.ok(c.log.indexOf('thp:19')>c.log.indexOf('replacement'));
+        assert.ok(c.log.indexOf('replacement')<c.log.indexOf('smite-choice'));
+        assert.ok(c.log.indexOf('thp:19')>c.log.indexOf('send:elemental'));
         assert.equal(c.lastDamage['waybeyond20-temp-hp-on-hit'],undefined);
     });
     await test('deferred continuation cannot apply to a different character after navigation',async()=>{

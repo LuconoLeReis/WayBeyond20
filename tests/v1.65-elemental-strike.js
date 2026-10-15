@@ -102,6 +102,7 @@ function parseForm(html) {
 
 function createDialogHarness() {
     let factory = null;
+    let open = false;
     const dialogLog = { opened: [], closes: 0, callbacks: [] };
     const okButton = { disabled: false, style: { display: "" }, innerHTML: "", classList: fakeClassList(), attributes: {},
         setAttribute(k, v) { this.attributes[k] = v; }, removeAttribute(k) { delete this.attributes[k]; } };
@@ -133,6 +134,8 @@ function createDialogHarness() {
                     set: (key, value) => { settings[key] = value; },
                     get: key => settings[key],
                     close() {
+                        if (!open) return;
+                        open = false;
                         dialogLog.closes++;
                         // alertify runs the invokeOnClose (Cancel) button's callback on close.
                         instance.callback({ index: 1 });
@@ -143,11 +146,14 @@ function createDialogHarness() {
             }
             instance.main(title, content, ok, cancel, resolver);
             instance.prepare();
+            open = true;
             dialogLog.opened.push({ title, html: content, ok, cancel });
+            return instance;
     };
     const $ = element => ({ attr: name => element.getAttribute(name), 0: element });
     const context = { alertify, $, document: {}, console };
     vm.createContext(context);
+    vm.runInContext(topLevelFunction(commonUtilsSource, "wayBeyond20Prompt"), context);
     vm.runInContext(topLevelFunction(commonUtilsSource, "initializeAlertify"), context);
     vm.runInContext("initializeAlertify()", context);
     assert.equal(typeof factory, "function", "initializeAlertify registers Beyond20Prompt");
@@ -421,20 +427,16 @@ function assertChooser(context, route) {
         assert.equal(repeated.log.prompts.length, 1, "repeated callback does not open the chooser again");
         assert.equal(request.damages.length, 3, "repeated callback does not add damage again");
 
-        // A second trigger while the chooser is open reuses the one Beyond20Prompt instance: the
-        // earlier chooser is superseded (never resolves), and repeated clicks still post once.
+        // Two distinct casts queue their choosers; neither silently replaces the other's
+        // resolver. Repeated clicks on the first chooser still complete that cast only once.
         const overlap = createSandbox({ features: FEATURE, answers: [click("efreeti", "efreeti"), click("dao")] });
-        const superseded = castDivineSmite(overlap);
+        const first = castDivineSmite(overlap);
         const current = castDivineSmite(overlap);
-        let supersededSettled = false;
-        superseded.then(() => { supersededSettled = true; });
-        assert.equal(await current, true);
-        await new Promise(resolve => setTimeout(resolve, 20));
-        assert.equal(supersededSettled, false, "the superseded chooser neither posts nor spends");
+        assert.deepEqual(await Promise.all([first, current]), [true, true]);
         assert.equal(overlap.dialog.dialogLog.opened.length, 2);
-        assert.equal(overlap.log.sendRollCalls, 1, "one post");
-        assert.deepEqual(overlap.log.limitedUseSpends, ["Channel Divinity"], "one Channel Divinity");
-        assert.deepEqual(overlap.log.turnSpends, ["bonusAction"], "one Bonus Action");
+        assert.equal(overlap.log.sendRollCalls, 2, "one post per distinct cast");
+        assert.deepEqual(overlap.log.limitedUseSpends, ["Channel Divinity", "Channel Divinity"], "one use per chosen rider");
+        assert.deepEqual(overlap.log.turnSpends, ["bonusAction", "bonusAction"], "one Bonus Action per distinct cast");
         assert.equal(lastRequest(overlap)["feature-results"].length, 1);
 
         const otherSmite = createSandbox({ features: FEATURE, answers: [click("dao")] });
@@ -589,11 +591,13 @@ function assertChooser(context, route) {
         const dialog = createDialogHarness();
         const pending = dialog.prompter.prompt("Elemental Strike",
             '<form class="waybeyond20-elemental-strike-query"><div><button type="button" class="waybeyond20-elemental-strike-button" data-elemental-strike="dao" title="t">Dao’s Crush</button></div></form>', "Choose", "Cancel");
+        await Promise.resolve();
         assert.equal(dialog.okButton.style.display, "none");
         dialog.click("dao");
         assert.equal((await pending).attr("data-selected"), "dao");
         assert.deepEqual(dialog.dialogLog.callbacks, [1], "close ran the cancel callback after the choice resolved");
         const generic = dialog.prompter.prompt("Custom Skill", "<form class=\"other\"></form>", "Roll", "Cancel");
+        await Promise.resolve();
         assert.equal(dialog.okButton.style.display, "", "a following prompt shows its confirm button");
         assert.equal(dialog.okButton.disabled, false);
         dialog.pressEnter();

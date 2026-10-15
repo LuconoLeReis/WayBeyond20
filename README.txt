@@ -1,7 +1,31 @@
-WAYBEYOND20 v1.65.14
+WAYBEYOND20 v1.65.16
 ===================
 
-RELEASE - 2026-10-13. Extension version 2.20.80.
+RELEASE 1.65.16 - 2026-10-14. Extension version 2.20.82.
+Shared prompts now wait their turn instead of replacing an already open
+window's title and answer handler while leaving the previous contents visible.
+The overlap defect is reproduced and covered by automated regression tests.
+Attack follow-ups now send weapon damage before Smite and Elemental Strike.
+Deferred damage waits for its button before offering those riders. The full
+D&D Beyond-only sequence passed live testing in 1.65.16 with Ask each time,
+including separately labeled elemental damage and cancellation checks.
+No Lay on Hands pool persistence correction is included.
+Roll20 rendering has automated regression coverage in this patch. The final
+live Roll20 smoke test was inconclusive because the test tabletop also failed
+to display its own native dice rolls. This is not a claim of live Roll20 acceptance.
+
+VERSION POLICY
+--------------
+Public versions use Semantic Versioning 2.0.0 (https://semver.org/spec/v2.0.0.html):
+compatible fixes increment PATCH; compatible new capabilities increment MINOR;
+breaking changes increment MAJOR. The documented compatibility contract covers
+roll-message fields/events, saved-settings migrations, supported controls and
+installation/update behavior. Internal helpers are not a public API.
+Chrome's numeric version is a separate increasing build identity. The public
+version is shown in version_name. Published releases are never overwritten.
+See VERSIONING.txt in the corresponding GitHub source for the full contract.
+
+Previously released in 1.65.14:
 Includes the concentration, spell-casting and buff-display improvements tested
 in internal builds 1.65.11 through 1.65.13.
 Native spell-row Cast/Use buttons now run the existing WayBeyond20 spell

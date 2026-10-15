@@ -368,6 +368,25 @@ function wayBeyond20WireLayOnHandsForm(form, { okButton = null, resolve, close }
     sync();
 }
 
+function wayBeyond20Prompt(title, html, ok_label = "OK", cancel_label = "Cancel") {
+    // Alertify reuses one dialog: while open, a second call replaces its title
+    // and resolver but does not prepare the new body. Share this queue across
+    // all prompters using that dialog, including both renderers on DDB pages.
+    const pending = (alertify._wayBeyond20PromptQueue || Promise.resolve()).then(() => new Promise(resolve => {
+        let settled = false;
+        const dialog = alertify.Beyond20Prompt(title, html, ok_label, cancel_label, result => {
+            if (settled) return;
+            settled = true;
+            resolve(result);
+            // Close before the next queued microtask, even for custom buttons
+            // that call their resolver before closing. Ignore close's callback.
+            dialog.close();
+        });
+    }));
+    alertify._wayBeyond20PromptQueue = pending.catch(() => {});
+    return pending;
+}
+
 function initializeAlertify() {
     alertify.set("alert", "title", "WayBeyond20");
     alertify.set("notifier", "position", "top-center");
