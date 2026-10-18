@@ -98,7 +98,8 @@ class DNDBRoller {
 
     async resolveRolls(name, rolls, request={}) {
         
-        if (dndbeyondDiceRoller._settings['use-digital-dice'] && DigitalDiceManager.isEnabled()) {
+        if (dndbeyondDiceRoller._settings['use-digital-dice'] && DigitalDiceManager.isEnabled() &&
+            (request["waybeyond20-portent-value"] === undefined || rolls.some(roll => roll.dice.length > 0))) {
             const digital = new DigitalDice(name, rolls, {whisper: request.whisper === WhisperType.YES});
             try {
                 await digital.roll();

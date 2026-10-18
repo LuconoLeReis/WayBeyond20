@@ -3855,10 +3855,21 @@ function wayBeyond20CharacterHelperEnabled(key) {
 }
 
 function wayBeyond20ShowMusicianRestReminder(restType) {
+    if (!["short", "long"].includes(restType)) return;
     if (!wayBeyond20CharacterHelperEnabled("musician-rest-reminder") || !character.hasFeat("Musician", true)) return;
-    if (typeof alertify !== "undefined" && alertify.message) {
-        alertify.message(`Musician: ${restType === "long" ? "Long" : "Short"} Rest completed. You may grant Heroic Inspiration to eligible allies.`);
-    }
+    // Reloaded extension contexts have separate globals/Alertify instances but
+    // share the DOM. Claim the reminder synchronously before queuing it so a
+    // second context (or repeated callback) cannot open or queue another one.
+    const root = document.documentElement;
+    const claim = "data-waybeyond20-musician-reminder";
+    if (root.hasAttribute(claim)) return Promise.resolve();
+    root.setAttribute(claim, String(character._id || "character"));
+    // A reminder needs to remain available until acknowledged, not disappear
+    // as a timed toast. The shared queue prevents overlap with other prompts.
+    return Promise.resolve().then(() => wayBeyond20Prompt("Musician",
+        `<form><p>${restType === "long" ? "Long" : "Short"} Rest completed.</p><p>You may grant Heroic Inspiration to eligible allies.</p><p>This reminder does not apply Heroic Inspiration automatically. Resolve the benefit with your group, then dismiss this window.</p></form>`,
+        "Done", "Close")).catch(error => console.warn("WayBeyond20: Musician reminder failed", error))
+        .finally(() => root.removeAttribute(claim));
 }
 
 // A rest is a span of game time, so the first thing that ends an effect is simply the clock: a
@@ -3969,11 +3980,21 @@ function wayBeyond20InstallLongRestTracker() {
         const paneText = String(pane.text() || "").replace(/\s+/g, " ").trim().toLowerCase();
         if (!paneText.includes(`${restType} rest`)) return;
 
+        // One DOM click can reach listeners in more than one extension context
+        // after a reload. A window variable cannot deduplicate across those
+        // contexts. Claim this exact confirmation event on its shared control;
+        // later genuine rests have a different event timestamp and still work.
+        const claim = "data-waybeyond20-rest-event";
+        const eventKey = `${character && character._id}:${restType}:${event.timeStamp}`;
+        if (control.getAttribute(claim) === eventKey) return;
+        control.setAttribute(claim, eventKey);
         wayBeyond20LongRestResetPending = true;
+        const restOwner = character;
         wayBeyond20CharacterDebug(`${restType === "long" ? "Long" : "Short"} Rest completion detected`, {
             control: wayBeyond20DescribeElement(control)
         });
         setTimeout(() => {
+            if (character !== restOwner) { wayBeyond20LongRestResetPending = false; return; }
             if (character) character.updateInfo();
             wayBeyond20EndCombat(true);
             if (restType === "long" && character) character.mergeCharacterSettings({"waybeyond20-paladin-smite-used": false});
@@ -3981,6 +4002,8 @@ function wayBeyond20InstallLongRestTracker() {
             if (restType === "long") wayBeyond20ResetHitDice("long-rest");
             wayBeyond20ExpireEffectsForRest(restType);
             wayBeyond20RestWizardResources(restType);
+            if (typeof wayBeyond20RefreshPortentForRest === "function")
+                wayBeyond20RefreshPortentForRest(character, restType).catch(error => console.warn("WayBeyond20: Portent rest refresh failed", error));
             wayBeyond20ShowMusicianRestReminder(restType);
             wayBeyond20LongRestResetPending = false;
         }, 750);
@@ -4171,6 +4194,7 @@ function wayBeyond20InjectTurnResourceTracker(effects) {
         localTurnNumber: state.localTurnNumber,
         currentRoll20Turn: state.currentRoll20Turn
     });
+    if (typeof wayBeyond20ApplySheetTheme === "function") wayBeyond20ApplySheetTheme(section[0]);
     if (section.attr("data-waybeyond20-signature") === signature) return;
     section.attr("data-waybeyond20-signature", signature).empty();
 
@@ -4837,6 +4861,7 @@ let waybeyond20_effect_badge_refresh_timer = 0;
 
 function wayBeyond20RefreshActiveEffectBadges() {
     waybeyond20_effect_badge_refresh_timer = 0;
+    if (typeof wayBeyond20InjectPortent === "function") wayBeyond20InjectPortent();
     const effects = wayBeyond20GetTrackedSpellEffects();
     const concentration = wayBeyond20GetConcentrationEffect();
     wayBeyond20ApplyActiveEffectMechanics(effects);
@@ -9205,7 +9230,7 @@ function injectSettingsButton() {
 
     let button_type = null;
     let gap = null;
-    let span_text = "WayBeyond20";
+    let span_text = "WB20";
     let icon = chrome.runtime.getURL("images/icons/badges/normal20.png");
     if (desktop_gap.length > 0) {
         button_type = "desktop";
@@ -9223,7 +9248,7 @@ function injectSettingsButton() {
     }
 
     const button = E.div({ class: "ct-character-header-" + button_type + "__group ct-character-header-" + button_type + "__group--beyond20" },
-        E.div({ class: "ct-character-header-" + button_type + "__button ct-beyond20-settings-button" },
+        E.div({ class: "ct-character-header-" + button_type + "__button ct-beyond20-settings-button", title: "WayBeyond20 settings" },
             E.img({ class: "ct-beyond20-settings", src: icon }),
             E.span({ class: "ct-character-header-" + button_type + "__button-label" }, span_text)
         )

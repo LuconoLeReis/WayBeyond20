@@ -216,15 +216,21 @@ function createHelperJq() {
 
 async function exerciseHelpers(character, globalSettings) {
     const jq = createHelperJq();
+    const attributes = new Map();
     const calls = { bonusAction: 0, query: 0, musician: 0, popout: 0, concentrationCheck: 0, upsert: [], layOnHands: 0 };
     const row = jq.newEl("div");
     const anchor = jq.newEl("span");
     anchor.parent = row;
     const ctx = {
         character,
+        document: { documentElement: {
+            hasAttribute: name => attributes.has(name),
+            setAttribute: (name, value) => attributes.set(name, value),
+            removeAttribute: name => attributes.delete(name)
+        } },
         settings: globalSettings,
         $: jq.$,
-        alertify: { message: () => { calls.musician++; } },
+        wayBeyond20Prompt: async () => { calls.musician++; },
         dndbeyondDiceRoller: { queryGeneric: async (title, question, choices, id, order, fallback) => { calls.query++; return title === "Ritual Casting" ? "ritual" : "none"; } },
         wayBeyond20HasAvailableBonusAction: () => { calls.bonusAction++; return false; },
         wayBeyond20GetTrackedSpellEffects: () => [],

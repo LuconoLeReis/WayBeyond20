@@ -909,6 +909,18 @@ const character_settings = {
         "type": "bool",
         "default": true
     },
+    "portent-auto-proceed": {
+        "title": "Diviner: use a selected Portent die without confirmation",
+        "description": "Turn off to restore the warning before using a manually selected Portent die.",
+        "type": "bool",
+        "default": false
+    },
+    "portent-prompts": {
+        "title": "Diviner: Portent Prompts",
+        "description": "Offer unused dice when the die plus known flat modifiers meets the threshold. Configure thresholds using Settings in the Portent Dice panel. Blank thresholds disable that category.",
+        "type": "bool",
+        "default": false
+    },
     "wizard-arcane-recovery-helper": {
         "title": "Wizard: Arcane Recovery Helper",
         "description": "Show a compact Arcane Recovery control with legal expended-slot choices.",

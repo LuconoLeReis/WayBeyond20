@@ -82,7 +82,10 @@ assert.match(characterSource, /MAGE ARMOR AC/);
 assert.doesNotMatch(sourceBetween("function wayBeyond20InjectMageArmorBadge", "async function wayBeyond20RunConcentrationCheck"), /hasClass\("Wizard"\)/);
 assert.match(baseCharacterSource, /return \(this\._classes \|\| \{\}\)\[name\] \|\| 0/);
 assert.match(baseCharacterSource, /return \(this\._classes \|\| \{\}\)\[name\] !== undefined/);
-assert.match(characterSource, /Musician:.*Rest completed/);
+const musicianReminder = sourceBetween("function wayBeyond20ShowMusicianRestReminder", "// A rest is a span");
+assert.match(musicianReminder, /wayBeyond20Prompt\("Musician"/);
+assert.match(musicianReminder, /Rest completed/);
+assert.doesNotMatch(musicianReminder, /alertify\.message/);
 
 for (const setting of [
     "wizard-occultist-intrusion-helper",

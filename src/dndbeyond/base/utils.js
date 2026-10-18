@@ -638,6 +638,7 @@ async function sendRoll(character, rollType, fallback, args) {
         }
     }
         
+    const dispatch = async () => {
     if (req.whisper === WhisperType.QUERY) {
         req.whisper = await dndbeyondDiceRoller.queryWhisper(args.name || rollType, is_monster);
         if (req.whisper === null) return false; // Query was cancelled
@@ -671,6 +672,9 @@ async function sendRoll(character, rollType, fallback, args) {
         }
     }
 
+    // A Portent replacement ignores advantage/disadvantage, including later effect overrides.
+    if (req["waybeyond20-portent-value"] !== undefined) req.advantage = RollType.NORMAL;
+
     // Callers use this result only to decide whether a one-use effect or native resource may be
     // consumed. true means the extension accepted the roll (a VTT tab received it, or the supported
     // local D&D Beyond display handled it); it does not mean a remote VTT has already rendered it.
@@ -679,7 +683,7 @@ async function sendRoll(character, rollType, fallback, args) {
         wayBeyond20NotifyDispatchFailure("Extension context invalidated.");
         return false;
     }
-    if (typeof args["waybeyond20-capture-result"] === "function" ||
+    if (req["waybeyond20-portent-value"] !== undefined || typeof args["waybeyond20-capture-result"] === "function" ||
         (character.getGlobalSetting("use-digital-dice", false) && DigitalDiceManager.isEnabled())) {
         req.sendMessage = true;
         const delivery = wayBeyond20TrackRollDelivery(req);
@@ -715,6 +719,9 @@ async function sendRoll(character, rollType, fallback, args) {
     // and the roll is displayed on D&D Beyond.
     beyond20SendMessageFailure(character, outcome.response);
     return true;
+    };
+    return typeof wayBeyond20PortentDispatch === "function"
+        ? wayBeyond20PortentDispatch(character, req, dispatch) : dispatch();
 }
 
 // ---- Dispatch outcome (brief 1.11, F-L4) ---------------------------------------------------------

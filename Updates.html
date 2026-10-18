@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WayBeyond20 v1.65.16</title>
+    <title>WayBeyond20 v1.66.0</title>
     <link rel="stylesheet" href="Updates.css">
 </head>
 <body>
@@ -11,14 +11,21 @@
         <header>
             <img src="images/icons/icon128.png" alt="WayBeyond20">
             <div>
-                <p class="eyebrow">Release · October 14, 2026</p>
-                <h1>WayBeyond20 v1.65.16</h1>
+                <p class="eyebrow">Release · October 18, 2026</p>
+                <h1>WayBeyond20 v1.66.0</h1>
                 <p class="lede">Complete changes from the Beyond20 2.20.1 base</p>
             </div>
         </header>
 
         <section>
-            <h2>New in v1.65.16 — shared prompt handling</h2>
+            <h2>New in v1.66.0: Portent Dice and sheet improvements</h2>
+            <p>Extension version 2.20.87. Characters with Portent get a name-adjacent dice panel. Completed Long Rests replace the pool; refreshing the sheet does not reroll it. Select or deselect a die, confirm before replacing the next supported d20 test, and configure optional modified-total thresholds in Portent Settings. The confirmation preference is reversible.</p>
+            <p>The compact WB20 header button and native-themed panels preserve the sheet layout. The Combat frame keeps clear of its text and controls. Musician reminders remain open until dismissed, with guards against duplicate rest handling and duplicate windows.</p>
+            <p><strong>Known issue: double-Smite is still reported and is not fixed here.</strong> Its exact duplication path is still under investigation. Check Smite damage and resource use with your group. Existing Lay on Hands pool persistence also remains unresolved.</p>
+            <p>Portent handles supported rolls from your own sheet; other creatures' rolls remain table-managed. Once-per-turn tracking needs a known combat turn. Divination Savant spell selection is not automated. Automated tests cover replacement, spending, cancellation and thresholds. Live checks cover sheet/settings layout, rest replacement and one Musician reminder with clean dismissal. Live Portent VTT output and broad Foundry coverage are not claimed.</p>
+        </section>
+        <section>
+            <h2>Previously in v1.65.16 — shared prompt handling</h2>
             <p>Extension version 2.20.82. Overlapping prompts now wait their turn rather than showing one question's title over another question's contents. All shared prompt callers use the same queue; choosing or cancelling one question does not answer another. The defect is reproduced with the actual dialog library and covered by regression tests. Live D&amp;D Beyond-only testing passed the full attack, damage, Smite and Elemental Strike sequence with Ask each time, separate elemental results and cancellation checks.</p>
         </section>
         <section>

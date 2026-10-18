@@ -156,6 +156,10 @@ function populateCharacter(response) {
             e.classList.add("waybeyond20-helper-option");
             options.append(e);
         }
+        if ((response["class-features"] || []).some(feature => /\bPortent\b/.test(feature))) {
+            for (const key of ["portent-auto-proceed", "portent-prompts"])
+                options.append(createHTMLOption(key, false, character_settings));
+        }
 
         if (response["racial-traits"].includes("Lucky") ||
             response["racial-traits"].includes("Luck")) {

@@ -143,6 +143,16 @@ class Beyond20RollRenderer {
     }
 
     getToHit(request, modifier = "", data = {}, type="to-hit") {
+        const portent = request["waybeyond20-portent-value"];
+        if (Number.isInteger(portent) && portent >= 1 && portent <= 20) {
+            // A numeric term, not a d20 that is rolled and then overwritten. Other dice
+            // (Bless, damage, etc.) still go through the normal roller.
+            request.advantage = RollType.NORMAL;
+            const roll = this.createRoll(String(portent) + modifier, data, type);
+            roll.isCriticalHit = () => portent >= (roll._critical_limit ?? 20);
+            roll.isCriticalFail = () => portent <= (roll._fail_limit ?? 1);
+            return { rolls: [roll] };
+        }
         const advantage = request.advantage;
 
         const d20 = request.d20 || "1d20";

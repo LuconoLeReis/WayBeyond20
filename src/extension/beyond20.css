@@ -864,6 +864,13 @@ span.dice-roll.beyond20-tooltip-content {
     width: calc(100% - 24px);
 }
 
+/* The native SVG's decorative edges extend inside its rectangle. Reserve a
+   content-safe inset instead of drawing that artwork through the tracker text.
+   The side inset scales with the stretched frame on wide sheets. */
+.waybeyond20-combat-section.waybeyond20-sheet-frame {
+    padding: 20px max(24px, 4%);
+}
+
 @media (prefers-color-scheme: dark) {
     .waybeyond20-combat-section {
         background-color: rgba(28, 29, 31, 0.97);
@@ -883,10 +890,47 @@ span.dice-roll.beyond20-tooltip-content {
 }
 
 .waybeyond20-combat-title {
+    font-family: var(--wb20-heading-font, inherit);
     font-size: 16px;
     font-weight: 700;
     text-transform: uppercase;
 }
+
+/* Native sheet colors/fonts are sampled at runtime for both this panel and Combat. */
+/* Keep the name and dice at full height; use two compact toolbar rows in the
+   existing 100px desktop header instead of stealing the name's horizontal space. */
+@media (min-width: 1200px) {
+    .ct-character-header-desktop.waybeyond20-header-with-portent {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) max-content max-content max-content max-content;
+        grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+        column-gap: 8px;
+        row-gap: 4px;
+    }
+    .waybeyond20-header-with-portent > .ct-character-header-desktop__group-tidbits { grid-column: 1; grid-row: 1 / 3; min-width: 0; }
+    .waybeyond20-header-with-portent > .waybeyond20-portent { grid-column: 2; grid-row: 1 / 3; margin: 0; }
+    .waybeyond20-header-with-portent > .ct-character-header-desktop__group--gap { display: none; }
+    .waybeyond20-header-with-portent > .ct-character-header-desktop__group--beyond20-hotkeys { position: absolute; width: 0; height: 0; }
+    .waybeyond20-header-with-portent > .ct-character-header-desktop__group--beyond20 { grid-column: 3; grid-row: 1; }
+    .waybeyond20-header-with-portent > .ct-character-header-desktop__group--share { grid-column: 3; grid-row: 2; }
+    .waybeyond20-header-with-portent > .ct-character-header-desktop__group--short-rest { grid-column: 4; grid-row: 1; }
+    .waybeyond20-header-with-portent > .ct-character-header-desktop__group--long-rest { grid-column: 4; grid-row: 2; }
+    .waybeyond20-header-with-portent > [class*="styles_container"] { grid-column: 5; grid-row: 1; }
+    .waybeyond20-header-with-portent > .ct-character-header-desktop__group--builder { grid-column: 5; grid-row: 2; justify-self: end; transform: scale(.65); transform-origin: right center; }
+}
+.waybeyond20-portent { position: relative; flex: 0 0 auto; align-self: center; border: 2px solid currentColor; padding: 4px 10px; height: 64px; min-width: 128px; margin: 0 8px 0 12px; text-align: center; box-sizing: border-box; }
+.waybeyond20-portent-title { padding-right: 14px; font-family: var(--wb20-heading-font, inherit); font-size: var(--wb20-heading-size, 12px); font-weight: 700; line-height: 17px; white-space: nowrap; }
+.waybeyond20-portent-dice { display: flex; justify-content: center; }
+.waybeyond20-portent-dice button { border: 0; background: transparent; color: inherit; font-family: var(--wb20-number-font, inherit); font-size: var(--wb20-number-size, 28px); line-height: 32px; padding: 0 10px; cursor: pointer; min-width: 44px; }
+.waybeyond20-portent-dice button + button { border-left: 1px solid currentColor; }
+.waybeyond20-portent-dice button[aria-pressed="true"] { outline: 3px solid currentColor; outline-offset: -4px; border-radius: 50%; background: rgba(128,128,128,.22); }
+.waybeyond20-portent-dice button:disabled { opacity: .45; text-decoration: line-through; cursor: default; }
+.waybeyond20-portent-dice button:not([aria-pressed]) { font-size: 12px; }
+.waybeyond20-portent-settings-button { position: absolute; top: 4px; right: 5px; padding: 0; width: 16px; line-height: 17px; font-size: 14px; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.waybeyond20-portent button:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
+.waybeyond20-portent-settings label { display: block; margin: 10px 0; }
+.waybeyond20-portent-settings input[type="number"] { width: 70px; float: right; }
+.waybeyond20-portent-query button { margin: 4px; padding: 8px 14px; }
 
 .waybeyond20-combat-source {
     font-size: 12px;

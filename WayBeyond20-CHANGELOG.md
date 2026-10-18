@@ -1,5 +1,17 @@
 # WayBeyond20 Changelog
 
+## v1.66.0 - Portent Dice and sheet improvements, 2026-10-18
+
+Extension version 2.20.87. Compatible new capability; minor-version increment.
+
+- Character-local Portent pool, completed Long Rest replacement, selection, confirmation and reversible opt-out.
+- Optional category thresholds use known modified totals; bonus dice are not predicted.
+- Numeric d20 replacement preserves modifiers and natural critical behavior; cancelled/failed dispatch does not spend a die.
+- Compact WB20 button, native-themed Portent/Combat panels and decorative-frame spacing.
+- Persistent Musician reminder; shared-page guards prevent repeated rest handling and duplicate windows.
+- 18 regression suites and two isolated Chromium fixtures pass. Live sheet/settings layout, rest refresh, tracker spacing and Musician dismissal pass. Live Portent VTT output and Foundry are not claimed.
+- Known double-Smite report remains unresolved and deferred, not fixed. Other creatures' Portent rolls are table-managed; turn enforcement requires known tracker state. Divination Savant spell selection is not automated. Existing Lay on Hands persistence remains open.
+
 ## v1.65.16 — Prompt reliability and attack order, 2026-10-14
 
 Extension version 2.20.82. Includes the internal-only 1.65.15 ordering repair.

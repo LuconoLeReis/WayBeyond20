@@ -453,7 +453,7 @@ async function open(name, fn) {
             "wayBeyond20InstallLongRestTracker();"
         ].join("\n"), context);
         const click = control => {
-            listener({ target: { closest: () => control } });
+            listener({ timeStamp: performance.now(), target: { closest: () => control } });
             const pending = log.timers.splice(0);
             pending.forEach(fn => fn());
             return pending.length;
@@ -463,9 +463,11 @@ async function open(name, fn) {
     const REST_PANE = { text: "Long Rest Take a long rest to restore hit points and resources. Take Long Rest" };
     const SHORT_REST_PANE = { text: "Short Rest Take a short rest to spend Hit Dice. Take Short Rest" };
     const button = (text, className) => ({
+        attributes: {},
         textContent: text, className,
         pane: /short rest/i.test(text) ? SHORT_REST_PANE : REST_PANE,
-        getAttribute: name => name === "class" ? className : null
+        getAttribute(name) { return name === "class" ? className : this.attributes[name] ?? null; },
+        setAttribute(name, value) { this.attributes[name] = value; }
     });
     const SHIELD_OF_FAITH = { id: "e-sof", name: "Shield of Faith", owner: "Test Paladin", source: "Shield of Faith",
         duration: "Concentration, up to 10 minutes", concentration: true, flags: ["buff", "concentration"], data: [{ field: "AC", value: "2" }] };

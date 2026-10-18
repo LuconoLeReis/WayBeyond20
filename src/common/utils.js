@@ -445,6 +445,9 @@ function initializeAlertify() {
                     okButton.removeAttribute("aria-disabled");
                     okButton.classList.remove("waybeyond20-query-proceed-disabled");
                     okButton.style.display = "";
+                    const portentForm = this.elements.content.querySelector("form.waybeyond20-portent-query");
+                    if (portentForm && typeof wayBeyond20WirePortentPrompt === "function")
+                        wayBeyond20WirePortentPrompt(portentForm, this, okButton);
 
                     // WayBeyond20 smite queries use two radio groups. Keep the
                     // Proceed button disabled until both groups contain a legal

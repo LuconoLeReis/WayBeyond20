@@ -1,6 +1,37 @@
-WAYBEYOND20 v1.65.16
+WAYBEYOND20 v1.66.0
 ===================
 
+RELEASE 1.66.0 - 2026-10-18. Extension version 2.20.87.
+Portent Dice now appear beside the character name for characters with Portent.
+A completed Long Rest replaces the pool with two dice (three for Greater
+Portent). Installation or page refresh does not grant a new roll; use Set
+today's dice to enter existing results, including any already spent.
+Click a die to select it, or click again to deselect. The next supported d20
+test offers confirmation before replacing the raw d20 while keeping modifiers.
+No rolls normally; Cancel stops the roll without spending the die. The warning
+can be disabled and restored in Portent Settings. Optional Portent Prompts
+offer dice meeting per-category modified-total thresholds. Blank categories
+stay quiet; random bonus dice are not predicted.
+The WB20 header button is smaller, and Portent and Combat follow sheet styling.
+Combat reserves space so decorative borders do not overlap its contents.
+Musician rest reminders now remain in a window until dismissed. Duplicate
+rest handling/reminders across extension contexts are guarded.
+
+KNOWN ISSUES AND TEST SCOPE
+Double-Smite is still reported and is NOT fixed in this release. The exact
+duplication path remains under investigation. Check Smite prompts, damage and
+resource use with your group; do not count unintended duplicate damage/spends.
+Portent replacement currently handles supported rolls initiated from your own
+sheet. Other creatures' rolls remain table-managed. Once-per-turn tracking
+requires a known combat tracker turn. Divination Savant spell selection is not
+automated. Existing Lay on Hands pool-persistence limitations remain.
+Automated regression/browser tests cover Portent selection, confirmation,
+cancellation, spending, thresholds and renderer behavior. Live D&D Beyond
+checks cover panel/settings layout, Long Rest replacement, Combat spacing and
+one Musician reminder with clean dismissal. Live Portent VTT output and broad
+Foundry coverage have not been verified for this release.
+
+PREVIOUS RELEASE
 RELEASE 1.65.16 - 2026-10-14. Extension version 2.20.82.
 Shared prompts now wait their turn instead of replacing an already open
 window's title and answer handler while leaving the previous contents visible.
