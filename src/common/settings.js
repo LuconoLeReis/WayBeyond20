@@ -187,6 +187,14 @@ const options_list = {
         "default": true
     },
 
+    "sync-core-roll20": {
+        "title": "Sync core character data to Roll20",
+        "description": "Keep ability scores, skill bonuses, passive senses, special senses, proficiency bonus, AC and speed available to Roll20 macros. Only a uniquely matched character is updated. This does not import spells, inventory or features.",
+        "type": "bool",
+        "default": false,
+        "advanced": true
+    },
+
     "display-conditions": {
         "title": "Display Condition updates to VTT",
         "description": "When updating character conditions in D&D Beyond, display a message in the VTT chat.\n" +
@@ -963,6 +971,32 @@ const character_settings = {
         "type": "bool",
         "default": true
     },
+    "waybeyond20-combined-actions": {
+        "title": "Sheet: Combined Action List",
+        "description": "Bring action rows together with bright green Action, blue Bonus Action, red Reaction and gray Free/Special icon borders. Sorting does not change resource costs.",
+        "type": "bool",
+        "default": true
+    },
+    "waybeyond20-action-list-sort": {
+        "type": "string",
+        "default": "economy",
+        "hidden": true
+    },
+    "waybeyond20-action-list-view": {
+        "type": "string",
+        "default": "standard",
+        "hidden": true
+    },
+    "waybeyond20-opportunity-default": {
+        "type": "string",
+        "default": "",
+        "hidden": true
+    },
+    "waybeyond20-quick-list": {
+        "type": "string",
+        "default": "{}",
+        "hidden": true
+    },
     "charger-feat": {
         "title": "Feat: Charger Extra Damage (Apply to next roll only, unless locked)",
         "description": "You charge into battle, lending weight to your blow!",
@@ -1109,7 +1143,8 @@ const WAYBEYOND20_CHARACTER_HELPER_SETTINGS = [
     "waybeyond20-concentration-check-helper",
     "waybeyond20-condition-casting-warning",
     "waybeyond20-lay-on-hands-helper",
-    "musician-rest-reminder"
+    "musician-rest-reminder",
+    "waybeyond20-combined-actions"
 ];
 
 

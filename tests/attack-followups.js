@@ -32,6 +32,7 @@ function sandbox({hit = true, chooseSmite = true, fail = '', smites = true, sava
         wayBeyond20ActiveCharacterSheetTab: () => 'Inventory',
         wayBeyond20RestoreCharacterSheetTab: tab => log.push(`tab:${tab}`),
         wayBeyond20BuildSmiteOptions: async () => smites ? {} : null,
+        wayBeyond20MayHaveSmiteAfterHit: () => smites,
         wayBeyond20NormalizeAttackSemantics() {},
         wayBeyond20ApplyDrainingAttackIntent: args => {if(draining) args['waybeyond20-temp-hp-on-hit'] = true;},
         wayBeyond20GetTrackedSpellEffects: () => [],
@@ -89,7 +90,8 @@ function sandbox({hit = true, chooseSmite = true, fail = '', smites = true, sava
     vm.createContext(c);
     vm.runInContext(read('src/dndbeyond/content-scripts/attack-followups.js') + '\n' +
         ['sendRollWithCharacter','wayBeyond20DispatchRollWithCharacter','wayBeyond20ApplySavageAttacker',
-            'wayBeyond20DamageRowIndex'].map(fn).join('\n'), c);
+            'wayBeyond20DamageRowIndex','wayBeyond20AttackActivationTurnKey',
+            'wayBeyond20CreateAttackActivation','wayBeyond20PerformGrantedAttack'].map(fn).join('\n'), c);
     c.log=log;c.values=values;c.state=state;
     c.attack = (overrides={}) => ({name:'Test weapon',rollAttack:true,rollDamage:true,'to-hit':'+5',
         damages:['1d8+3'],'damage-types':['Slashing'], 'critical-damages':['1d8'],
@@ -100,6 +102,27 @@ function sandbox({hit = true, chooseSmite = true, fail = '', smites = true, sava
 const count=(c,event)=>c.log.filter(x=>x===event).length;
 async function test(name, body) {await body();console.log('PASS',name);}
 (async()=>{
+    await test('granted reaction attack spends once, never again for immediate or deferred damage',async()=>{
+        for (const deferred of [false,true]) {
+            const c=sandbox({smites:true,draining:true});
+            const activation=c.wayBeyond20CreateAttackActivation({resource:'reaction',attacks:1});
+            await c.sendRollWithCharacter('attack','',c.attack({
+                rollDamage:!deferred,'waybeyond20-attack-activation':activation,
+                'waybeyond20-attack-context':{kind:'opportunity',isOwnTurn:false,turnKey:activation.turnKey}}));
+            if(deferred) {
+                c.state.currentRoll20Turn.turnKey = 'later-own-turn';
+                const id=c.lastBase['waybeyond20-attack-continuation'].id;
+                await Promise.all([c.wayBeyond20ContinueAttackDamage(id),c.wayBeyond20ContinueAttackDamage(id)]);
+            }
+            assert.equal(count(c,'spend:reaction'),1);
+            assert.equal(count(c,'spend:action'),0);
+            assert.equal(count(c,'smite-choice'),0,'off-turn attack never offers a Bonus Action, even when damage is deferred to another turn');
+            assert.equal(count(c,'send:damage'),1);
+            assert.equal(count(c,'thp:5'),1,'Draining retains its event-based trigger');
+            assert.equal(activation.remaining,0);
+            assert.equal(c.lastDamage['waybeyond20-attack-activation'],undefined);
+        }
+    });
     await test('overlapping prompts cannot replace the active title/resolver or leave stale roll-mode contents',async()=>{
         const shown=[];
         let active=null;
@@ -168,6 +191,35 @@ async function test(name, body) {await body();console.log('PASS',name);}
         assert.deepEqual(Array.from(requests[2].damages),['2d8']);
         assert.deepEqual(Array.from(requests[3].damages),['2d4','2d4']);
         assert.equal(count(c,'slot:1'),1);assert.equal(count(c,'spend:Channel Divinity'),1);
+        // Explicit icon menu wins over a held hotkey, without changing preferences.
+        c.character.getGlobalSetting=(key,fallback)=>key==='roll-type'?0:key==='whisper-type'?1:fallback;
+        c.key_modifiers.advantage=true;
+        for(const selected of [3,4,null]){
+            const before=requests.length;
+            c.dndbeyondDiceRoller._prompter.prompt=async(title,html)=>{
+                assert.match(html,/roll-mode/);
+                assert.match(html,/Advantage/);assert.match(html,/Disadvantage/);
+                return selected===null?null:{find:()=>({val:()=>String(selected)})};
+            };
+            const sent=await c.sendRoll(c.character,'attack','1d20+5',{
+                name:'Icon test',rollAttack:true,rollDamage:false,'to-hit':'+5',
+                advantage:2,'waybeyond20-query-attack-mode':true,'waybeyond20-capture-result':()=>{}});
+            if(selected===null){assert.equal(sent,false);assert.equal(requests.length,before);}
+            else {assert.equal(requests.at(-1).advantage,selected);assert.equal(requests.at(-1)['waybeyond20-query-attack-mode'],undefined);}
+        }
+        // Already-chosen menu values bypass the late prompt and held hotkeys.
+        c.dndbeyondDiceRoller._prompter.prompt=()=>{throw Error('Menu choice asked twice');};
+        for(const mode of [0,3,4]) {
+            await c.sendRoll(c.character,'attack','1d20+5',{
+                name:'Chosen mode',rollAttack:true,rollDamage:false,'to-hit':'+5',
+                advantage:mode,'waybeyond20-explicit-attack-mode':mode,'waybeyond20-capture-result':()=>{}});
+            assert.equal(requests.at(-1).advantage,mode);
+            assert.equal(requests.at(-1)['waybeyond20-explicit-attack-mode'],undefined);
+        }
+        delete c.key_modifiers.advantage;
+        c.dndbeyondDiceRoller._prompter.prompt=()=>{throw Error('Leaked icon mode to ordinary roll');};
+        await c.sendRoll(c.character,'attack','1d20+5',{name:'Ordinary next attack',rollAttack:true,rollDamage:false,'to-hit':'+5','waybeyond20-capture-result':()=>{}});
+        assert.equal(requests.at(-1).advantage,0);
     });
     await test('confirmed hit sends weapon damage before Smite and Elemental, with exactly-once costs',async()=>{
         const c=sandbox();await c.sendRollWithCharacter('attack','1d8',c.attack());
@@ -198,9 +250,32 @@ async function test(name, body) {await body();console.log('PASS',name);}
         const b=sandbox({fail:'elemental'});await b.sendRollWithCharacter('attack','',b.attack());
         assert.equal(count(b,'slot:1'),1);assert.equal(count(b,'spend:Channel Divinity'),0);
     });
-    await test('without relevant features the existing dispatch is unchanged',async()=>{
+    await test('with Smite helper disabled and no other riders the existing dispatch is unchanged',async()=>{
         const c=sandbox({smites:false});await c.sendRollWithCharacter('attack','',c.attack());
         assert.equal(count(c,'prompt:Attack result'),0);assert.equal(count(c,'spend:action'),1);assert.equal(c.lastBase.rollDamage,true);
+    });
+    await test('starting/cancelling/missing an attack never probes Spells; discovery is deferred to damage',async()=>{
+        for(const options of [{hit:false},{fail:'base'},{}]){
+            const c=sandbox(options);
+            c.wayBeyond20BuildSmiteOptions=()=>{throw Error('Early Spells probe');};
+            await c.sendRollWithCharacter('attack','',c.attack({rollDamage:false}));
+            assert.equal(count(c,'smite-choice'),0);
+            assert.ok(!c.log.some(entry=>entry.startsWith('tab:')));
+        }
+    });
+    await test('Smite eligibility uses observed capabilities, not a class gate or hidden tab click',async()=>{
+        const c={wayBeyond20PreparedSmiteCache:null,enabled:true,bonus:true,rows:[],
+            wayBeyond20CharacterHelperEnabled:()=>c.enabled,
+            wayBeyond20HasAvailableBonusAction:()=>c.bonus,
+            wayBeyond20FindSmiteRows:()=>c.rows};
+        vm.createContext(c);vm.runInContext(fn('wayBeyond20MayHaveSmiteAfterHit'),c);
+        assert.equal(c.wayBeyond20MayHaveSmiteAfterHit(),true,'Unknown prepared list is not absent');
+        c.wayBeyond20PreparedSmiteCache=[];
+        assert.equal(c.wayBeyond20MayHaveSmiteAfterHit(),false,'Observed no Smite skips helper');
+        c.rows=[{name:'Divine Smite',prepared:true}];
+        assert.equal(c.wayBeyond20MayHaveSmiteAfterHit(),true,'Actual spell accepted without a class prerequisite');
+        c.enabled=false;assert.equal(c.wayBeyond20MayHaveSmiteAfterHit(),false);
+        c.enabled=true;c.bonus=false;assert.equal(c.wayBeyond20MayHaveSmiteAfterHit(),false);
     });
     await test('damage-only entry has no attack cost; deferred button never repeats hit, Smite or resource use',async()=>{
         const c=sandbox();const args=c.attack({rollAttack:false});delete args['waybeyond20-turn-resource'];
@@ -231,6 +306,34 @@ async function test(name, body) {await body();console.log('PASS',name);}
         assert.ok(c.log.indexOf('thp:15')>c.log.indexOf('send:damage'));
         const d=sandbox({draining:true,hit:false});await d.sendRollWithCharacter('attack','',d.attack());
         assert.ok(!d.log.some(x=>x.startsWith('thp:')));
+    });
+    await test('unarmed semantics trigger Draining independently of attack name or Smite flag',async()=>{
+        for (const name of ['Bardic Damage','Agile Strikes','Any renamed unarmed technique']) {
+            for (const hit of [true,false]) {
+                const c=sandbox({smites:false,hit});
+                c.character.hasRacialTrait=(trait,substring)=>['Draining Attack','Natural Attack (Fangs/Claws)']
+                    .some(value=>substring ? value.includes(trait) : value===trait);
+                vm.runInContext(['addEffect','wayBeyond20RollIsUnarmedStrike',
+                    'wayBeyond20NormalizeAttackSemantics','wayBeyond20ApplyDrainingAttackIntent'].map(fn).join('\n'),c);
+                const args=c.attack({name,'attack-type':'Unarmed Strike','attack-source':'action',
+                    'waybeyond20-smite-eligible':false});
+                await c.sendRollWithCharacter('attack','1d6+3',args);
+                assert.equal(count(c,'prompt:Attack result'),1,'Ask whether the unarmed strike hit');
+                assert.equal(count(c,'thp:5'),hit ? 1 : 0,'Award once only after confirmed hit and damage');
+                assert.equal(count(c,'smite-choice'),0);
+            }
+        }
+        const c=sandbox({smites:false});
+        vm.runInContext(['wayBeyond20RollIsUnarmedStrike','wayBeyond20NormalizeAttackSemantics'].map(fn).join('\n'),c);
+        for (const traits of [['Draining Attack'],['Natural Attack'],[]]) {
+            c.character.hasRacialTrait=trait=>traits.includes(trait);
+            assert.equal(c.wayBeyond20NeedsAttackFollowup(c.attack({
+                'attack-type':'Unarmed Strike','waybeyond20-smite-eligible':false})),false,'Both rule prerequisites required');
+        }
+        c.character.hasRacialTrait=()=>true;
+        assert.equal(c.wayBeyond20NeedsAttackFollowup(c.attack({name:'Agile Strikes',
+            'attack-source':'item','attack-type':'Melee','waybeyond20-smite-eligible':false})),false,
+            'A familiar name alone does not make an unrelated weapon unarmed');
     });
     await test('Savage selects existing weapon rows, not riders; prompt replaces old auto-transform',async()=>{
         const c=sandbox({savage:true,smites:false});const args=c.attack();const changes={};

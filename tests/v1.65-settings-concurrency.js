@@ -17,6 +17,7 @@ const read = relative => fs.readFileSync(path.join(sourceRoot, ...relative.split
 const settingsSource = read("src/common/settings.js");
 const baseCharacterSource = read("src/dndbeyond/base/character.js");
 const characterSource = read("src/dndbeyond/content-scripts/character.js");
+const targetSource = read("src/dndbeyond/content-scripts/my-target.js");
 
 function topLevelFunction(source, name, { optional = false } = {}) {
     const match = new RegExp(`^(?:async )?function ${name}\\(`, "m").exec(source);
@@ -105,6 +106,9 @@ function createSandbox({ readDelay = 4, writeDelay = 4, failFirstWrite = false }
         wayBeyond20BuildTurnResourceDefaults: () => ({ action: 1, bonusAction: 1, reaction: 1, hasteAction: 0, movement: 30,
             maxAction: 1, maxBonusAction: 1, maxReaction: 1, maxHasteAction: 0, maxMovement: 30 }),
         wayBeyond20ScheduleActiveEffectBadgeRefresh() {},
+        // This suite isolates persistence; real panel reconciliation is covered
+        // by target-undo-browser.js and my-target-browser.js.
+        $: () => ({length: 0}),
         wayBeyond20CharacterDebug() {},
         wayBeyond20CloseEffectsPopout() {},
         wayBeyond20SendEffectsUpdate() {},
@@ -119,10 +123,11 @@ function createSandbox({ readDelay = 4, writeDelay = 4, failFirstWrite = false }
         topLevelFunction(settingsSource, "wayBeyond20SettingsOrigin", { optional: true }),
         ...CONTENT_FUNCTIONS.map(name => topLevelFunction(characterSource, name)),
         ...OPTIONAL_CONTENT_FUNCTIONS.map(name => topLevelFunction(characterSource, name, { optional: true })),
+        ...['wb20TargetRecord','wb20TargetEdit','wb20TargetChoose'].map(name=>topLevelFunction(targetSource,name)),
         `class TestCharacter {
             constructor() { this._id = 7; this._settings = null; }
             getSetting(key, default_value = "") { return this._settings && this._settings[key] !== undefined ? this._settings[key] : default_value; }
-            updateHP() {} updateFeatures() {} updateConditions() {}
+            updateHP() {} updateFeatures() {} updateConditions() {} syncCoreRoll20Data() {}
             ${classMethod(baseCharacterSource, "mergeCharacterSettings")}
             ${classMethod(baseCharacterSource, "updateSettings")}
         }`,
@@ -153,6 +158,26 @@ const stored = ctx => ctx.store["character-7"];
 
 const sections = [];
 const section = (name, body) => sections.push({ name, body });
+
+section('Target: both rapid Undo orders persist with delayed storage and reversed broadcasts', async()=>{
+    for (const damageFirst of [false,true]) {
+        const ctx=createSandbox({readDelay:15,writeDelay:20});await loadSheet(ctx);
+        run(ctx, `character._settings['waybeyond20-turn-state']={inCombat:true,action:1,bonusAction:1,reaction:1,
+            selectedTargetKey:'mob',knownTargets:[{tokenId:'mob',name:'Zombie'}],
+            targetRecords:{mob:{observations:[{total:19,hit:true}],damage:[{amount:8,type:'Radiant'}]}}};`);
+        const first=damageFirst?'damage':'observations',second=damageFirst?'observations':'damage';
+        run(ctx, `wb20TargetEdit(r=>r.${first}.pop());wb20TargetEdit(r=>r.${second}.pop());`);
+        await wait(250);deliverAll(ctx,'reverse');
+        for (const data of [sheet(ctx),stored(ctx)]) {
+            const state=data['waybeyond20-turn-state'];
+            assert.equal(state.targetRecords.mob.observations.length,0);
+            assert.equal(state.targetRecords.mob.damage.length,0);
+            assert.deepEqual([state.action,state.bonusAction,state.reaction],[1,1,1]);
+        }
+        await loadSheet(ctx);
+        assert.equal(sheet(ctx)['waybeyond20-turn-state'].targetRecords.mob.damage.length,0);
+    }
+});
 
 section("1. Storage: two overlapping merges to different keys keep both", async () => {
     const ctx = createSandbox();

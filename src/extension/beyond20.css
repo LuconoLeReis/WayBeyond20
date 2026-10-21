@@ -10,17 +10,180 @@
     padding: 2px;
     margin-right: 5px;
     cursor: pointer;
-    border: 1px solid #c53131;
+    border: 2px solid var(--wb20-action-color, #c53131);
     border-radius: 4px;
 }
 .wb20-full-attack:hover,
 .wb20-full-attack:focus-visible {
-    box-shadow: inset 0 0 0 1px #c53131;
-    background-color: rgba(197, 49, 49, 0.18);
+    box-shadow: inset 0 0 0 1px var(--wb20-action-color, #c53131);
+    background-color: color-mix(in srgb, var(--wb20-action-color, #c53131) 18%, transparent);
 }
 .wb20-full-attack:active {
-    background-color: rgba(197, 49, 49, 0.3);
+    background-color: color-mix(in srgb, var(--wb20-action-color, #c53131) 30%, transparent);
 }
+
+[data-wb20-action-cost="action"] { --wb20-action-color: #00a83b; }
+[data-wb20-action-cost="bonusAction"] { --wb20-action-color: #246bd1; }
+[data-wb20-action-cost="reaction"] { --wb20-action-color: #c53131; }
+[data-wb20-action-cost="special"] { --wb20-action-color: #808080; }
+[data-wb20-action-cost="extended"] { --wb20-action-color: #76529c; }
+[data-wb20-user-hidden] { display: none !important; }
+.wb20-quick-row { display: flex; align-items: center; gap: 0; }
+.wb20-quick-row .wb20-talent-category select {
+    box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%;
+    font: inherit; color: inherit; background: #fff; padding: 2px; border: 1px solid #b7c9da; border-radius: 3px;
+}
+.wb20-spell-choice { position: relative; }
+.wb20-quick-row .wb20-spell-choice select { color: transparent; appearance: none; cursor: pointer; background: transparent; border-color: transparent; }
+.wb20-quick-row .wb20-spell-choice:hover select,
+.wb20-quick-row .wb20-spell-choice:focus-within select { border-color: #b7c9da; }
+.wb20-quick-row .wb20-spell-choice select option { color: CanvasText; background: Canvas; }
+.wb20-spell-choice-caption { position: absolute; inset: 3px 17px 3px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
+.wb20-spell-choice::after { content: ""; position: absolute; right: 6px; top: 7px; width: 5px; height: 5px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(45deg); pointer-events: none; opacity: 0; }
+.wb20-spell-choice:hover::after,.wb20-spell-choice:focus-within::after { opacity: 1; }
+.wb20-quick-manage { font: inherit; border: 1px solid currentColor; border-radius: 4px; background: inherit; color: inherit; padding: 4px 8px; cursor: pointer; }
+.wb20-quick-manager { text-align: left; display: grid; gap: 12px; }
+.wb20-quick-manager .wb20-quick-checks { max-height: 35vh; overflow: auto; }
+.wb20-quick-manager label { display: block; margin: 7px 0; }
+.wb20-quick-manager label > input[type="checkbox"] { margin-right: 8px; }
+.wb20-quick-manager small { margin-left: 8px; }
+.wb20-quick-manager summary { cursor: pointer; font-weight: bold; }
+.wb20-custom-editor { margin: 10px 0; padding: 10px; border: 1px solid #b7c9da; }
+.wb20-quick-manager select, .wb20-custom-editor input:not([type="checkbox"]) { box-sizing: border-box; width: 100%; font: inherit; padding: 5px; }
+[data-wb20-action-cost] .wb20-full-attack { background-color: #fff; color: #151515; }
+[data-wb20-list-layout="root"] { display: flex; flex-direction: column; }
+[data-wb20-list-layout="contents"] { display: contents !important; }
+[data-wb20-list-layout="hidden"] { display: none !important; }
+[data-wb20-list-layout="row"], [data-wb20-list-layout="header"],
+[data-wb20-list-layout="detail"], [data-wb20-list-layout="toolbar"] {
+    order: var(--wb20-list-order); flex-shrink: 0; width: 100%; box-sizing: border-box;
+}
+.wb20-action-list-sort {
+    display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center;
+    font-size: 11px; padding: 4px 0 8px; min-width: 0;
+}
+.wb20-action-list-legend {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px;
+    flex: 0 1 auto; max-width: 100%; min-width: 0;
+}
+.wb20-attacks-per-action { white-space: nowrap; }
+.wb20-action-legend-entry { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.wb20-attacks-per-action[hidden] + .wb20-action-legend-entry .wb20-action-legend-separator { display: none; }
+.wb20-action-legend-badge {
+    border: 2px solid var(--wb20-action-color); border-radius: 4px;
+    padding: 2px 4px; background: #fff; color: #151515; line-height: 1.2;
+}
+.wb20-action-legend-badge { cursor: help; }
+.wb20-action-legend-badge:focus-visible { outline: 2px solid #246bd1; outline-offset: 2px; }
+.wb20-action-sort-control, .wb20-action-view-control {
+    position: relative; margin-left: auto; flex: 0 0 auto; white-space: nowrap;
+}
+.wb20-action-list-controls {
+    display: flex; gap: 6px; margin-left: auto; flex: 0 0 auto;
+}
+.wb20-action-list-controls > details { margin-left: 0; }
+/* One presentation for native attacks and added talents. Scoped attributes
+   let opting out restore DDB's original spacing and rules without inline edits. */
+[data-wb20-list-view] [data-wb20-list-layout="row"] {
+    margin-block: 0 !important;
+    padding-block: 8px !important;
+    border-top: 0 !important;
+    border-bottom: 1px dotted color-mix(in srgb, currentColor 20%, transparent) !important;
+}
+[data-wb20-list-view="compact"] [data-wb20-list-layout="row"] {
+    padding-block: 2px !important;
+    border-bottom: 0 !important;
+}
+:is(.wb20-action-sort-control, .wb20-action-view-control) summary {
+    list-style: none; cursor: pointer;
+    font: inherit; color: inherit; background: inherit; border: 1px solid currentColor;
+    border-radius: 4px; padding: 4px 8px;
+}
+:is(.wb20-action-sort-control, .wb20-action-view-control) summary::-webkit-details-marker { display: none; }
+.wb20-action-sort-menu {
+    position: absolute; z-index: 20; right: 0; top: 100%; min-width: 185px;
+    padding: 4px; border: 1px solid #777; border-radius: 4px;
+    background: #fff; color: #151515; box-shadow: 0 3px 10px #0004;
+}
+.wb20-action-sort-menu button {
+    display: block; width: 100%; text-align: left; background: transparent; color: inherit;
+    border: 0; padding: 7px 8px; cursor: pointer; font: inherit;
+}
+.wb20-action-sort-menu button[aria-pressed="true"]::before { content: "✓ "; }
+.wb20-action-sort-menu button:hover, .wb20-action-sort-menu button:focus-visible { background: #e8eef8; }
+.wb20-inspire-icon, .wb20-feature-option-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    box-sizing: border-box; flex: 0 0 22px; margin-right: 5px;
+    width: 22px; height: 22px; padding: 0; font-size: 18px; line-height: 1;
+    border: 2px solid var(--wb20-action-color, #246bd1); border-radius: 4px; background: #fff; color: #151515; cursor: pointer;
+}
+.wb20-inspire-icon:disabled, .wb20-feature-option-icon:disabled { opacity: .35; cursor: default; }
+.wb20-inspire-icon:focus-visible, .wb20-feature-option-icon:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.wb20-feature-option, .wb20-opportunity-attack { display: flex; align-items: center; padding: 4px 0; }
+.wb20-natural-original { display: none !important; }
+.wb20-opportunity-choose { max-width: 100%; white-space: normal; }
+.wb20-opportunity-prompt { display: grid; gap: 14px; min-width: 0; text-align: left; }
+.wb20-opportunity-prompt .wb20-opportunity-summary,
+.wb20-opportunity-prompt .wb20-opportunity-note { margin: 0; line-height: 1.4; }
+.wb20-opportunity-prompt .wb20-opportunity-field {
+    display: grid; gap: 5px; min-width: 0; font-weight: 600;
+}
+.wb20-opportunity-prompt .wb20-opportunity-field select {
+    display: block; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%;
+    min-height: 36px; padding: 6px 8px; font: inherit; font-weight: 400;
+    color: #20252a; background: #fff; border: 1px solid #80909b; border-radius: 4px;
+}
+.wb20-opportunity-prompt .wb20-opportunity-field select:focus-visible,
+.wb20-opportunity-rules summary:focus-visible { outline: 2px solid #246bd1; outline-offset: 2px; }
+.wb20-opportunity-note { font-size: .9em; }
+.wb20-opportunity-rules { border-top: 1px solid #c5ccd1; padding-top: 10px; }
+.wb20-opportunity-rules summary { cursor: pointer; font-weight: 600; }
+.wb20-opportunity-rules ul { padding-left: 20px; margin: 10px 0 0; line-height: 1.4; }
+.wb20-opportunity-rules li + li { margin-top: 8px; }
+.wb20-feature-option-name { border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.wb20-talent-category { font-size: 10px; line-height: 10px; text-transform: none; }
+.wb20-hit-die-choices { display: flex; flex-wrap: wrap; gap: 4px; }
+.wb20-hit-die-choice {
+    background: transparent; color: inherit; font: inherit;
+    border: 1px solid #b7c9da; border-radius: 3px;
+    min-width: 0; padding: 4px; cursor: pointer; box-sizing: border-box;
+}
+/* The hidden widest label sizes every shortcut identically using its actual
+   font, without a fixed minimum width or stretching into spare Notes space. */
+.wb20-hit-die-choices > .wb20-hit-die-choice {
+    display: inline-grid; flex: 0 0 auto; font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.wb20-hit-die-choices > .wb20-hit-die-choice::after {
+    content: "d12"; visibility: hidden; grid-area: 1 / 1;
+}
+.wb20-hit-die-choices > .wb20-hit-die-choice > span { grid-area: 1 / 1; }
+.wb20-hit-die-choice:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+.wb20-hit-die-choice:disabled { opacity: .35; cursor: default; }
+.wb20-hit-die-choice:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.wb20-hit-die-use { width: max-content; max-width: 100%; padding: 4px; }
+.wb20-hit-die-label-full { white-space: pre; }
+.wb20-hit-die-label-short { display: none; }
+@media (max-width: 600px) {
+    .wb20-hit-die-label-full { display: none; }
+    .wb20-hit-die-label-short { display: inline; }
+}
+.wb20-linked-feature {
+    background: transparent; color: inherit; font: inherit; cursor: pointer;
+    border: 0; border-bottom: 1px dotted currentColor; padding: 0;
+}
+.wb20-linked-feature:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+/* Same native column widths for all entries, including our non-attack shortcuts. */
+[data-wb20-list-layout="row"] .ddbc-combat-attack__name { flex: 0 0 140px; width: 140px; min-width: 0; }
+[data-wb20-list-layout="row"] .ddbc-combat-attack__range,
+[data-wb20-list-layout="row"] .ddbc-combat-attack__action { flex: 0 0 55px; width: 55px; }
+[data-wb20-list-layout="row"] .ddbc-combat-attack__damage { flex: 0 0 80px; width: 80px; }
+[data-wb20-list-layout="row"] .ddbc-combat-attack__notes { flex: 1 1 0%; min-width: 0; overflow-wrap: anywhere; }
+.wb20-action-fallback-header { display: flex; font-size: 10px; font-weight: bold; padding: 5px 0; }
+.wb20-action-fallback-header > :nth-child(1) { flex: 0 0 167px; }
+.wb20-action-fallback-header > :nth-child(2), .wb20-action-fallback-header > :nth-child(3) { flex: 0 0 55px; }
+.wb20-action-fallback-header > :nth-child(4) { flex: 0 0 80px; }
+.wb20-action-fallback-header > :nth-child(5) { flex: 1 1 0%; }
 
 .beyond20-quick-roll-tooltip,
 .beyond20-quick-roll-area {
@@ -850,6 +1013,43 @@ span.dice-roll.beyond20-tooltip-content {
 }
 
 /* WayBeyond20 v1.43 visible combat section */
+.wb20-combat-layout {
+    display: block;
+    max-width: 1220px;
+    width: calc(100% - 24px);
+    margin: 18px auto 24px;
+}
+.wb20-combat-layout > .waybeyond20-combat-section { width: 100%; margin: 0; max-width: none; min-width: 0; }
+.wb20-my-target {
+    box-sizing: border-box; min-width: 0; padding: 8px 0 0; margin-top: 8px;
+    border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 12px;
+    color: inherit;
+    font: inherit; font-size: 12px;
+}
+.wb20-target-label { font-weight: 700; text-transform: uppercase; }
+.wb20-my-target > select { width: 210px; flex: 0 1 210px; margin: 0; }
+.wb20-target-empty { margin: 0; }
+.wb20-my-target option { background: var(--wb20-sheet-surface, Canvas); color: inherit; }
+.wb20-my-target input, .wb20-my-target select, .wb20-my-target button {
+    box-sizing: border-box; min-width: 0; max-width: 100%; font: inherit; color: inherit;
+    background: transparent; border: 1px solid #87939a; border-radius: 3px; padding: 4px;
+}
+.wb20-my-target button { cursor: pointer; }
+.wb20-my-target button:disabled { opacity: .45; cursor: default; }
+.wb20-target-summary { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.wb20-target-summary > * { white-space: nowrap; }
+.wb20-target-attacks { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; }
+.wb20-target-attacks input { width: 92px; }
+.wb20-target-history { margin: 0; }
+.wb20-target-history[open] { flex-basis: 100%; }
+.wb20-target-history[open] > summary { text-align: center; }
+.wb20-target-history[open] > form { justify-content: center; }
+.wb20-target-history summary { cursor: pointer; }
+.wb20-target-history form { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.wb20-target-history input { width: 70px; }
+.wb20-target-ac-history { max-height: 100px; overflow: auto; margin-top: 6px; }
+
 .waybeyond20-combat-section {
     background-color: rgba(255, 255, 255, 0.97);
     border: 1px solid currentColor;
@@ -894,6 +1094,72 @@ span.dice-roll.beyond20-tooltip-content {
     font-size: 16px;
     font-weight: 700;
     text-transform: uppercase;
+}
+
+.wb20-combat-header-compass {
+    display: grid;
+    grid-template-columns: minmax(80px, 1fr) minmax(0, 620px) minmax(80px, 1fr);
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+    padding-bottom: 5px;
+}
+.wb20-combat-header-compass > .waybeyond20-combat-source { text-align: right; }
+.wb20-turn-compass {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1.25fr) 34px minmax(0, 1fr);
+    align-items: center;
+    min-width: 0;
+    text-align: center;
+    perspective: 700px;
+}
+.wb20-turn-compass > .wb20-compass-face { position: relative; min-width: 0; padding: 8px 4px; }
+.wb20-compass-rim { position: absolute; inset: 0 -16px; width: calc(100% + 32px); height: 100%; pointer-events: none;
+    color: var(--wb20-sheet-accent, currentColor); opacity: .5; }
+.wb20-turn-compass > button { font: inherit; color: inherit; border: 0; cursor: pointer; }
+.wb20-turn-compass > button:disabled { cursor: default; }
+.wb20-turn-compass > button:hover:not(:disabled) { opacity: 1; background-color: color-mix(in srgb, var(--wb20-sheet-accent, currentColor) 10%, transparent); }
+.wb20-turn-compass button:focus-visible { outline: 2px solid var(--wb20-sheet-accent, currentColor); outline-offset: 2px; }
+.wb20-compass-reset { position: absolute; top: 6px; right: 0; padding: 0 2px; border: 0; background: transparent;
+    color: var(--wb20-sheet-accent, inherit); font-family: inherit; text-decoration: underline; cursor: pointer; }
+.wb20-compass-current:focus-visible { outline: 2px solid var(--wb20-sheet-accent, currentColor); outline-offset: 2px; }
+.wb20-turn-compass:has(.wb20-compass-info:not([hidden])) { z-index: 20; }
+.wb20-compass-info { position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    box-sizing: border-box; width: 280px; max-width: calc(100vw - 32px); padding: 10px 12px;
+    border: 1px solid var(--wb20-sheet-accent, currentColor); border-radius: 5px;
+    background: var(--wb20-sheet-surface, #fff); color: inherit;
+    box-shadow: 0 3px 12px #0004; white-space: pre-line; overflow-wrap: anywhere;
+    font-size: 12px; line-height: 1.5; text-align: left; }
+.wb20-compass-info[hidden] { display: none; }
+.wb20-compass-caption { display: block; font-size: 9px; line-height: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; opacity: .7; }
+.wb20-compass-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 1.4; }
+.wb20-turn-compass > .wb20-compass-previous, .wb20-turn-compass > .wb20-compass-next {
+    background: transparent;
+}
+.wb20-compass-previous { transform: translateY(-5px) rotateY(-20deg) rotateZ(3deg); opacity: .7; }
+.wb20-compass-next { transform: translateY(-5px) rotateY(20deg) rotateZ(-3deg); }
+.wb20-turn-compass > .wb20-compass-current { position: relative; padding: 8px 8px 5px; }
+.wb20-compass-current .wb20-compass-caption { color: var(--wb20-sheet-accent, inherit); opacity: 1; }
+.wb20-compass-current .wb20-compass-name { font-weight: 700; font-size: 18px; line-height: 1.2; }
+.wb20-compass-arrow { position: relative; width: 34px; height: 24px; align-self: end;
+    color: var(--wb20-sheet-accent, currentColor); opacity: .9; }
+.wb20-compass-arrow-left { transform: scaleX(-1); }
+@keyframes wb20-compass-reveal {
+    from { transform: translateX(12px) rotateY(-35deg); opacity: .35; }
+    to { transform: translateX(0) rotateY(0); opacity: 1; }
+}
+.wb20-compass-advancing .wb20-compass-current .wb20-compass-name { animation: wb20-compass-reveal 350ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+    .wb20-compass-advancing .wb20-compass-current .wb20-compass-name { animation: none; }
+}
+@media (max-width: 760px) {
+    .wb20-combat-header-compass { grid-template-columns: 1fr 1fr; gap: 2px 8px; }
+    .wb20-combat-header-compass > .waybeyond20-combat-source { grid-column: 2; grid-row: 1; }
+    .wb20-turn-compass { grid-column: 1 / -1; grid-row: 2; grid-template-columns: minmax(0,1fr) 16px minmax(0,1.25fr) 16px minmax(0,1fr); }
+    .wb20-compass-arrow { width: 16px; }
+    .wb20-compass-name { font-size: 12px; }
+    .wb20-compass-current .wb20-compass-name { font-size: 16px; }
 }
 
 /* Native sheet colors/fonts are sampled at runtime for both this panel and Combat. */
@@ -944,9 +1210,17 @@ span.dice-roll.beyond20-tooltip-content {
     gap: 7px;
 }
 
+.waybeyond20-combat-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+}
+.waybeyond20-combat-toolbar > .waybeyond20-combat-resources { display: contents; }
 .waybeyond20-combat-controls {
     justify-content: flex-end;
-    margin-top: 10px;
+    margin-left: auto;
+    max-width: 100%;
 }
 
 .waybeyond20-combat-resource,
@@ -1096,7 +1370,7 @@ span.dice-roll.beyond20-tooltip-content {
 }
 
 .waybeyond20-bardic-feature-row {
-    display: block !important;
+    display: flex !important;
     width: 100%;
 }
 
@@ -1105,15 +1379,9 @@ span.dice-roll.beyond20-tooltip-content {
 }
 
 .waybeyond20-bardic-feature-card {
-    align-items: center;
-    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
-    border-radius: 4px;
-    display: grid;
-    gap: 6px 12px;
-    grid-template-columns: minmax(150px, 1fr) auto auto auto auto;
-    padding: 8px 10px;
-    width: 100%;
+    display: contents;
 }
+.waybeyond20-bardic-feature-notes { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 
 .waybeyond20-bardic-feature-identity {
     display: flex;
@@ -1125,7 +1393,6 @@ span.dice-roll.beyond20-tooltip-content {
     font-size: 13px;
 }
 
-.waybeyond20-bardic-feature-identity span,
 .waybeyond20-bardic-feature-range,
 .waybeyond20-bardic-feature-die,
 .waybeyond20-bardic-feature-uses {
@@ -1133,23 +1400,8 @@ span.dice-roll.beyond20-tooltip-content {
     white-space: nowrap;
 }
 
-.waybeyond20-bardic-feature-identity span {
-    opacity: 0.72;
-    text-transform: uppercase;
-}
-
 .waybeyond20-bardic-feature-die {
     font-weight: 700;
-}
-
-@media (max-width: 760px) {
-    .waybeyond20-bardic-feature-card {
-        grid-template-columns: minmax(130px, 1fr) auto auto;
-    }
-
-    .waybeyond20-bardic-feature-uses {
-        grid-column: 2;
-    }
 }
 
 .waybeyond20-bardic-inspire {

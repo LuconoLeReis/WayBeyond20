@@ -138,7 +138,7 @@ function escapeRoll20Macro(text) {
 }
 
 function genRoll(dice, modifiers = {}) {
-    dice = dice.replace(/ro<=([0-9]+)/, "ro<$1");
+    dice = dice.replace(/ro<=([0-9]+)/g, "ro<$1");
     dice = dice.replace(/(^|\s)+([^\s]+)min(\d+)([^\s+\-]*?)(?=[+\-\s]|$)/g, "$1{$2$4, 0d0 + $3}kh1");
     let roll = "[[" + dice;
     for (let m in modifiers) {
@@ -722,6 +722,10 @@ function displayExtraInfo(request) {
 }
 
 async function handleRoll(request) {
+    // Use the shared rendered-roll path so every typed part is rolled once,
+    // with type subtotals and a combined total, regardless of sheet template.
+    if (request.type === "custom" && request["waybeyond20-damage-parts"]?.length)
+        return roll_renderer.handleRollRequest(request);
     let custom_roll_dice = "";
     if (request.character.type == "Character" ||
         (request.character.type == "Creature" && request.character.creatureType === "Wild Shape")) {
@@ -767,7 +771,7 @@ async function handleRoll(request) {
             "charname": request.character.name,
             "rname": rname,
             "mod": mod,
-            "r1": subRolls(request.roll),
+            "r1": request["waybeyond20-custom-formula"] ? genRoll(request.roll) : subRolls(request.roll),
             "normal": 1
         });
     }
@@ -1042,6 +1046,9 @@ function handleMessage(request, sender, sendResponse) {
     } else if (request.action == "hp-update") {
         if (settings["update-hp"])
             sendCustomEvent("UpdateHP", [request.character.name, request.character.hp, request.character["max-hp"], request.character["temp-hp"]]);
+    } else if (request.action === "character-core-update") {
+        if (request.core && request.core.name)
+            sendCustomEvent("SyncCoreStats", [request.core]);
     } else if (request.action == "conditions-update") {
         if (settings["display-conditions"]) {
             const character_name = request.character.name;

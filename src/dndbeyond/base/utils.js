@@ -514,9 +514,12 @@ function ensureModifier(damageStr, modValue) {
 }
 
 function applyGWFIfRequired(action_name, properties, damage) {
+    // Natural/unarmed action panes may be melee without any weapon Properties.
+    // Missing properties grant neither Versatile nor Two-Handed eligibility.
+    const weaponProperties = String(properties["Properties"] || "");
     if((properties["Attack Type"] == "Melee" && 
-        ((properties["Properties"].includes("Versatile") && character.getSetting("versatile-choice") != "one") || 
-            properties["Properties"].includes("Two-Handed"))) ||
+        ((weaponProperties.includes("Versatile") && character.getSetting("versatile-choice") != "one") ||
+            weaponProperties.includes("Two-Handed"))) ||
             (action_name.includes("Polearm Master") && character.hasFeat("Polearm Master", false)) ||
             (action_name.includes("Pole Strike") && character.hasFeat("Polearm Master 2024", false))
         ) {
@@ -638,6 +641,12 @@ async function sendRoll(character, rollType, fallback, args) {
         }
     }
         
+    // Explicit context-menu choices win over held hotkeys for this attack only.
+    if (req.rollAttack && [RollType.NORMAL, RollType.ADVANTAGE, RollType.DISADVANTAGE].includes(req["waybeyond20-explicit-attack-mode"]))
+        req.advantage = req["waybeyond20-explicit-attack-mode"];
+    delete req["waybeyond20-explicit-attack-mode"];
+    if (req["waybeyond20-query-attack-mode"] && req.rollAttack) req.advantage = RollType.QUERY;
+    delete req["waybeyond20-query-attack-mode"];
     const dispatch = async () => {
     if (req.whisper === WhisperType.QUERY) {
         req.whisper = await dndbeyondDiceRoller.queryWhisper(args.name || rollType, is_monster);
@@ -901,7 +910,7 @@ function updateRollTypeButtonClasses(character) {
 
 const button_class = "ct-theme-button ct-theme-button--filled ct-theme-button--interactive ct-button character-button";
 const button_class_small = button_class + " character-button-small";
-function addRollButton(character, callback, where, { small = false, append = false, prepend = false, before = false, image = true, text = "WayBeyond20" } = {}) {
+function addRollButton(character, callback, where, { small = false, append = false, prepend = false, before = false, image = true, text = "WayBeyond20", contextMenu = null } = {}) {
     last_character_used = character;
 
     const id = "beyond20-roll-" + Math.random().toString().slice(2);
@@ -935,8 +944,100 @@ function addRollButton(character, callback, where, { small = false, append = fal
         "text-align": "center"
     });
     $(`#${id} button`).on('click', (event) => callback());
+    if (contextMenu) {
+        $(`#${id} button`).on('contextmenu', contextMenu).on('keydown', event => {
+            if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) contextMenu(event);
+        });
+    }
 
     return id;
+}
+
+// UI only: do not open a sidebar, run preflight, roll, or change settings until
+// Roll is pressed. Shared by the full-attack row icon and inherited red button.
+let wayBeyond20AttackMenuClose = null;
+function wayBeyond20ShowAttackMenu(anchor, onRoll, isCurrent = () => anchor.isConnected) {
+    if (wayBeyond20AttackMenuClose) wayBeyond20AttackMenuClose();
+    const menu = document.createElement("div");
+    menu.className = "waybeyond20-attack-menu";
+    menu.setAttribute("role", "dialog");
+    menu.setAttribute("aria-label", "Attack roll options");
+    menu.style.cssText = "position:fixed;z-index:2147483647;width:230px;box-sizing:border-box;padding:10px;background:#30383d;color:#fff;border:1px solid #59636b;border-radius:9px;box-shadow:0 6px 20px #0008;font:14px Arial,sans-serif;";
+    const heading = document.createElement("div");
+    heading.textContent = "ROLL WITH:";
+    heading.style.cssText = "color:#b8c2c8;font-size:12px;padding:4px 8px 8px";
+    menu.appendChild(heading);
+    let mode = RollType.NORMAL;
+    let closed = false;
+    const choices = [];
+    const close = (restoreFocus = true) => {
+        if (closed) return;
+        closed = true;
+        document.removeEventListener("pointerdown", outside, true);
+        document.removeEventListener("keydown", keydown, true);
+        window.removeEventListener("resize", cancel);
+        document.removeEventListener("scroll", cancel, true);
+        menu.remove();
+        if (wayBeyond20AttackMenuClose === close) wayBeyond20AttackMenuClose = null;
+        if (restoreFocus && anchor.isConnected) anchor.focus();
+    };
+    const cancel = () => close(false);
+    const outside = event => { if (!menu.contains(event.target)) close(false); };
+    const keydown = event => {
+        if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); close(); }
+    };
+    for (const [label, value, badge, color] of [
+        ["Advantage", RollType.ADVANTAGE, "A", "#69c64b"],
+        ["Flat (One Die)", RollType.NORMAL, "1", "#b8c2c8"],
+        ["Disadvantage", RollType.DISADVANTAGE, "D", "#ff6464"]
+    ]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("role", "radio");
+        button.setAttribute("aria-label", label);
+        button.style.cssText = "display:flex;align-items:center;gap:12px;width:100%;padding:10px 8px;border:0;border-radius:4px;background:transparent;color:#fff;text-align:left;font:inherit;cursor:pointer";
+        const icon = document.createElement("span");
+        icon.textContent = badge;
+        icon.style.cssText = `color:${color};font-weight:bold;width:18px;text-align:center`;
+        const text = document.createElement("span");
+        text.textContent = label;
+        const check = document.createElement("span");
+        check.textContent = "✓";
+        check.setAttribute("aria-hidden", "true");
+        check.style.cssText = "margin-left:auto;color:#55b4ff";
+        button.append(icon, text, check);
+        const update = () => {
+            button.setAttribute("aria-checked", String(mode === value));
+            check.style.visibility = mode === value ? "visible" : "hidden";
+            button.style.background = mode === value ? "#43515c" : "transparent";
+        };
+        choices.push({button, update});
+        button.addEventListener("click", () => { mode = value; choices.forEach(choice => choice.update()); });
+        menu.appendChild(button);
+    }
+    choices.forEach(choice => choice.update());
+    const roll = document.createElement("button");
+    roll.type = "button";
+    roll.textContent = "ROLL FULL ATTACK";
+    roll.style.cssText = "width:100%;margin-top:8px;padding:12px 5px;border:0;border-top:1px solid #59636b;background:transparent;color:#55b4ff;font:bold 14px Arial,sans-serif;cursor:pointer";
+    roll.addEventListener("click", () => {
+        if (closed) return;
+        const valid = anchor.isConnected && isCurrent();
+        close();
+        if (valid) onRoll(mode);
+    });
+    menu.appendChild(roll);
+    document.body.appendChild(menu);
+    const rect = anchor.getBoundingClientRect();
+    const bounds = menu.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - bounds.width - 8)) + "px";
+    menu.style.top = Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - bounds.height - 8)) + "px";
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("keydown", keydown, true);
+    window.addEventListener("resize", cancel);
+    document.addEventListener("scroll", cancel, true);
+    wayBeyond20AttackMenuClose = close;
+    choices[1].button.focus({preventScroll:true});
 }
 
 function addDisplayButton(callback, where, { text = "Display in VTT", append = true, small = true } = {}) {

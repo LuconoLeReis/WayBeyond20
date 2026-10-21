@@ -87,6 +87,8 @@ function createSandbox({ traits = [], features = [], abilities = { STR: 1, DEX: 
         wayBeyond20PreflightTurnResource: async () => preflightAllowed,
         wayBeyond20SpendTurnResource() {},
         wayBeyond20GetTrackedSpellEffects: () => [],
+        wayBeyond20GetTurnTrackerState: () => ({inCombat:false}),
+        wayBeyond20HasActiveCombatState: () => false,
         wayBeyond20EffectName: () => "",
         wayBeyond20NormalizeNameForTokenMatch: value => String(value || "").trim().toLowerCase(),
         // Local Temporary HP writer: record instead of driving the D&D Beyond input.
@@ -103,6 +105,8 @@ function createSandbox({ traits = [], features = [], abilities = { STR: 1, DEX: 
             "wayBeyond20GetBardicInspirationDie", "wayBeyond20RollIsUnarmedStrike",
             "wayBeyond20NormalizeAttackSemantics", "wayBeyond20ApplyDrainingAttackIntent",
             "wayBeyond20ChooseUnarmedStrikeProfile", "wayBeyond20RollAgileStrike",
+            "wayBeyond20AttackActivationTurnKey", "wayBeyond20CreateAttackActivation", "wayBeyond20PerformGrantedAttack",
+            "wayBeyond20CommitAfterDispatch", "wayBeyond20CommitRollSettings",
             "wayBeyond20CharacterMatchesMessageCharacter"
         ].map(name => topLevelFunction(characterSource, name)),
         topLevelFunction(roll20Source, "wayBeyond20SendResolvedDamageToDDB"),

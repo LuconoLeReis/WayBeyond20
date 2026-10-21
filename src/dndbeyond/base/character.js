@@ -26,6 +26,8 @@ class Character extends CharacterBase {
         this._conditions = [];
         this._exhaustion = 0;
         this._version = 2014;
+        this._lastCoreRoll20Sync = "";
+        this._lastCoreRoll20Attempt = 0;
     }
 
     updateInfo() {
@@ -132,7 +134,103 @@ class Character extends CharacterBase {
         if (this._settings && this._abilities.length > 0) {
             this.updateHP();
             this.updateFeatures();
+            this.syncCoreRoll20Data();
         }
+    }
+
+    syncCoreRoll20Data() {
+        if (!this._settings || !this.getGlobalSetting("sync-core-roll20", false) ||
+            !this._name || this._abilities.length !== 6) return;
+
+        const abilities = {};
+        for (const [, abbr, value] of this._abilities) {
+            const score = parseInt(value, 10);
+            if (!Number.isFinite(score) || score < 1 || score > 30) return;
+            abilities[String(abbr).toLowerCase()] = score;
+        }
+        if (Object.keys(abilities).length !== 6) return;
+
+        // Read what D&D Beyond actually displays, including bonuses that cannot
+        // be reconstructed from ability scores and proficiency alone.
+        const candidates = Array.from(document.querySelectorAll('[class*="senses"], [class*="Senses"]'));
+        const sensesPanel = candidates
+            .filter(el => /PASSIVE\s+PERCEPTION/i.test(el.textContent || "") &&
+                /PASSIVE\s+INSIGHT/i.test(el.textContent || ""))
+            .sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0];
+        const sensesText = (sensesPanel && sensesPanel.innerText) || "";
+        const passives = {};
+        for (const skill of ["perception", "investigation", "insight"]) {
+            const label = skill.toUpperCase();
+            const before = sensesText.match(new RegExp('(\\d+)\\s*PASSIVE\\s+' + label, 'i'));
+            const after = sensesText.match(new RegExp('PASSIVE\\s+' + label + '\\s*(\\d+)', 'i'));
+            const value = parseInt((before || after || [])[1], 10);
+            if (Number.isFinite(value)) passives[skill] = value;
+        }
+        const senses = {};
+        for (const sense of ["darkvision", "blindsight", "tremorsense", "truesight"]) {
+            const found = sensesText.match(new RegExp(sense + '\\s+(\\d+)\\s*(?:ft\\.?|feet)', 'i'));
+            if (found) senses[sense] = parseInt(found[1], 10);
+        }
+
+        const skills = {};
+        const skillProficiencies = {};
+        const readProficiency = indicator => {
+            const tooltip = indicator?.querySelector('[data-original-title],[title],[aria-label]') || indicator;
+            const label = tooltip?.getAttribute('data-original-title') ||
+                tooltip?.getAttribute('title') || tooltip?.getAttribute('aria-label') || '';
+            return /not proficient|no proficiency/i.test(label) ? 0 :
+                /\bexpert(?:ise)?\b/i.test(label) ? 2 :
+                /half proficien(?:t|cy)/i.test(label) ? 0.5 :
+                /\bproficien(?:t|cy)\b/i.test(label) ? 1 : null;
+        };
+        for (const row of document.querySelectorAll('.ct-skills__item,.ddbc-skills__item')) {
+            const label = row.querySelector('.ct-skills__col--skill,.ddbc-skills__col--skill')?.textContent
+                .replace(/\s+/g, " ").trim().toLowerCase();
+            const modifier = row.querySelector('.ct-skills__col--modifier,.ddbc-skills__col--modifier')?.textContent;
+            const value = parseInt(modifier, 10);
+            if (label && Number.isFinite(value)) skills[label] = value;
+            const indicator = row.querySelector('.ct-skills__col--proficiency,.ddbc-skills__col--proficiency');
+            const rank = readProficiency(indicator);
+            if (label && rank !== null) skillProficiencies[label] = rank;
+        }
+        const saves = {};
+        const saveProficiencies = {};
+        for (const row of document.querySelectorAll('.ct-saving-throws-summary__ability,.ddbc-saving-throws-summary__ability')) {
+            const abbr = row.querySelector('.ct-saving-throws-summary__ability-name abbr,.ddbc-saving-throws-summary__ability-name abbr')
+                ?.textContent.trim().toLowerCase();
+            if (!Object.prototype.hasOwnProperty.call(abilities, abbr)) continue;
+            const text = row.querySelector('.ct-saving-throws-summary__ability-modifier,.ddbc-saving-throws-summary__ability-modifier')?.textContent;
+            const value = parseInt(text?.replace(/\u2212/g, '-'), 10);
+            if (Number.isFinite(value)) saves[abbr] = value;
+            const rank = readProficiency(row.querySelector('.ct-saving-throws-summary__ability-proficiency,.ddbc-saving-throws-summary__ability-proficiency'));
+            if (rank !== null) saveProficiencies[abbr] = rank;
+        }
+
+        const core = {
+            name: this._name,
+            id: this._id,
+            abilities,
+            proficiency: parseInt(this._proficiency, 10),
+            ac: parseInt(this._ac, 10),
+            speed: parseInt(this._speed, 10),
+            passives,
+            senses,
+            sensesComplete: !!sensesPanel,
+            skills,
+            skillProficiencies,
+            saves,
+            saveProficiencies
+        };
+        const signature = JSON.stringify(core);
+        if (signature === this._lastCoreRoll20Sync) return;
+        if (Date.now() - this._lastCoreRoll20Attempt < 10000) return;
+        this._lastCoreRoll20Attempt = Date.now();
+        this._lastCoreRoll20Sync = signature;
+        chrome.runtime.sendMessage({ action: "character-core-update", core }, response => {
+            // A closed Roll20 tab is normal; retry the same snapshot on the next
+            // D&D Beyond update rather than reporting a roll failure.
+            if (chrome.runtime.lastError || !response?.success) this._lastCoreRoll20Sync = "";
+        });
     }
 
     updateHP() {
@@ -729,12 +827,14 @@ class Character extends CharacterBase {
             for (let k in (this._pendingSettings || {}))
                 next[k] = this._pendingSettings[k].value;
             this._settings = next;
+            this.syncCoreRoll20Data();
         } else {
             getStoredSettings((saved_settings) => {
                 this.updateSettings(saved_settings);
                 this.updateHP();
                 this.updateFeatures();
                 this.updateConditions();
+                this.syncCoreRoll20Data();
             }, "character-" + this._id, character_settings);
         }
     }

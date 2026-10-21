@@ -1178,7 +1178,18 @@ class Beyond20RollRenderer {
         return this.postDescription(request, name, null, {}, null, [roll], results);
     }
 
+    async rollTypedCustom(request) {
+        const parts = request["waybeyond20-damage-parts"];
+        const rolls = parts.map(part => this.createRoll(part.formula, {}, "damage"));
+        await this._roller.resolveRolls(request.name, rolls, request);
+        const damages = parts.map((part, i) => [part.type || "Untyped", rolls[i], DAMAGE_FLAGS.REGULAR]);
+        return this.postDescription(request, request.name + " (" + request.modifier + ")",
+            null, {}, request.description || "", [], [], damages);
+    }
+
     handleRollRequest(request) {
+        if (request.type === "custom" && request["waybeyond20-damage-parts"]?.length)
+            return this.rollTypedCustom(request);
         if (request["waybeyond20-attack-continuation"] && !request.rollAttack && request.rollDamage) {
             const continuation = request["waybeyond20-attack-continuation"];
             const message = { action: "forward", tab: continuation.tab,

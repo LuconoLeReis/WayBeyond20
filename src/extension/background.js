@@ -389,7 +389,7 @@ function removeRoll20Tab(id) {
 function onRollFailure(request, sendResponse) {
     // Passive character-state synchronization is optional. Opening or refreshing a
     // D&D Beyond sheet without a VTT should not produce a user-facing error.
-    if (["hp-update", "conditions-update", "effects-update", "update-combat"].includes(request.action)) {
+    if (["hp-update", "conditions-update", "effects-update", "update-combat", "character-core-update"].includes(request.action)) {
         sendResponse({
             "success": false, "vtt": null, "request": request, "error": null
         });
@@ -461,6 +461,14 @@ const forwardedActions = [
 
 function onMessage(request, sender, sendResponse) {
     console.log("Received message: ", request)
+    if (request.action === "character-core-update") {
+        // Core sheet data belongs only in Roll20, not Foundry, Discord or a
+        // generic custom endpoint. No open Roll20 game is a quiet no-op.
+        sendMessageToRoll20(request, settings["vtt-tab"], failed => {
+            sendResponse({ success: !failed, vtt: failed ? null : ["roll20"], error: null, request });
+        });
+        return true;
+    }
     if (forwardedActions.includes(request.action)) {
         const makeFailureCB = (trackFailure, vtt, sendResponse) => {
             return (result) => {

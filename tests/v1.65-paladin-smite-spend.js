@@ -41,10 +41,13 @@ function makeSheet({ tab = "Actions", used = false, clickWorks = true, hasSpells
         classList: { contains: () => false },
         click() { state.tabClicks.push(label); state.tab = label; }
     }));
+    const attributes = new Map();
     const button = {
         textContent: "Use",
         disabled: false,
-        getAttribute: () => null,
+        getAttribute: name => attributes.get(name) ?? null,
+        setAttribute: (name, value) => attributes.set(name, value),
+        removeAttribute: name => attributes.delete(name),
         get isConnected() { return state.tab === "Spells"; },
         click() {
             state.useClicks++;

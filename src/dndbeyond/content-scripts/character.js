@@ -32,6 +32,15 @@ async function sendRollWithCharacter(rollType, fallback, args) {
 }
 
 async function wayBeyond20DispatchRollWithCharacter(rollType, fallback, args, intents) {
+    const activation = args && args["waybeyond20-attack-activation"];
+    if (activation) {
+        // Consume only the internal reference, never serialize character ownership
+        // or the mutable activation ledger into a VTT/Discord roll request.
+        delete args["waybeyond20-attack-activation"];
+        return wayBeyond20PerformGrantedAttack(activation, args,
+            guard => wayBeyond20DispatchRollWithCharacter(rollType, fallback, args,
+                {...intents, attackActivationGuard: guard}));
+    }
     const { limitedUseRequest, smiteRequest, nobleGenieRider, intrusionRequest, afterDispatchCommits } = intents;
     const limitedUsePreflight = limitedUseRequest
         ? await wayBeyond20PreflightLimitedUse(limitedUseRequest.feature, {
@@ -96,7 +105,13 @@ async function wayBeyond20DispatchRollWithCharacter(rollType, fallback, args, in
         args.d20 = args.d20 || "1d20";
         args.d20 += "ro<=1";
     }
+    if (intents.attackActivationGuard && !intents.attackActivationGuard()) return false;
     const result = await sendRoll(character, rollType, fallback, args);
+    if (result === true && intents.attackActivationGuard && !intents.attackActivationGuard()) {
+        if (typeof alertify !== "undefined" && alertify.warning)
+            alertify.warning("The attack was sent, but the character or turn changed. Please check its resources manually.");
+        return true;
+    }
     if (result === true) {
         resourceRequests.forEach(request => {
             const options = {
@@ -820,7 +835,8 @@ async function wayBeyond20ChooseUnarmedStrikeProfile() {
     });
 }
 
-async function wayBeyond20RollAgileStrike() {
+async function wayBeyond20RollAgileStrike(activation = wayBeyond20CreateAttackActivation({resource: null, attacks: 1})) {
+    if (activation.owner !== character || activation.turnKey !== wayBeyond20AttackActivationTurnKey()) return false;
     const profile = await wayBeyond20ChooseUnarmedStrikeProfile();
     if (!profile) return;
     const properties = {
@@ -848,24 +864,26 @@ async function wayBeyond20RollAgileStrike() {
         settingsToChange
     );
     if (!rollProperties) return;
+    rollProperties["waybeyond20-attack-activation"] = activation;
     rollProperties["waybeyond20-unarmed-strike"] = true;
     if (typeof wayBeyond20QueueAttackFollowup === "function")
         wayBeyond20QueueAttackFollowup(rollProperties, true);
     rollProperties["waybeyond20-unarmed-attack-ability"] = profile.attackAbility;
     rollProperties["waybeyond20-unarmed-damage-mode"] = profile.damageMode;
-    if (Object.keys(settingsToChange).length > 0) character.mergeCharacterSettings(settingsToChange);
+    wayBeyond20CommitAfterDispatch(rollProperties, () => wayBeyond20CommitRollSettings(settingsToChange));
     return sendRollWithCharacter("attack", damages[0], rollProperties);
 }
 
 async function wayBeyond20OfferAgileStrike() {
     if (!character || !character.hasClassFeature("Dazzling Footwork", true)) return;
+    const activation = wayBeyond20CreateAttackActivation({resource: null, attacks: 1});
     const useStrike = await wayBeyond20ConfirmChoice(
         "Dazzling Footwork: Agile Strikes",
         "You expended Bardic Inspiration. Make an Unarmed Strike as part of the same Bonus Action?",
         "Make Strike",
         "No"
     );
-    if (useStrike) await wayBeyond20RollAgileStrike();
+    if (useStrike) await wayBeyond20RollAgileStrike(activation);
 }
 
 function wayBeyond20LimitedUseInputForControl(control) {
@@ -1185,12 +1203,9 @@ function wayBeyond20FindBardicInspirationActionRow() {
     let match = $();
     $(".ct-combat-attack,.ddbc-combat-attack").filter(":visible").each(function() {
         const row = $(this);
-        const label = row
-            .find(".ct-combat-attack__name .ct-combat-attack__label,.ddbc-combat-attack__name .ddbc-combat-attack__label")
-            .first()
-            .text()
-            .replace(/\s+/g, " ")
-            .trim();
+        // Native querySelector avoids jQuery's temporary scope-ID mutations.
+        const nameElement = this.querySelector(".ct-combat-attack__name .ct-combat-attack__label,.ddbc-combat-attack__name .ddbc-combat-attack__label");
+        const label = String(nameElement?.textContent || "").replace(/\s+/g, " ").trim();
         if (label !== "Bardic Inspiration") return;
         match = row;
         return false;
@@ -1252,12 +1267,15 @@ function wayBeyond20InjectBardicInspirationButton() {
     let card = row.children(".waybeyond20-bardic-feature-card").first();
     if (!card.length) {
         card = $("<div>").addClass("waybeyond20-bardic-feature-card");
-        card.append($("<div>").addClass("waybeyond20-bardic-feature-identity")
+        card.append($("<div>").addClass("waybeyond20-bardic-feature-identity ddbc-combat-attack__name")
             .append($("<strong>").text("Bardic Inspiration"))
-            .append($("<span>").text("Bonus Action")));
-        card.append($("<span>").addClass("waybeyond20-bardic-feature-range").text("60 ft."));
-        card.append($("<span>").addClass("waybeyond20-bardic-feature-die"));
-        card.append($("<span>").addClass("waybeyond20-bardic-feature-uses"));
+            .append($("<span>").addClass("wb20-talent-category").text("Help Ally")));
+        card.append($("<div>").addClass("waybeyond20-bardic-feature-range ddbc-combat-attack__range").text("60 ft."));
+        card.append($("<div>").addClass("ddbc-combat-attack__action").text("—"));
+        card.append($("<div>").addClass("ddbc-combat-attack__damage").text("—"));
+        card.append($("<div>").addClass("waybeyond20-bardic-feature-notes ddbc-combat-attack__notes")
+            .append($("<span>").addClass("waybeyond20-bardic-feature-die"))
+            .append($("<span>").addClass("waybeyond20-bardic-feature-uses")));
         row.append(card);
     }
 
@@ -1272,7 +1290,20 @@ function wayBeyond20InjectBardicInspirationButton() {
                 event.stopPropagation();
                 await wayBeyond20ActivateBardicInspiration();
             });
-        card.append(button);
+        card.find(".waybeyond20-bardic-feature-notes").append(button);
+    }
+
+    let icon = card.find(".wb20-inspire-icon");
+    if (!icon.length) {
+        icon = $("<button>").attr({type: "button", "aria-label": "Inspire (Bonus Action)"})
+            .addClass("wb20-inspire-icon").text("♪")
+            .on("click.wb20-inspire", event => {
+                event.preventDefault();
+                event.stopPropagation();
+                // One activation path, including its resource checks and pending guard.
+                button[0].click();
+            });
+        card.prepend(icon);
     }
 
     const remaining = wayBeyond20BardicInspirationRemainingUses();
@@ -1283,7 +1314,7 @@ function wayBeyond20InjectBardicInspirationButton() {
     // text or attributes on every callback creates another mutation and can trap Bard
     // character sheets in a self-sustaining observer loop. Only touch the DOM when the
     // displayed value actually changed.
-    const dieText = wayBeyond20GetBardicInspirationDie().replace(/^1/, "");
+    const dieText = `${wayBeyond20GetBardicInspirationDie().replace(/^1/, "")} inspiration`;
     const usesText = remaining === null
         ? "Uses unavailable"
         : `${remaining}${maximum !== null ? "/" + maximum : ""} uses`;
@@ -1298,6 +1329,557 @@ function wayBeyond20InjectBardicInspirationButton() {
     if (uses.text() !== usesText) uses.text(usesText);
     if (button.prop("disabled") !== disabled) button.prop("disabled", disabled);
     if (button.attr("title") !== title) button.attr("title", title);
+    if (icon.prop("disabled") !== disabled) icon.prop("disabled", disabled);
+    if (icon.attr("title") !== `Bonus Action: ${title}`) icon.attr("title", `Bonus Action: ${title}`);
+}
+
+// Presentation metadata is deliberately separate from execution/resource accounting.
+// A free rider can belong beside attacks without acquiring an Action cost.
+function wayBeyond20ActionListMetadata(name, heading) {
+    const normalized = String(heading || "").trim().toLowerCase();
+    const group = normalized.startsWith("bonus action") ? "bonusAction"
+        : normalized.startsWith("reaction") ? "reaction" : "action";
+    const special = /^(bardic damage|bardic inspiration: agile strikes)$/i.test(String(name).trim()) || /^(other|free|special)/.test(normalized);
+    return { group, cost: special ? "special" : group };
+}
+
+function wayBeyond20ActionSortValue(row, kind, name = "") {
+    if (kind === "damage") {
+        if (name === "Bardic Inspiration" || row.classList.contains("wb20-feature-option")) return null;
+        const value = row.querySelector('.ct-combat-attack__damage .ct-damage__value,.ddbc-combat-attack__damage .ddbc-damage__value');
+        const formula = String(row.dataset.wb20SortFormula || value?.textContent || "").replace(/\s/g, "").replace(/−/g, "-").toLowerCase();
+        // Only the displayed primary formula, not conditional riders or alternate damage.
+        if (!/^[+-]?(?:\d*d\d+|\d+(?:\.\d+)?)(?:[+-](?:\d*d\d+|\d+(?:\.\d+)?))*$/.test(formula)) return null;
+        let average = 0;
+        for (const term of formula.match(/[+-]?(?:\d*d\d+|\d+(?:\.\d+)?)/g)) {
+            const dice = term.match(/^([+-]?)(\d*)d(\d+)$/);
+            average += dice ? (dice[1] === "-" ? -1 : 1) * Number(dice[2] || 1) * (Number(dice[3]) + 1) / 2 : Number(term);
+        }
+        return Number.isFinite(average) ? average : null;
+    }
+    const value = row.querySelector('.waybeyond20-bardic-feature-range') ||
+        row.querySelector('.ct-combat-attack__range,.ddbc-combat-attack__range');
+    const text = String(value?.textContent || "").trim();
+    if (/^self\b/i.test(text)) return 0;
+    const match = text.match(/^(\d+(?:\.\d+)?)/);
+    return match ? Number(match[1]) * (/\bmiles?\b/i.test(text) ? 5280 : 1) : null;
+}
+
+function wayBeyond20FillHitDieChoices(row, snippet, name) {
+    if (String(name || "").trim().toLowerCase() !== "blood and bone") return false;
+    const choices = ["d4", "d6", "d8", "d10", "d12"];
+    const sourceButton = die => snippet.querySelector(
+        `.waybeyond20-blood-and-bone-button[data-waybeyond20-label="${die}"]`);
+    // Display fields are independent of the choices, which reuse the existing
+    // controls. Do not turn the target's Hit Die into a fixed damage statistic.
+    for (const [field, text] of [["range", "5 ft Touch"], ["action", "--"]]) {
+        const cell = row.querySelector(`.ddbc-combat-attack__${field}`);
+        if (cell.textContent !== text || cell.querySelector("button")) cell.textContent = text;
+    }
+    const damage = row.querySelector(".ddbc-combat-attack__damage");
+    let use = damage.querySelector(".wb20-hit-die-use");
+    if (!use) {
+        use = document.createElement("button");
+        use.type = "button";
+        use.className = "wb20-hit-die-choice wb20-hit-die-use";
+        use.setAttribute("aria-label", `${name}: choose Target Hit Die`);
+        use.title = "Choose the target's Hit Die";
+        for (const [className, text] of [["wb20-hit-die-label-full", "Target\nHit Die"],
+            ["wb20-hit-die-label-short", "HP Die"]]) {
+            const label = document.createElement("span");
+            label.className = className;
+            label.textContent = text;
+            label.setAttribute("aria-hidden", "true");
+            use.append(label);
+        }
+        use.addEventListener("click", event => {
+            event.preventDefault(); event.stopPropagation();
+            if (row._wb20FeatureOwner !== character || !snippet.isConnected || !row.isConnected) return;
+            const source = sourceButton("Use");
+            if (source && !source.disabled) source.click();
+        });
+        damage.replaceChildren(use);
+    }
+    const nativeUse = sourceButton("Use");
+    const useDisabled = !nativeUse || nativeUse.disabled;
+    if (use.disabled !== useDisabled) use.disabled = useDisabled;
+    const notes = row.querySelector(".ddbc-combat-attack__notes");
+    let controls = notes.querySelector(".wb20-hit-die-choices");
+    if (!controls) {
+        controls = document.createElement("div");
+        controls.className = "wb20-hit-die-choices";
+        notes.replaceChildren(controls);
+    }
+    for (const die of choices) {
+        let button = controls.querySelector(`[data-wb20-hit-die="${die}"]`);
+        if (!button) {
+            button = document.createElement("button");
+            button.type = "button";
+            button.className = "wb20-hit-die-choice";
+            button.dataset.wb20HitDie = die;
+            const label = document.createElement("span");
+            label.textContent = die;
+            button.append(label);
+            button.addEventListener("click", event => {
+                event.preventDefault(); event.stopPropagation();
+                if (row._wb20FeatureOwner !== character || !snippet.isConnected || !row.isConnected) return;
+                // Re-resolve at click time: DDB may replace or disable its controls.
+                const source = sourceButton(die);
+                if (source && !source.disabled) source.click();
+            });
+            controls.append(button);
+        }
+        const title = `${name}: use ${die} Hit Die`;
+        if (button.title !== title) {
+            button.title = title;
+            button.setAttribute("aria-label", title);
+        }
+        const source = sourceButton(die);
+        const disabled = !source || source.disabled;
+        if (button.disabled !== disabled) button.disabled = disabled;
+    }
+    return true;
+}
+
+function wayBeyond20CollectFeatureOptions(root, groups, existingRows) {
+    const normalize = value => String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+    const names = new Set(existingRows.map(entry => normalize(entry.name)));
+    const previous = Array.from(root.querySelectorAll(':scope > .wb20-feature-option'));
+    const retained = new Set();
+    const linkedFeatures = new Set();
+    const entries = [];
+    for (const group of groups) {
+        const headingText = group.firstElementChild?.textContent || "";
+        if (!/^(actions|bonus actions|reactions|other)\b/i.test(headingText.trim())) continue;
+        for (const snippet of group.querySelectorAll('.ct-feature-snippet,.ddbc-feature-snippet')) {
+            const heading = snippet.querySelector('.ct-feature-snippet__heading,.ddbc-feature-snippet__heading');
+            const name = heading?.textContent.replace(/\s+/g, " ").trim();
+            if (!name || names.has(normalize(name))) continue;
+            names.add(normalize(name));
+            // DDB presents this rider's rules separately from its actual attack.
+            // Keep the native attack name/controls intact for roll/sidebar routing.
+            const attack = normalize(name) === "bardic inspiration: agile strikes"
+                ? existingRows.find(entry => normalize(entry.name) === "bardic damage")?.row : null;
+            const notesCell = attack?.querySelector('.ct-combat-attack__notes,.ddbc-combat-attack__notes');
+            if (notesCell) {
+                let link = notesCell.querySelector(".wb20-linked-feature");
+                if (!link) {
+                    link = document.createElement("button");
+                    link.type = "button"; link.className = "wb20-linked-feature";
+                    link.textContent = "Agile Strikes";
+                    link.setAttribute("aria-label", "Agile Strikes rules for Bardic Damage");
+                    link.addEventListener("click", event => {
+                        event.preventDefault(); event.stopPropagation();
+                        const source = link._wb20Source;
+                        if (link._wb20Owner !== character || !source?.isConnected || !link.isConnected) return;
+                        const label = source.querySelector('.ct-feature-snippet__heading,.ddbc-feature-snippet__heading');
+                        (label?.querySelector('a,button,[role="button"]') || label)?.click();
+                        source.scrollIntoView({block: "center"});
+                    });
+                    notesCell.append(link);
+                }
+                link._wb20Source = snippet;
+                link._wb20Owner = character;
+                const description = snippet.textContent.replace(/\s+/g, " ").trim();
+                if (link.title !== description) link.title = description;
+                linkedFeatures.add(link);
+                continue;
+            }
+            const meta = wayBeyond20ActionListMetadata(name, headingText);
+            let row = previous.find(el => el._wb20FeatureSource === snippet && el._wb20FeatureOwner === character);
+            if (!row) {
+                row = document.createElement("div");
+                // Reuse native row/cell styles without native attack-icon/roll selectors.
+                const template = root.querySelector('.ddbc-combat-attack:not(.wb20-feature-option)');
+                row.className = "ddbc-combat-attack wb20-feature-option";
+                for (const cls of template?.classList || [])
+                    if (cls.startsWith("styles_attack__")) row.classList.add(cls);
+                row._wb20FeatureSource = snippet;
+                row._wb20FeatureOwner = character;
+                const icon = document.createElement("button");
+                icon.type = "button"; icon.className = "wb20-feature-option-icon"; icon.textContent = "◆";
+                const identity = document.createElement("div");
+                identity.className = "ddbc-combat-attack__name";
+                const label = document.createElement("button");
+                label.type = "button"; label.className = "wb20-feature-option-name"; label.textContent = name;
+                const category = document.createElement("div");
+                category.className = "wb20-talent-category";
+                identity.append(label, category);
+                row.append(icon, identity);
+                for (const field of ["range", "action", "damage", "notes"]) {
+                    const cell = document.createElement("div");
+                    cell.className = `ddbc-combat-attack__${field}`;
+                    cell.textContent = field === "notes" ? "Details" : "—";
+                    row.append(cell);
+                }
+                const openDetails = () => {
+                    if (row._wb20FeatureOwner !== character || !snippet.isConnected || !row.isConnected) return;
+                    (heading.querySelector('a,button,[role="button"]') || heading).click();
+                    snippet.scrollIntoView({block: "center"});
+                };
+                label.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); openDetails(); });
+                icon.addEventListener("click", event => {
+                    event.preventDefault(); event.stopPropagation();
+                    if (row._wb20FeatureOwner !== character || !snippet.isConnected || !row.isConnected) return;
+                    const use = snippet.querySelector('.waybeyond20-blood-and-bone-button[data-waybeyond20-label="Use"]');
+                    if (use) { if (!use.disabled) use.click(); }
+                    else openDetails();
+                });
+                root.append(row);
+            }
+            const use = snippet.querySelector('.waybeyond20-blood-and-bone-button[data-waybeyond20-label="Use"]');
+            const label = row.querySelector(".wb20-feature-option-name");
+            if (label.textContent !== name) label.textContent = name;
+            const icon = row.querySelector(".wb20-feature-option-icon");
+            const disabled = !!use?.disabled;
+            if (icon.disabled !== disabled) icon.disabled = disabled;
+            const costLabel = {action: "Action", bonusAction: "Bonus Action", reaction: "Reaction", special: "Free / Special"}[meta.cost];
+            const title = `${costLabel}: ${use ? "Use" : "Open details for"} ${name}`;
+            if (icon.title !== title) { icon.title = title; icon.setAttribute("aria-label", title); }
+            // Bill's display category is independent of action cost and rules.
+            // Do not infer a gameplay restriction or invent unknown categories.
+            const category = row.querySelector(".wb20-talent-category");
+            const categoryText = normalize(name) === "blood and bone" ? "Heal Ally" : "";
+            if (category.textContent !== categoryText) category.textContent = categoryText;
+            if (category.hidden !== !categoryText) category.hidden = !categoryText;
+            const notes = row.querySelector(".ddbc-combat-attack__notes");
+            const slots = Array.from(snippet.querySelectorAll('[role="checkbox"][aria-checked]'));
+            const uses = slots.length ? `${slots.filter(el => el.getAttribute("aria-checked") === "false").length}/${slots.length} uses · ` : "";
+            const note = `${uses}${use ? "Use" : "Details"}`;
+            if (!wayBeyond20FillHitDieChoices(row, snippet, name) && notes.textContent !== note)
+                notes.textContent = note;
+            retained.add(row);
+            entries.push({row, name, ...meta});
+        }
+    }
+    for (const row of previous) if (!retained.has(row)) row.remove();
+    for (const link of root.querySelectorAll(".wb20-linked-feature"))
+        if (!linkedFeatures.has(link)) link.remove();
+    return entries;
+}
+
+function wayBeyond20MatchActionTypography(root) {
+    const labels = Array.from(root.querySelectorAll(
+        '.ct-combat-attack__label,.ddbc-combat-attack__label'));
+    const native = labels.find(label => !label.closest(
+        '.wb20-feature-option,.waybeyond20-bardic-feature-card') &&
+        getComputedStyle(label).fontStyle === "normal") || labels[0];
+    if (!native) return;
+    const style = getComputedStyle(native);
+    // Native labels set their font below the row level. Inheriting from the
+    // row/button instead picks up the site's generic font, not the sheet font.
+    for (const label of root.querySelectorAll(
+        '.wb20-feature-option-name,.waybeyond20-bardic-feature-identity strong')) {
+        for (const property of ["font-family", "font-size", "font-weight", "line-height", "letter-spacing"]) {
+            const value = style.getPropertyValue(property);
+            // Called from a mutation observer; keep repeated refreshes inert.
+            if (label.style.getPropertyValue(property) !== value)
+                label.style.setProperty(property, value);
+        }
+    }
+    const subtitle = Array.from(root.querySelectorAll(
+        '.ct-combat-attack__meta-item,.ddbc-combat-attack__meta-item'))
+        .find(el => !el.closest('.wb20-feature-option,.waybeyond20-bardic-feature-row'));
+    if (!subtitle) return;
+    const subtitleStyle = getComputedStyle(subtitle);
+    for (const category of root.querySelectorAll(".wb20-talent-category")) {
+        for (const property of ["font-family", "font-size", "font-weight", "font-style",
+            "line-height", "letter-spacing", "color", "opacity", "text-transform"]) {
+            const value = subtitleStyle.getPropertyValue(property);
+            if (category.style.getPropertyValue(property) !== value)
+                category.style.setProperty(property, value);
+        }
+    }
+}
+
+// Bill's visual preference only. These labels do not determine attack rules.
+function wayBeyond20RefreshNaturalAttackIcons() {
+    const rows = Array.from(document.querySelectorAll(".ct-combat-attack,.ddbc-combat-attack"));
+    const label = row => row.querySelector(".ct-combat-attack__label,.ddbc-combat-attack__label")?.textContent.trim() || "";
+    const unarmed = rows.find(row => label(row) === "Unarmed Strike");
+    const svg = unarmed?.querySelector(".ct-combat-attack__icon svg,.ddbc-combat-attack__icon svg");
+    if (!svg) return;
+    for (const row of rows) {
+        const icon = row.querySelector(".ct-combat-attack__icon,.ddbc-combat-attack__icon");
+        if (!/^Fangs\/Claws(?:\s+\((?:Dexterity|Strength)\))?$/i.test(label(row))) {
+            icon?.querySelector('svg[data-wb20-unarmed-icon="true"]')?.remove();
+            icon?.querySelector(".wb20-natural-original")?.classList.remove("wb20-natural-original");
+            continue;
+        }
+        if (!icon || icon.querySelector('svg[data-wb20-unarmed-icon="true"]')) continue;
+        const original = icon.querySelector("svg");
+        if (!original) continue;
+        const replacement = svg.cloneNode(true);
+        replacement.setAttribute("data-wb20-unarmed-icon", "true");
+        original.classList.add("wb20-natural-original");
+        icon.append(replacement); // Keep React's SVG and the clickable wrapper in place.
+    }
+}
+
+function wayBeyond20RefreshCombinedActions() {
+    wayBeyond20RefreshNaturalAttackIcons();
+    if (typeof wb20QuickObserveSpells === "function") wb20QuickObserveSpells();
+    const groupSelector = '.ct-actions-list,[class*="styles_actionsList__"]';
+    const rowSelector = '.ct-combat-attack,.ddbc-combat-attack';
+    const wanted = new Map();
+    const mark = (element, role, order = null) => {
+        if (!element) return;
+        wanted.set(element, {role, order});
+        if (element.getAttribute("data-wb20-list-layout") !== role)
+            element.setAttribute("data-wb20-list-layout", role);
+        const value = order === null ? "" : String(order);
+        if (element.style.getPropertyValue("--wb20-list-order") !== value) {
+            if (value) element.style.setProperty("--wb20-list-order", value);
+            else element.style.removeProperty("--wb20-list-order");
+        }
+    };
+    const enabled = character && character.getSetting("waybeyond20-combined-actions", true);
+    if (enabled) {
+        const roots = new Set(Array.from(document.querySelectorAll(groupSelector)).map(group => group.parentElement));
+        for (const root of roots) {
+            if (!root.querySelector(`${rowSelector},.ct-feature-snippet,.ddbc-feature-snippet`)) continue;
+            const groups = Array.from(root.children).filter(el => el.matches(groupSelector));
+            const rows = [];
+            let firstHeader = null;
+            for (const [groupIndex, group] of groups.entries()) {
+                const heading = group.firstElementChild;
+                const body = heading && heading.nextElementSibling;
+                // Fail closed if DDB changes this shape. Never move React-owned nodes.
+                if (!heading || !body || !/^(actions|bonus actions|reactions|other)\b/i.test(heading.textContent.trim())) continue;
+                mark(group, "contents");
+                mark(body, "contents");
+                mark(heading, groupIndex === 0 ? "hidden" : "detail", 1000 + groupIndex * 100);
+                for (const [index, section] of Array.from(body.children).entries()) {
+                    const tableRows = Array.from(section.querySelectorAll(rowSelector));
+                    if (!tableRows.length) {
+                        mark(section, "detail", 1001 + groupIndex * 100 + index);
+                        continue;
+                    }
+                    const rowParent = tableRows[0].parentElement;
+                    const header = section.firstElementChild;
+                    if (rowParent.parentElement !== section || header === rowParent) continue;
+                    mark(section, "contents");
+                    mark(rowParent, "contents");
+                    mark(header, firstHeader ? "hidden" : "header", -10);
+                    firstHeader = firstHeader || header;
+                    for (const row of tableRows) {
+                        const label = row.querySelector('.ct-combat-attack__name .ct-combat-attack__label,.ddbc-combat-attack__name .ddbc-combat-attack__label');
+                        const name = label ? label.textContent.trim() : "";
+                        const meta = wayBeyond20ActionListMetadata(name, heading.textContent);
+                        rows.push({row, name, ...meta});
+                    }
+                }
+            }
+            rows.push(...wayBeyond20CollectFeatureOptions(root, groups, rows));
+            if (typeof wayBeyond20OpportunityRow === "function")
+                rows.push(wayBeyond20OpportunityRow(root));
+            if (typeof wb20QuickRows === "function") {
+                rows.push(...wb20QuickRows(root));
+                root._wb20QuickEntries = rows;
+                wb20QuickDiscover();
+            }
+            if (!rows.length) continue;
+            let fallbackHeader = root.querySelector(':scope > .wb20-action-fallback-header');
+            if (!firstHeader) {
+                if (!fallbackHeader) {
+                    fallbackHeader = document.createElement("div");
+                    fallbackHeader.className = "wb20-action-fallback-header";
+                    for (const text of ["ACTION", "RANGE", "HIT / DC", "DAMAGE", "NOTES"]) {
+                        const cell = document.createElement("span");
+                        cell.textContent = text;
+                        fallbackHeader.append(cell);
+                    }
+                    root.append(fallbackHeader);
+                }
+                mark(fallbackHeader, "header", -10);
+            } else if (fallbackHeader) fallbackHeader.remove();
+            mark(root, "root");
+            // Native manage links and explanatory text stay below the combined rows.
+            for (const [index, child] of Array.from(root.children).entries()) {
+                if (!child.matches(groupSelector) && !child.matches('.wb20-action-list-sort,.wb20-feature-option,.wb20-opportunity-attack,.wb20-quick-row,.wb20-action-fallback-header'))
+                    mark(child, "detail", 1000 + index * 100);
+            }
+            let toolbar = root.querySelector(':scope > .wb20-action-list-sort');
+            if (!toolbar) {
+                toolbar = document.createElement("div");
+                toolbar.className = "wb20-action-list-sort";
+                const legend = document.createElement("div");
+                legend.className = "wb20-action-list-legend";
+                const count = document.createElement("span");
+                count.className = "wb20-attacks-per-action";
+                legend.append(count);
+                for (const [cost, text, help] of [
+                    ["action", "Actions", "Green: Uses your Action, normally on your turn. If the Attack action grants multiple attacks, those attacks share that Action rather than costing one Action each."],
+                    ["bonusAction", "Bonus Actions", "Blue: Uses your Bonus Action on your turn. You normally have one Bonus Action per turn, separate from your Action. A feature or spell must grant the option."],
+                    ["reaction", "Reactions", "Red: Uses your Reaction when its stated trigger occurs, on your turn or another creature's turn. You normally regain your Reaction at the start of your next turn."],
+                    ["special", "Free/Special", "Gray: No separate Action, Bonus Action, or Reaction cost. This may be part of another ability or a triggered benefit, such as Agile Strikes. It can still require a trigger, resource, or limited use; gray does not mean unlimited."]
+                ]) {
+                    const entry = document.createElement("span");
+                    entry.className = "wb20-action-legend-entry";
+                    const separator = document.createElement("span");
+                    separator.className = "wb20-action-legend-separator";
+                    separator.setAttribute("aria-hidden", "true");
+                    separator.textContent = "•";
+                    const badge = document.createElement("span");
+                    badge.className = "wb20-action-legend-badge";
+                    badge.setAttribute("data-wb20-action-cost", cost);
+                    badge.textContent = text;
+                    badge.title = help;
+                    badge.setAttribute("aria-label", `${text}. ${help}`);
+                    badge.tabIndex = 0;
+                    entry.append(separator, badge);
+                    legend.append(entry);
+                }
+                const sortControl = document.createElement("details");
+                sortControl.className = "wb20-action-sort-control";
+                const trigger = document.createElement("summary");
+                trigger.textContent = "Sort";
+                trigger.setAttribute("aria-label", "Sort action list");
+                const menu = document.createElement("div");
+                menu.className = "wb20-action-sort-menu";
+                for (const [value, text] of [["economy", "Action order"], ["name", "Name (A–Z)"], ["damage", "Damage (highest average)"], ["range", "Range (longest first)"]]) {
+                    const option = document.createElement("button");
+                    option.type = "button"; option.dataset.sort = value; option.textContent = text;
+                    option.addEventListener("click", () => {
+                        if (!character || !option.isConnected) return;
+                        character.mergeCharacterSettings({"waybeyond20-action-list-sort": value}, wayBeyond20RefreshCombinedActions);
+                        sortControl.open = false;
+                        trigger.focus();
+                        wayBeyond20RefreshCombinedActions();
+                    });
+                    menu.append(option);
+                }
+                sortControl.addEventListener("keydown", event => {
+                    if (event.key === "Escape") { sortControl.open = false; trigger.focus(); event.stopPropagation(); }
+                });
+                sortControl.append(trigger, menu);
+                const viewControl = document.createElement("details");
+                viewControl.className = "wb20-action-view-control";
+                const viewTrigger = document.createElement("summary");
+                viewTrigger.textContent = "View";
+                viewTrigger.setAttribute("aria-label", "Talent list view");
+                const viewMenu = document.createElement("div");
+                viewMenu.className = "wb20-action-sort-menu";
+                for (const [value, text] of [["standard", "Standard"], ["compact", "Compact"]]) {
+                    const option = document.createElement("button");
+                    option.type = "button"; option.dataset.view = value; option.textContent = text;
+                    option.title = value === "compact" ? "Less spacing, no separator lines" : "Normal spacing with separator lines";
+                    option.addEventListener("click", () => {
+                        if (!character || toolbar._wb20Owner !== character || !option.isConnected) return;
+                        character.mergeCharacterSettings({"waybeyond20-action-list-view": value}, wayBeyond20RefreshCombinedActions);
+                        viewControl.open = false;
+                        viewTrigger.focus();
+                        wayBeyond20RefreshCombinedActions();
+                    });
+                    viewMenu.append(option);
+                }
+                viewControl.addEventListener("keydown", event => {
+                    if (event.key === "Escape") { viewControl.open = false; viewTrigger.focus(); event.stopPropagation(); }
+                });
+                viewControl.append(viewTrigger, viewMenu);
+                const controls = document.createElement("div");
+                controls.className = "wb20-action-list-controls";
+                if (typeof wb20QuickManage === "function") {
+                    const manage = document.createElement("button");
+                    manage.type = "button"; manage.className = "wb20-quick-manage"; manage.textContent = "Manage";
+                    manage.setAttribute("aria-label", "Manage quick list");
+                    manage.addEventListener("click", () => {
+                        if (toolbar._wb20Owner !== character || !root.isConnected) return;
+                        wb20QuickManage(root).catch(error => console.warn("WayBeyond20: quick list management failed", error));
+                    });
+                    controls.append(manage);
+                }
+                controls.append(viewControl, sortControl);
+                toolbar.append(legend, controls);
+                root.append(toolbar);
+            }
+            toolbar._wb20Owner = character;
+            let extendedLegend = toolbar.querySelector(".wb20-extended-legend");
+            if (rows.some(entry => entry.cost === "extended" && (typeof wb20QuickIsHidden !== "function" || !wb20QuickIsHidden(entry)))) {
+                if (!extendedLegend) {
+                    extendedLegend = document.createElement("span");
+                    extendedLegend.className = "wb20-action-legend-entry wb20-extended-legend";
+                    const badge = document.createElement("span");
+                    badge.className = "wb20-action-legend-badge";
+                    badge.dataset.wb20ActionCost = "extended";
+                    badge.textContent = "Other casting time";
+                    badge.title = "Purple: A longer or nonstandard casting time. Read the time in Notes; this is not a free ability or an instant one-Action cast.";
+                    badge.tabIndex = 0;
+                    badge.setAttribute("aria-label", badge.title);
+                    extendedLegend.append(badge);
+                    toolbar.querySelector(".wb20-action-list-legend").append(extendedLegend);
+                }
+            } else extendedLegend?.remove();
+            mark(toolbar, "toolbar", -20);
+            const view = character.getSetting("waybeyond20-action-list-view", "standard") === "compact" ? "compact" : "standard";
+            if (root.getAttribute("data-wb20-list-view") !== view)
+                root.setAttribute("data-wb20-list-view", view);
+            for (const option of toolbar.querySelectorAll("[data-view]")) {
+                const selected = String(option.dataset.view === view);
+                if (option.getAttribute("aria-pressed") !== selected) option.setAttribute("aria-pressed", selected);
+            }
+            // Read the live native count; never infer one from class/level. Flex wrapping
+            // responds to the panel's available width without measurements or spacer text.
+            const attacks = groups.map(group => group.firstElementChild?.textContent || "")
+                .join(" ").match(/Attacks per Action:\s*(\d+)/i);
+            const count = toolbar.querySelector(".wb20-attacks-per-action");
+            const countText = attacks ? `Attacks per Action: ${attacks[1]}` : "";
+            if (count.textContent !== countText) count.textContent = countText;
+            if (count.hidden !== !attacks) count.hidden = !attacks;
+            const preference = character.getSetting("waybeyond20-action-list-sort", "economy");
+            const sort = ["name", "damage", "range"].includes(preference) ? preference : "economy";
+            for (const option of toolbar.querySelectorAll("[data-sort]")) {
+                const selected = String(option.dataset.sort === sort);
+                if (option.getAttribute("aria-pressed") !== selected) option.setAttribute("aria-pressed", selected);
+            }
+            const rank = {action: 0, bonusAction: 1, reaction: 2};
+            rows.sort((a, b) => {
+                if (sort === "name") return a.name.localeCompare(b.name);
+                if (sort === "economy") return rank[a.group] - rank[b.group];
+                const left = wayBeyond20ActionSortValue(a.row, sort, a.name);
+                const right = wayBeyond20ActionSortValue(b.row, sort, b.name);
+                if (left === null || right === null) return left === right ? 0 : left === null ? 1 : -1;
+                return right - left;
+            });
+            for (const [index, entry] of rows.entries()) {
+                mark(entry.row, "row", index);
+                if (typeof wb20QuickRowKey === "function") {
+                    const hidden = wb20QuickIsHidden(entry);
+                    if (entry.row.hasAttribute("data-wb20-user-hidden") !== hidden)
+                        entry.row.toggleAttribute("data-wb20-user-hidden", hidden);
+                }
+                if (entry.row.getAttribute("data-wb20-action-cost") !== entry.cost)
+                    entry.row.setAttribute("data-wb20-action-cost", entry.cost);
+                const label = {action: "Action", bonusAction: "Bonus Action", reaction: "Reaction", special: "Free / Special (no separate action cost)"}[entry.cost];
+                const icon = entry.row.querySelector('.wb20-full-attack');
+                if (icon) {
+                    const title = `${label}. Roll attack and damage. Right-click to choose Advantage or Disadvantage.`;
+                    if (icon.title !== title) icon.title = title;
+                    const accessible = `${entry.name}: ${label}. Roll attack and damage`;
+                    if (icon.getAttribute("aria-label") !== accessible) icon.setAttribute("aria-label", accessible);
+                }
+            }
+            wayBeyond20MatchActionTypography(root);
+        }
+    }
+    // One listener without references to character sheets; removed roots cannot leak.
+    if (!wayBeyond20RefreshCombinedActions.sortDismissInstalled) {
+        document.addEventListener("pointerdown", event => {
+            for (const control of document.querySelectorAll(".wb20-action-sort-control[open],.wb20-action-view-control[open]"))
+                if (!control.contains(event.target)) control.open = false;
+        });
+        wayBeyond20RefreshCombinedActions.sortDismissInstalled = true;
+    }
+    for (const element of document.querySelectorAll('[data-wb20-list-layout]')) {
+        if (wanted.has(element)) continue;
+        element.removeAttribute("data-wb20-list-layout");
+        element.removeAttribute("data-wb20-list-view");
+        element.removeAttribute("data-wb20-user-hidden");
+        element.removeAttribute("data-wb20-action-cost");
+        element.style.removeProperty("--wb20-list-order");
+        for (const link of element.querySelectorAll(".wb20-linked-feature")) link.remove();
+        if (element.matches('.wb20-action-list-sort,.wb20-feature-option,.wb20-opportunity-attack,.wb20-quick-row,.wb20-action-fallback-header')) element.remove();
+    }
 }
 
 async function wayBeyond20ChooseHitDie() {
@@ -2678,7 +3260,7 @@ function wayBeyond20CreateSpellEffectPlan(character) {
     return plan;
 }
 
-async function wayBeyond20ApplySpellEffectWithTargets(character, effect, talent) {
+async function wayBeyond20ApplySpellEffectWithTargets(character, effect, talent, {singleOtherTarget = false} = {}) {
     const plan = wayBeyond20CreateSpellEffectPlan(character);
     if (!effect || !effect.name) return plan;
 
@@ -2712,6 +3294,10 @@ async function wayBeyond20ApplySpellEffectWithTargets(character, effect, talent)
     if (wayBeyond20TalentNeedsTargetSelection(talent, effect)) {
         targets = await wayBeyond20SelectTalentTargets(character, talent, effect);
         if (!targets || targets.length === 0) return null;
+    }
+    if (singleOtherTarget && (targets.length !== 1 || targets[0].relation === "self")) {
+        alertify.warning("This reactive spell must target only the provoking creature, not yourself or multiple creatures. Nothing was spent.");
+        return null;
     }
 
     let appliedLocal = false;
@@ -3556,6 +4142,8 @@ function wayBeyond20AttacksRemainingInAttackAction() {
     if (!character) return 0;
     const state = wayBeyond20NormalizeTurnTrackerState(wayBeyond20GetTurnTrackerState(), wayBeyond20GetTrackedSpellEffects());
     if (!wayBeyond20HasActiveCombatState(state)) return 0;
+    if (state.combatSource === "Roll20" &&
+        state.currentRoll20Turn?.isThisCharactersTurn === false) return 0;
     return Math.max(0, wayBeyond20ParseInteger(state.attacksRemaining) ?? 0);
 }
 
@@ -3567,6 +4155,10 @@ function wayBeyond20SpendAttackAction(options = {}) {
     const activeEffects = wayBeyond20GetTrackedSpellEffects();
     const state = wayBeyond20NormalizeTurnTrackerState(wayBeyond20GetTurnTrackerState(), activeEffects);
     if (!wayBeyond20HasActiveCombatState(state)) return false;
+    // An advisory off-turn roll must not consume attacks left over from the
+    // character's own Attack action. Reactions have their own activation.
+    if (state.combatSource === "Roll20" &&
+        state.currentRoll20Turn?.isThisCharactersTurn === false) return false;
     const remaining = Math.max(0, wayBeyond20ParseInteger(state.attacksRemaining) ?? 0);
     if (remaining > 0) {
         state.attacksRemaining = remaining - 1;
@@ -3588,6 +4180,57 @@ function wayBeyond20SpendAttackAction(options = {}) {
     });
     wayBeyond20SetTurnTrackerState(after, wayBeyond20ScheduleActiveEffectBadgeRefresh);
     return true;
+}
+
+// A rule grants a bounded set of attacks, separately from what that activation
+// costs. Callers supply the parsed grant: no feature-name or class-name table.
+// This is transient, character-owned state, not a new persisted resource pool.
+function wayBeyond20AttackActivationTurnKey() {
+    const state = wayBeyond20GetTurnTrackerState();
+    if (!wayBeyond20HasActiveCombatState(state)) return null;
+    return JSON.stringify([state.combatSource, state.combatStartedAt,
+        state.localTurnNumber, state.currentRoll20Turn?.turnKey]);
+}
+
+function wayBeyond20CreateAttackActivation({resource = null, attacks = 1} = {}) {
+    if (![null, "action", "bonusAction", "reaction", "hasteAction"].includes(resource) ||
+        !Number.isInteger(attacks) || attacks < 1) {
+        throw new Error("Invalid attack activation");
+    }
+    return {owner: character, resource, remaining: attacks, paid: false, inFlight: false,
+        turnKey: wayBeyond20AttackActivationTurnKey()};
+}
+
+async function wayBeyond20PerformGrantedAttack(activation, args, dispatch) {
+    const current = () => activation && activation.owner === character &&
+        activation.turnKey === wayBeyond20AttackActivationTurnKey();
+    if (!current() || activation.inFlight || activation.remaining <= 0 ||
+        (activation.kind === "spell" ? args["waybeyond20-attack-context"]?.kind !== "reactive-spell" : args.rollAttack !== true))
+        return false;
+    const state = wayBeyond20GetTurnTrackerState();
+    if (activation.resource === "bonusAction" && state.combatSource === "Roll20" &&
+        state.currentRoll20Turn?.isThisCharactersTurn === false) return false;
+    activation.inFlight = true;
+    try {
+        // Native weapon panes describe their ordinary Action cost. A granted
+        // attack inherits the granting activation instead, without borrowing
+        // from Extra Attack or starting another Attack action.
+        delete args["waybeyond20-turn-resource"];
+        if (!activation.paid && activation.resource) {
+            args["waybeyond20-turn-resource"] = {
+                resource: activation.resource, name: args.name || "",
+                rollType: "attack", actionType: "Granted Attack"
+            };
+        }
+        const result = await dispatch(current);
+        if (result === true) {
+            activation.remaining--;
+            activation.paid = true;
+        }
+        return result;
+    } finally {
+        activation.inFlight = false;
+    }
 }
 
 function wayBeyond20AttachTurnResource(rollProperties, resource, options = {}) {
@@ -4108,6 +4751,55 @@ function wayBeyond20InjectCombatMenuAction() {
             });
         list.prepend(item);
     }
+    if (!list.find(".waybeyond20-link-token-menu").length) {
+        $("<li>").addClass("waybeyond20-link-token-menu")
+            .attr({ role: "button", tabindex: "0" }).text("Link My Token")
+            .on("click.waybeyond20-token-link keydown.waybeyond20-token-link", event => {
+                if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                event.stopPropagation();
+                wayBeyond20ChooseRoll20Token();
+            }).insertAfter(item);
+    }
+}
+
+async function wayBeyond20ChooseRoll20Token() {
+    const owner = character;
+    if (!owner) return;
+    const targets = (wayBeyond20GetTurnTrackerState().knownTargets || [])
+        .filter(target => target.tokenId || target.key);
+    if (!targets.length) {
+        alertify.message("Open Roll20's turn order first, then choose Link My Token again.");
+        return;
+    }
+    const form = $("<form>");
+    const select = $("<select>").attr({ name: "wb20-own-token", id: "wb20-own-token" })
+        .css({ width: "100%", "max-width": "100%" });
+    select.append($("<option>").val("").text("Select your token"));
+    for (const target of targets) {
+        const id = String(target.tokenId || target.key);
+        const duplicate = targets.filter(t => t.name === target.name).length > 1;
+        select.append($("<option>").val(id).text(`${target.name || "Unnamed token"} · Initiative ${target.initiative ?? "?"}${duplicate ? ` · ${id}` : ""}`));
+    }
+    const stored = String(owner.getSetting("waybeyond20-roll20-token-id", "") || "");
+    const matches = targets.filter(t => String(t.name || "").trim().toLowerCase() === String(owner._name || "").trim().toLowerCase());
+    select.val(targets.some(t => String(t.tokenId || t.key) === stored) ? stored :
+        matches.length === 1 ? String(matches[0].tokenId || matches[0].key) : "");
+    select.find("option").filter((index, option) => option.value === select.val()).attr("selected", "selected");
+    form.append($("<p>").text("Choose this character's token from Roll20's turn order. This changes only WB20's link, not initiative, position or counters."),
+        $("<label>").attr("for", "wb20-own-token").text("My Roll20 token"), select);
+    const response = await dndbeyondDiceRoller._prompter.prompt("Link My Token", form[0].outerHTML, "Link token", "Cancel");
+    if (!response || character !== owner) return;
+    const tokenId = String(response.find("select[name='wb20-own-token']").val() || "");
+    if (!tokenId) return;
+    if (!(wayBeyond20GetTurnTrackerState().knownTargets || []).some(t => String(t.tokenId || t.key) === tokenId)) {
+        alertify.warning("That token is no longer in the turn order. Open Link My Token again.");
+        return;
+    }
+    owner.mergeCharacterSettings({
+        "waybeyond20-roll20-token-id": tokenId,
+        "waybeyond20-roll20-token-ids": [tokenId]
+    }, wayBeyond20ScheduleActiveEffectBadgeRefresh);
 }
 
 function wayBeyond20FindCombatSectionHost() {
@@ -4153,6 +4845,7 @@ function wayBeyond20InjectTurnResourceTracker(effects) {
     $(".waybeyond20-turn-tracker-container").removeClass("waybeyond20-turn-tracker-container");
 
     if (!wayBeyond20IsMainCharacterSheet()) {
+        $(".wb20-combat-layout").remove();
         $(".waybeyond20-combat-section").remove();
         return;
     }
@@ -4160,6 +4853,7 @@ function wayBeyond20InjectTurnResourceTracker(effects) {
     const activeEffects = Array.isArray(effects) ? effects : wayBeyond20GetTrackedSpellEffects();
     const state = wayBeyond20NormalizeTurnTrackerState(wayBeyond20GetTurnTrackerState(), activeEffects);
     if (!wayBeyond20HasActiveCombatState(state)) {
+        $(".wb20-combat-layout").remove();
         $(".waybeyond20-combat-section").remove();
         if (state.inCombat) {
             state.inCombat = false;
@@ -4177,12 +4871,25 @@ function wayBeyond20InjectTurnResourceTracker(effects) {
     if (host.length === 0) return;
 
     let section = $(".waybeyond20-combat-section").first();
-    if (section.length === 0 || section.parent()[0] !== host[0]) {
-        section.remove();
+    if (section.length === 0) {
         section = $("<section>").addClass("waybeyond20-combat-section");
-        host.append(section);
     }
-
+    // DDB can rebuild its sheet after this wrapper, leaving Combat above it.
+    // Reconcile position before the unchanged-state return, moving the existing
+    // controls instead of recreating them. Only move when necessary so our
+    // document MutationObserver settles after the correction.
+    const layout = section.parent(".wb20-combat-layout");
+    const tracker = layout.length ? layout : section;
+    if (tracker.parent()[0] !== host[0] || tracker[0].nextElementSibling) {
+        const focused = document.activeElement;
+        const restoreFocus = focused && tracker[0].contains(focused);
+        const scrollX = window.scrollX, scrollY = window.scrollY;
+        host.append(tracker);
+        if (restoreFocus) focused.focus({ preventScroll: true });
+        if (window.scrollX !== scrollX || window.scrollY !== scrollY) {
+            window.scrollTo(scrollX, scrollY);
+        }
+    }
     const signature = JSON.stringify({
         action: state.action,
         bonusAction: state.bonusAction,
@@ -4192,22 +4899,34 @@ function wayBeyond20InjectTurnResourceTracker(effects) {
         maxHasteAction: state.maxHasteAction,
         combatSource: state.combatSource,
         localTurnNumber: state.localTurnNumber,
-        currentRoll20Turn: state.currentRoll20Turn
+        currentRoll20Turn: state.currentRoll20Turn,
+        turnOrder: (state.knownTargets || []).map(t => [t.tokenId || t.key, t.name])
     });
     if (typeof wayBeyond20ApplySheetTheme === "function") wayBeyond20ApplySheetTheme(section[0]);
-    if (section.attr("data-waybeyond20-signature") === signature) return;
-    section.attr("data-waybeyond20-signature", signature).empty();
+    if (section.attr("data-waybeyond20-signature") === signature) {
+        if (typeof wb20TargetMount === "function") wb20TargetMount(section, state);
+        return;
+    }
+    const currentToken = String(state.currentRoll20Turn?.tokenId || "");
+    const oldToken = section.attr("data-wb20-compass-token");
+    const turnChanged = !!oldToken && !!currentToken && oldToken !== currentToken;
+    section.attr("data-wb20-compass-token", currentToken);
+    // Resource/turn updates must not destroy the target's unfinished inputs.
+    section.attr("data-waybeyond20-signature", signature);
+    section.children().not(".wb20-my-target").remove();
 
     const header = $("<div>").addClass("waybeyond20-combat-header");
     const title = $("<div>").addClass("waybeyond20-combat-title").text("Combat");
     const sourceParts = [];
     if (state.combatSource) sourceParts.push(state.combatSource);
     if (state.localTurnNumber) sourceParts.push(`Turn ${state.localTurnNumber}`);
-    if (state.currentRoll20Turn && state.currentRoll20Turn.tokenName) {
+    const compass = typeof wb20BuildTurnCompass === "function" ? wb20BuildTurnCompass(state, turnChanged) : null;
+    if (!compass && state.currentRoll20Turn && state.currentRoll20Turn.tokenName) {
         sourceParts.push(`Current: ${state.currentRoll20Turn.tokenName}`);
     }
     const source = $("<div>").addClass("waybeyond20-combat-source").text(sourceParts.join(" · "));
-    header.append(title, source);
+    header.toggleClass("wb20-combat-header-compass", !!compass);
+    header.append(title, compass, source);
 
     const resources = $("<div>").addClass("waybeyond20-combat-resources");
     resources.append(wayBeyond20BuildCombatResource("Movement", "movement", state.movement, true));
@@ -4237,9 +4956,18 @@ function wayBeyond20InjectTurnResourceTracker(effects) {
             event.stopPropagation();
             wayBeyond20EndCombat();
         });
-    controls.append(newTurn, endCombat);
+    const myTarget = $("<button>").attr({type: "button", title: "Select the combatant centered in the compass"})
+        .addClass("waybeyond20-combat-control wb20-select-target")
+        .prop("disabled", !compass?.attr("data-view-token"))
+        .text("Select Target").on("click", () => {
+            const key = section.find(".wb20-turn-compass").attr("data-view-token");
+            if (key && typeof wb20TargetChoose === "function") wb20TargetChoose(key);
+        });
+    controls.append(myTarget, newTurn, endCombat);
 
-    section.append(header, resources, controls);
+    const toolbar = $("<div>").addClass("waybeyond20-combat-toolbar").append(resources, controls);
+    section.prepend(header, toolbar);
+    if (typeof wb20TargetMount === "function") wb20TargetMount(section, state);
 }
 
 function wayBeyond20IsVisibleElement(element) {
@@ -5068,23 +5796,24 @@ function isItemAnInstruction(item_name, item_tags) {
     return item_tags.includes("Instrument") || item_name.includes(" Drum");
 }
 
-function handleSpecialMeleeAttacks(damages=[], damage_types=[], properties, settings_to_change={}, { to_hit, action_name="", effects=[] }={}) {
+function handleSpecialMeleeAttacks(damages=[], damage_types=[], properties, settings_to_change={}, { to_hit, action_name="", effects=[], attack_context=null }={}) {
+    const rider = (name, ongoing = false) => !attack_context || wayBeyond20AttackRiderAllowed(attack_context, name, ongoing);
     if (character.hasClass("Barbarian")) {
         // Barbarian: Rage
         const barbarian_level = character.getClassLevel("Barbarian");
         const rage_damage = barbarian_level < 9 ? 2 : (barbarian_level < 16 ? 3 : 4);
         if (character.hasClassFeature("Rage") &&
-            character.getSetting("barbarian-rage", false)) {
+            character.getSetting("barbarian-rage", false) && rider("Rage", true)) {
             damages.push(String(rage_damage));
             damage_types.push("Rage");
             effects.push("Rage");
         }
-        if (character.getSetting("barbarian-reckless", false)) {
+        if (character.getSetting("barbarian-reckless", false) && rider("Reckless Attack")) {
             effects.push("Reckless Attack");
             const isLocked = character.getSetting("barbarian-reckless-lock", false);
             if(!isLocked) settings_to_change["barbarian-reckless"] = false;
             if (character.hasClassFeature("Rage") && character.getSetting("barbarian-rage", false) && 
-                character.hasClassFeature("Frenzy 2024")) {
+                character.hasClassFeature("Frenzy 2024") && rider("Frenzy 2024")) {
                 damages.push(`${rage_damage}d6`);
                 damage_types.push("Frenzy");
                 effects.push("Frenzy");
@@ -5095,7 +5824,7 @@ function handleSpecialMeleeAttacks(damages=[], damage_types=[], properties, sett
     if (character.hasClass("Druid")) {
         // Druid: Circle of Spores: Symbiotic Entity
         if (character.hasClassFeature("Symbiotic Entity") &&
-            character.getSetting("druid-symbiotic-entity", false)) {
+            character.getSetting("druid-symbiotic-entity", false) && rider("Symbiotic Entity", true)) {
                 damages.push("1d6");
                 damage_types.push("Symbiotic Entity");
         }
@@ -5106,9 +5835,9 @@ function handleSpecialMeleeAttacks(damages=[], damage_types=[], properties, sett
         // Radiant Strikes works on melee and unarmed strikes, while Improved Divine Smite
         // only works on melee weapon attacks, so check for action_name which would indicate a non weapon attack
         if ((character.hasClassFeature("Improved Divine Smite") &&
-            character.getSetting("paladin-improved-divine-smite", true) && !action_name) ||
+            character.getSetting("paladin-improved-divine-smite", true) && !action_name && rider("Improved Divine Smite")) ||
             (character.hasClassFeature("Radiant Strikes") &&
-            character.getSetting("paladin-radiant-strikes", true))) {
+            character.getSetting("paladin-radiant-strikes", true) && rider("Radiant Strikes"))) {
             damages.push("1d8");
             damage_types.push("Radiant");
         }
@@ -5117,7 +5846,7 @@ function handleSpecialMeleeAttacks(damages=[], damage_types=[], properties, sett
     if (character.hasClass("Wizard")) {
         // Wizard: Bladesinging: Song of Victory
         if (character.hasClassFeature("Song of Victory") &&
-            character.getSetting("wizard-bladesong", false)) {
+            character.getSetting("wizard-bladesong", false) && rider("Song of Victory", true)) {
             const intelligence = character.getAbility("INT") || {mod: 0};
             const mod = parseInt(intelligence.mod) || 0;
             damages.push(String(Math.max(mod, 1)));
@@ -5130,7 +5859,7 @@ function handleSpecialMeleeAttacks(damages=[], damage_types=[], properties, sett
     if (to_hit !== null && 
         character.getSetting("great-weapon-master", false) &&
         character.hasFeat("Great Weapon Master") && 
-        (this.IsHeavy(properties) || this.IsPoleArmMasterAttack(properties, action_name)))
+        (this.IsHeavy(properties) || this.IsPoleArmMasterAttack(properties, action_name)) && rider("Great Weapon Master"))
          {
         to_hit += " - 5";
         damages.push("10");
@@ -5143,7 +5872,7 @@ function handleSpecialMeleeAttacks(damages=[], damage_types=[], properties, sett
         character.getSetting("great-weapon-master-2024", true) &&
         character.hasFeat("Great Weapon Master 2024") &&
         this.IsHeavy(properties) &&
-        !this.IsPoleArmMasterAttack(properties, action_name)) {
+        !this.IsPoleArmMasterAttack(properties, action_name) && rider("Great Weapon Master 2024")) {
         const proficiency = parseInt(character._proficiency);
         damages.push(proficiency.toString());
         damage_types.push("Great Weapon Master");
@@ -5154,7 +5883,7 @@ function handleSpecialMeleeAttacks(damages=[], damage_types=[], properties, sett
     // enhanced unarmed strike
     if(to_hit !== null && 
         character.hasFeat("Tavern Brawler 2024") &&
-        includesNormalized(["enhanced unarmed strike", "unarmed strike", "flurry of blows"], action_name)
+        includesNormalized(["enhanced unarmed strike", "unarmed strike", "flurry of blows"], action_name) && rider("Tavern Brawler 2024")
     ) {
         damages[0] = damages[0].replace(/[0-9]*d[0-9]+/g, "$&ro<=1");
         effects.push("Tavern Brawler");
@@ -5162,14 +5891,14 @@ function handleSpecialMeleeAttacks(damages=[], damage_types=[], properties, sett
 
     // Charger Feat
     if (character.hasFeat("Charger") &&
-        character.getSetting("charger-feat")) {
+        character.getSetting("charger-feat") && rider("Charger")) {
         damages.push("+5");
         damage_types.push("Charger Feat");
 
         const isLocked = character.getSetting("charger-feat-lock", false);
         if(!isLocked) settings_to_change["charger-feat"] = false;
     } else if (character.hasFeat("Charger 2024") &&
-        character.getSetting("charger-feat")) {
+        character.getSetting("charger-feat") && rider("Charger 2024")) {
             let charge_dmg = "1d8";
             // apply GWF if needed
             if(((properties["Attack Type"] == "Melee" && ((properties["Properties"].includes("Versatile") && character.getSetting("versatile-choice") != "one") || 
@@ -5231,25 +5960,26 @@ function handleSpecialRangedAttacks(damages=[], damage_types=[], properties, set
     return to_hit;
 }
 
-function handleSpecialGeneralAttacks(damages=[], damage_types=[], properties, settings_to_change={}, {to_hit, action_name, item_name, spell_name, spell_level}={}) {
+function handleSpecialGeneralAttacks(damages=[], damage_types=[], properties, settings_to_change={}, {to_hit, action_name, item_name, spell_name, spell_level, attack_context=null}={}) {
+    const rider = (name, ongoing = false) => !attack_context || wayBeyond20AttackRiderAllowed(attack_context, name, ongoing);
     // Racial Traits
     //Protector Aasimar: Radiant Soul Damage
     if (character.hasRacialTrait("Radiant Soul") &&
-        character.getSetting("protector-aasimar-radiant-soul", false)) {
+        character.getSetting("protector-aasimar-radiant-soul", false) && rider("Radiant Soul", true)) {
         damages.push(character._level);
         damage_types.push("Radiant Soul");
     }
 
     // MotM Aasimar: Radiant Soul Damage
     if (character.hasRacialTrait("Celestial Revelation: Radiant Soul") &&
-        character.getSetting("motm-aasimar-radiant-soul", false)) {
+        character.getSetting("motm-aasimar-radiant-soul", false) && rider("Celestial Revelation: Radiant Soul", true)) {
         damages.push(character._proficiency);
         damage_types.push("Radiant Soul");
     }
     
     // MotM Bugbear: Surprise Attack
     if (character.hasRacialTrait("Surprise Attack") &&
-        character.getSetting("motm-bugbear-surprise-attack", false)) {
+        character.getSetting("motm-bugbear-surprise-attack", false) && rider("Surprise Attack")) {
         damages.push("2d6");
         damage_types.push("Surprise Attack");
         const isLocked = character.getSetting("motm-bugbear-surprise-attack-lock", false);
@@ -5282,7 +6012,7 @@ function handleSpecialGeneralAttacks(damages=[], damage_types=[], properties, se
         if ((action && to_hit != null) && !["Unarmed Strike"].includes(action) &&
             character.hasClassFeature("Blessed Strikes 2024") &&
             character.hasClassFeature("Blessed Strikes 2024: Divine Strike") &&
-            character.getSetting("cleric-blessed-strikes", false)) {
+            character.getSetting("cleric-blessed-strikes", false) && rider("Blessed Strikes 2024: Divine Strike")) {
             if(character.hasClassFeature("Improved Blessed Strikes 2024")) damages.push("2d8");
             else damages.push("1d8");
             damage_types.push("Blessed Strikes");
@@ -5294,7 +6024,7 @@ function handleSpecialGeneralAttacks(damages=[], damage_types=[], properties, se
         // Cleric: Blessed Strikes 2014 tasha optional rule
         if (((action && to_hit != null) || (spell_name && spell_level.includes("Cantrip"))) &&
             character.hasClassFeature("Blessed Strikes") &&
-            character.getSetting("cleric-blessed-strikes-tasha", false)) {
+            character.getSetting("cleric-blessed-strikes-tasha", false) && rider("Blessed Strikes")) {
             if(character.hasClassFeature("Improved Blessed Strikes")) damages.push("2d8");
             else damages.push("1d8");
             damage_types.push("Blessed Strikes");
@@ -5308,7 +6038,7 @@ function handleSpecialGeneralAttacks(damages=[], damage_types=[], properties, se
         // Ranger: Favored Foe
         if (to_hit != null &&
             character.hasClassFeature("Favored Foe") &&
-            character.getSetting("ranger-favored-foe", false)) {
+            character.getSetting("ranger-favored-foe", false) && rider("Favored Foe")) {
             const ranger_level = character.getClassLevel("Ranger");
             damages.push(ranger_level < 6 ? "1d4" : ( ranger_level < 14 ? "1d6" : "1d8"));
             damage_types.push("Favored Foe");
@@ -5317,7 +6047,7 @@ function handleSpecialGeneralAttacks(damages=[], damage_types=[], properties, se
         // Ranger: Gathered Swarm
         if (to_hit != null &&
             character.hasClassFeature("Gathered Swarm") &&
-            character.getSetting("ranger-gathered-swarm", false)) {
+            character.getSetting("ranger-gathered-swarm", false) && rider("Gathered Swarm")) {
             const ranger_level = character.getClassLevel("Ranger");
             damages.push(ranger_level < 11 ? "1d6" : "1d8");
             damage_types.push("Gathered Swarm");
@@ -5329,7 +6059,7 @@ function handleSpecialGeneralAttacks(damages=[], damage_types=[], properties, se
         if (to_hit != null &&
             character.getSetting("warlock-hexblade-curse", false) &&
             character.hasClassFeature("Hexblade’s Curse") &&
-            character._proficiency !== null) {
+            character._proficiency !== null && rider("Hexblade’s Curse", true)) {
             damages.push(character._proficiency);
             damage_types.push("Hexblade's Curse");
         }
@@ -5337,7 +6067,7 @@ function handleSpecialGeneralAttacks(damages=[], damage_types=[], properties, se
         // Warlock: Genie Patron: Genie's Wrath
         if (to_hit != null &&
             character.hasClassFeature("Genie’s Vessel") &&
-            character.getSetting("genies-vessel", false)) {
+            character.getSetting("genies-vessel", false) && rider("Genie’s Vessel")) {
             damages.push(character._proficiency);
             if (character.hasClassFeature("Genie’s Vessel: Genie's Wrath (Dao)"))
                 damage_types.push("Genie's Wrath (Bludgeoning)");
@@ -5354,7 +6084,7 @@ function handleSpecialGeneralAttacks(damages=[], damage_types=[], properties, se
         // Warlock: The Undead: Grave Touched
         if (to_hit != null &&
             character.hasClassFeature("Grave Touched") &&
-            character.getSetting("warlock-grave-touched", false)) {
+            character.getSetting("warlock-grave-touched", false) && rider("Grave Touched", true)) {
                 damage_types[0] = "Necrotic";
                 let highest_dice = 0;
                 for (let dmg of damages) {
@@ -5375,7 +6105,8 @@ function handleSpecialGeneralAttacks(damages=[], damage_types=[], properties, se
     return to_hit;
 }
 
-function handleSpecialWeaponAttacks(damages=[], damage_types=[], properties, settings_to_change={}, {action_name="", item_customizations=[], item_type="", item_name="", to_hit, effects=[]}={}) {
+function handleSpecialWeaponAttacks(damages=[], damage_types=[], properties, settings_to_change={}, {action_name="", item_customizations=[], item_type="", item_name="", to_hit, effects=[], attack_context=null}={}) {
+    const rider = (name, ongoing = false) => !attack_context || wayBeyond20AttackRiderAllowed(attack_context, name, ongoing);
     // Class Specific
     if (character.hasClass("Artificer")) {
         //Artificer: Battlemaster: Arcane Jolt
@@ -5383,7 +6114,7 @@ function handleSpecialWeaponAttacks(damages=[], damage_types=[], properties, set
         if (damages.length > 0 &&
             character.hasClassFeature("Arcane Jolt") &&
             character.getSetting("artificer-arcane-jolt", false) &&
-            (properties["Infused"] || item_type.indexOf(", Common") === -1)) {
+            (properties["Infused"] || item_type.indexOf(", Common") === -1) && rider("Arcane Jolt")) {
             damages.push(character._level < 15 ? "2d6" : "4d6");
             damage_types.push("Arcane Jolt");
         }
@@ -5394,7 +6125,7 @@ function handleSpecialWeaponAttacks(damages=[], damage_types=[], properties, set
         if (character.hasClassFeature("Rage") &&
             character.getSetting("barbarian-rage", false) &&
             character.getSetting("barbarian-divine-fury", true) &&
-            character.hasClassFeature("Divine Fury")) {
+            character.hasClassFeature("Divine Fury") && rider("Divine Fury")) {
             const barbarian_level = character.getClassLevel("Barbarian");
             damages.push(`1d6+${Math.floor(barbarian_level / 2)}`);
             damage_types.push("Divine Fury");
@@ -5404,7 +6135,7 @@ function handleSpecialWeaponAttacks(damages=[], damage_types=[], properties, set
     if (character.hasClass("Bard")) {
         // Bard: College of Whispers: Psychic blades
         if (character.hasClassFeature("Psychic Blades") &&
-            character.getSetting("bard-psychic-blades", false)) {
+            character.getSetting("bard-psychic-blades", false) && rider("Psychic Blades")) {
             const bard_level = character.getClassLevel("Bard");
             let blades_dmg = "2d6";
             if (bard_level < 5)
@@ -5427,7 +6158,7 @@ function handleSpecialWeaponAttacks(damages=[], damage_types=[], properties, set
         if (character.getSetting("bloodhunter-crimson-rite", false) &&
             character.hasClassFeature("Crimson Rite") &&
             ((properties["Attack Type"] == "Ranged" || properties["Attack Type"] == "Melee") ||
-            action_name.includes("Predatory Strike") || action_name.includes("Polearm Master"))) {
+            action_name.includes("Predatory Strike") || action_name.includes("Polearm Master")) && rider("Crimson Rite", true)) {
             const bloodhunter_level = character.getClassLevel("Blood Hunter");
             if (bloodhunter_level > 0) {
                 let rite_die = "1d4";
@@ -5448,7 +6179,7 @@ function handleSpecialWeaponAttacks(damages=[], damage_types=[], properties, set
     if (character.hasClass("Cleric")) {
         // Cleric: Divine Strike 2014
         if (character.hasClassFeature("Divine Strike") &&
-            character.getSetting("cleric-divine-strike", true)) {
+            character.getSetting("cleric-divine-strike", true) && rider("Divine Strike")) {
             const cleric_level = character.getClassLevel("Cleric");
             damages.push(cleric_level < 14 ? "1d8" : "2d8");
             damage_types.push("Divine Strike");
@@ -5461,7 +6192,7 @@ function handleSpecialWeaponAttacks(damages=[], damage_types=[], properties, set
     if (character.hasClass("Fighter")) {
         // Fighter: Giant’s Might;
         if (character.hasClassFeature("Giant’s Might") &&
-            character.getSetting("fighter-giant-might", false)) {
+            character.getSetting("fighter-giant-might", false) && rider("Giant’s Might", true)) {
             const fighter_level = character.getClassLevel("Fighter");
             damages.push(fighter_level < 10 ? "1d6" : (fighter_level < 18 ? "1d8" : "1d10"));
             damage_types.push("Giant’s Might");
@@ -5471,7 +6202,7 @@ function handleSpecialWeaponAttacks(damages=[], damage_types=[], properties, set
     if (character.hasClass("Paladin")) {
         // Paladin: Sacred Weapon
         if (to_hit !== null && 
-            character.getSetting("paladin-sacred-weapon", false)) {
+            character.getSetting("paladin-sacred-weapon", false) && rider("Sacred Weapon", true)) {
             const charisma_attack_mod =  Math.max(character.getAbility("CHA").mod, 1);
             to_hit += `+ ${charisma_attack_mod}`;
         }
@@ -5483,7 +6214,7 @@ function handleSpecialWeaponAttacks(damages=[], damage_types=[], properties, set
             const hasDreadAmbusher = character.hasClassFeature("Dread Ambusher");
             const hasDreadAmbusher2024 = character.hasClassFeature("Dread Ambusher 2024");
             
-            if (hasDreadAmbusher || hasDreadAmbusher2024) {
+            if ((hasDreadAmbusher || hasDreadAmbusher2024) && rider(hasDreadAmbusher ? "Dread Ambusher" : "Dread Ambusher 2024")) {
                 damages.push(
                     hasDreadAmbusher 
                         ? "1d8" 
@@ -5497,21 +6228,21 @@ function handleSpecialWeaponAttacks(damages=[], damage_types=[], properties, set
         
         // Ranger: Hunter: Colossus Slayer
         if (character.hasClassFeature("Hunter’s Prey: Colossus Slayer") &&
-            character.getSetting("ranger-colossus-slayer", false)) {
+            character.getSetting("ranger-colossus-slayer", false) && rider("Hunter’s Prey: Colossus Slayer")) {
             damages.push("1d8");
             damage_types.push("Colossus Slayer");
         }
         
         // Ranger: Monster Slayer: Slayer's Prey
         if (character.hasClassFeature("Slayer’s Prey") &&
-            character.getSetting("ranger-slayers-prey", false)) {
+            character.getSetting("ranger-slayers-prey", false) && rider("Slayer’s Prey", true)) {
             damages.push("1d6");
             damage_types.push("Slayer’s Prey");
         }
         
         // Ranger: Horizon Walker: Planar Warrior
         if (character.hasClassFeature("Planar Warrior") &&
-            character.getSetting("ranger-planar-warrior", false)) {
+            character.getSetting("ranger-planar-warrior", false) && rider("Planar Warrior", true)) {
             const ranger_level = character.getClassLevel("Ranger");
             damages.push(ranger_level < 11 ? "1d8" : "2d8");
             damage_types.push("Planar Warrior");
@@ -5519,7 +6250,7 @@ function handleSpecialWeaponAttacks(damages=[], damage_types=[], properties, set
 
         // Ranger: Fey Wanderer: Dreadful Strikes
         if (character.hasClassFeature("Dreadful Strikes") &&
-            character.getSetting("fey-wanderer-dreadful-strikes")) {
+            character.getSetting("fey-wanderer-dreadful-strikes") && rider("Dreadful Strikes")) {
             const ranger_level = character.getClassLevel("Ranger");
             damages.push(ranger_level < 11 ? "1d4" : "1d6");
             damage_types.push("Dreadful Strikes");
@@ -5533,7 +6264,7 @@ function handleSpecialWeaponAttacks(damages=[], damage_types=[], properties, set
             (properties["Attack Type"] == "Ranged" ||
             (properties["Properties"] && properties["Properties"].includes("Finesse")) ||
             name.includes("Psychic Blade") ||
-            name.includes("Shadow Blade"))) {
+            name.includes("Shadow Blade")) && rider("Sneak Attack")) {
             const sneakDieCount = Math.ceil(character._classes["Rogue"] / 2);
             let sneak_attack = `${sneakDieCount}d6`;
             damages.push(sneak_attack);
@@ -5548,7 +6279,7 @@ function handleSpecialWeaponAttacks(damages=[], damage_types=[], properties, set
     if (character.hasClass("Warlock")) {
         // Warlock: Eldritch Invocation: Lifedrinker
         if (character.getSetting("eldritch-invocation-lifedrinker", false) &&
-            item_customizations.includes("Pact Weapon")) {
+            item_customizations.includes("Pact Weapon") && rider("Lifedrinker", true)) {
             const charisma_damage_mod =  Math.max(character.getAbility("CHA").mod, 1);
             damages.push(`${charisma_damage_mod}`);
             damage_types.push("Lifedrinker");
@@ -5562,7 +6293,8 @@ function capitalize(str) {
     return str.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-async function rollItem(force_display = false, force_to_hit_only = false, force_damages_only = false, force_versatile = false, spell_group = null) {
+async function rollItem(force_display = false, force_to_hit_only = false, force_damages_only = false, force_versatile = false, spell_group = null, force_roll_mode = null, attack_context = null) {
+    if (attack_context && !wayBeyond20AttackContextCurrent(attack_context)) return false;
     const prop_list = $(".b20-item-pane .ct-item-detail [role=list] > div");
     const properties = propertyListToDict(prop_list);
     properties["Properties"] = properties["Properties"] || "";
@@ -5628,7 +6360,8 @@ async function rollItem(force_display = false, force_to_hit_only = false, force_
 
                 if (character.hasClass("Ranger") &&
                     character.hasClassFeature("Planar Warrior") &&
-                    character.getSetting("ranger-planar-warrior", false))
+                    character.getSetting("ranger-planar-warrior", false) &&
+                    (!attack_context || wayBeyond20AttackRiderAllowed(attack_context, "Planar Warrior", true)))
                     damage_type = "Force";
 
                 if (versatile_damage != "" && damage_type != "--") {
@@ -5719,7 +6452,8 @@ async function rollItem(force_display = false, force_to_hit_only = false, force_
         }
 
         // 2024 brutal strike
-        if (character.getSetting("brutal-strike") && character.hasClassFeature("Brutal Strike"))  {  
+        if (character.getSetting("brutal-strike") && character.hasClassFeature("Brutal Strike") &&
+            (!attack_context || wayBeyond20AttackRiderAllowed(attack_context, "Brutal Strike"))) {
             // Brutal Strike is a class feature of Barbarian at level 13 and level 17 but it only increases the damage die at level 17
             let strikeDieCount = character.hasClassFeature("Improved Brutal Strike") && character.getClassLevel("Barbarian") >= 17 ? 2 : 1; 
             let brutal_strike_dmg = `${strikeDieCount}d10`;
@@ -5784,12 +6518,12 @@ async function rollItem(force_display = false, force_to_hit_only = false, force_
 
         const effects = [];
 
-        to_hit = handleSpecialGeneralAttacks(damages, damage_types, properties, settings_to_change, {to_hit, item_name, effects});
+        to_hit = handleSpecialGeneralAttacks(damages, damage_types, properties, settings_to_change, {to_hit, item_name, effects, attack_context});
 
-        to_hit = handleSpecialWeaponAttacks(damages, damage_types, properties, settings_to_change, {item_customizations, item_type, to_hit, item_name, effects});
+        to_hit = handleSpecialWeaponAttacks(damages, damage_types, properties, settings_to_change, {item_customizations, item_type, to_hit, item_name, effects, attack_context});
 
         if (properties["Attack Type"] == "Melee") {
-            to_hit = handleSpecialMeleeAttacks(damages, damage_types, properties, settings_to_change, { to_hit, effects });
+            to_hit = handleSpecialMeleeAttacks(damages, damage_types, properties, settings_to_change, { to_hit, effects, attack_context });
         }
 
         if (properties["Attack Type"] == "Ranged") {
@@ -5862,7 +6596,8 @@ async function rollItem(force_display = false, force_to_hit_only = false, force_
 
         // Assassinate: consider all rolls as critical;
         if (character.hasClassFeature("Assassinate") &&
-            character.getSetting("rogue-assassinate", false)) {
+            character.getSetting("rogue-assassinate", false) &&
+            (!attack_context || wayBeyond20AttackRiderAllowed(attack_context, "Assassinate"))) {
             roll_properties["critical-limit"] = 1;
             roll_properties["advantage"] = RollType.OVERRIDE_ADVANTAGE;
 
@@ -5870,7 +6605,8 @@ async function rollItem(force_display = false, force_to_hit_only = false, force_
             if(!isLocked) settings_to_change["rogue-assassinate"] = false;
         }
         if (character.hasClassFeature("Assassinate 2024") &&
-            character.getSetting("rogue-assassinate-2024", false)) {
+            character.getSetting("rogue-assassinate-2024", false) &&
+            (!attack_context || wayBeyond20AttackRiderAllowed(attack_context, "Assassinate 2024"))) {
             roll_properties["advantage"] = RollType.OVERRIDE_ADVANTAGE;
 
             const isLocked = character.getSetting("rogue-assassinate-lock", false);
@@ -5883,6 +6619,7 @@ async function rollItem(force_display = false, force_to_hit_only = false, force_
         if (character.hasClassFeature("Trance of Order") && character.getSetting("sorcerer-trance-of-order", false))
             roll_properties.d20 = "1d20min10";
 
+        if (attack_context && !await wayBeyond20ConfirmAttackContext(attack_context, roll_properties)) return false;
         await wayBeyond20MaybeAddSmite(
             roll_properties,
             wayBeyond20IsSmiteEligibleAttack(roll_properties, properties,
@@ -5904,6 +6641,11 @@ async function rollItem(force_display = false, force_to_hit_only = false, force_
             });
         }
 
+        if (force_roll_mode !== null && roll_properties.rollAttack) {
+            roll_properties.advantage = force_roll_mode;
+            roll_properties["waybeyond20-query-attack-mode"] = force_roll_mode === RollType.QUERY;
+            roll_properties["waybeyond20-explicit-attack-mode"] = force_roll_mode;
+        }
         return sendRollWithCharacter("attack", (roll_properties["damages"] || damages)[0], roll_properties);
     } else if (!force_display && (is_tool || is_instrument) && character._abilities.length > 0) {
         const proficiencies = {}
@@ -6145,7 +6887,10 @@ function wayBeyond20NativeSpellPaneMatches(identity) {
     const level = pane.querySelector(".ct-spell-caster__casting-level-current");
     return !!name && name.textContent.trim() === identity.name &&
         (!identity.source || !!source && source.textContent.trim() === identity.source) &&
-        !!level && parseInt(level.textContent) === identity.level;
+        (identity.level === 0
+            ? Array.from(pane.querySelectorAll(".ct-spell-detail__level-school-item"))
+                .some(item => /^cantrip$/i.test(item.textContent.trim()))
+            : !!level && parseInt(level.textContent) === identity.level);
 }
 
 function wayBeyond20CommitNativeSpellCast(owner, identity, action) {
@@ -6167,8 +6912,16 @@ function wayBeyond20CommitNativeSpellCast(owner, identity, action) {
         }
         const button = matches[0];
         wayBeyond20NativeCastReplays.add(button);
+        // The replay is resource accounting, not another cast. DOM state also
+        // reaches other extension worlds left on the page after a reload.
+        const replay = button.getAttribute("data-waybeyond20-resource-replay");
+        button.setAttribute("data-waybeyond20-resource-replay", "true");
         try { button.click(); }
-        finally { wayBeyond20NativeCastReplays.delete(button); }
+        finally {
+            wayBeyond20NativeCastReplays.delete(button);
+            if (replay === null) button.removeAttribute("data-waybeyond20-resource-replay");
+            else button.setAttribute("data-waybeyond20-resource-replay", replay);
+        }
     };
 }
 
@@ -6206,6 +6959,7 @@ function wayBeyond20InstallNativeSpellCasting() {
     document.addEventListener("click", event => {
         const button = event.target && event.target.closest && event.target.closest("button");
         if (!button || button.disabled || wayBeyond20NativeCastReplays.has(button)) return;
+        if (!event.isTrusted && button.hasAttribute("data-waybeyond20-resource-replay")) return;
         const row = button.closest(".ct-spells-spell,.ddbc-spells-spell");
         if (!row || !button.closest(".ct-spells-spell__action,.ddbc-spells-spell__action")) return;
         const action = button.textContent.trim().toLowerCase();
@@ -6282,6 +7036,10 @@ function wayBeyond20HasAvailableBonusAction() {
     // Outside a tracked combat there is no local turn state to contradict the
     // player's action. In tracked combat, require the current Bonus Action.
     if (!wayBeyond20HasActiveCombatState(state)) return true;
+    // Remaining is not the same as available: Bonus Actions are taken on your
+    // own turn. A Reaction may happen on that turn, so do not ban by origin.
+    if (state.combatSource === "Roll20" &&
+        state.currentRoll20Turn?.isThisCharactersTurn === false) return false;
     return (wayBeyond20ParseInteger(state.bonusAction) ?? 0) > 0;
 }
 
@@ -6342,7 +7100,7 @@ function wayBeyond20SpellRowLevel(row, meta = "") {
         /^(?:data-)?(?:spell-)?level$/i.test(attribute.name)
     );
     const attributeLevel = levelAttribute ? parseInt(levelAttribute.value) : NaN;
-    if (Number.isFinite(attributeLevel) && attributeLevel > 0) return attributeLevel;
+    if (Number.isFinite(attributeLevel) && attributeLevel >= 0) return attributeLevel;
 
     const group = row.closest && row.closest(
         ".ct-content-group,.ddbc-content-group,[class*='contentGroup']"
@@ -6351,6 +7109,7 @@ function wayBeyond20SpellRowLevel(row, meta = "") {
         ".ct-content-group__header,.ddbc-content-group__header,[class*='header']"
     );
     const headerLevel = wayBeyond20SpellSlotHeaderLevel(header);
+    if (/\bcantrips?\b/i.test(header?.textContent || "")) return 0;
     if (headerLevel) return headerLevel;
 
     const match = String(meta || "").match(/\b(\d+)(?:st|nd|rd|th)\s+level\b/i);
@@ -6559,8 +7318,17 @@ async function wayBeyond20SpendPaladinSmiteFreeUse() {
         spent = !!(live && live.used);
         if (!spent && pageResult && pageResult.spent) spent = await wayBeyond20WaitForPaladinSmiteUsed(5);
         if (!spent && live && live.button && !live.used) {
+            const button = live.button;
+            const replay = button.getAttribute("data-waybeyond20-resource-replay");
             try {
-                live.button.click();
+                button.setAttribute("data-waybeyond20-resource-replay", "true");
+                // The original Smite has already performed. Let DDB mark its use
+                // without re-entering our native spell-Cast interception.
+                try { button.click(); }
+                finally {
+                    if (replay === null) button.removeAttribute("data-waybeyond20-resource-replay");
+                    else button.setAttribute("data-waybeyond20-resource-replay", replay);
+                }
                 spent = await wayBeyond20WaitForPaladinSmiteUsed(10);
             } catch (error) {
                 wayBeyond20CharacterDebug("Paladin's Smite native Use click failed", { error: String(error) });
@@ -6713,6 +7481,15 @@ async function wayBeyond20BuildSmiteOptions() {
     }
     if (smites.length === 0) return null;
     return { smites, fuels };
+}
+
+function wayBeyond20MayHaveSmiteAfterHit() {
+    if (!wayBeyond20CharacterHelperEnabled("paladin-smite-prompt") || !wayBeyond20HasAvailableBonusAction()) return false;
+    const rows = wayBeyond20FindSmiteRows();
+    // A prepared list we actually observed can rule Smite out without navigating.
+    // An unmounted, never-observed list is unknown, not proof of no capability.
+    // Do not gate homebrew/feat/item-granted spells by the character's class.
+    return rows.length > 0 || wayBeyond20PreparedSmiteCache === null;
 }
 
 async function wayBeyond20QuerySmite(options) {
@@ -6936,6 +7713,8 @@ function wayBeyond20IsSmiteEligibleAttack(rollProperties, properties, isMeleeSha
 }
 
 async function wayBeyond20MaybeAddSmite(rollProperties, isEligibleAttack) {
+    // The originating attack's turn is authoritative even if damage is deferred.
+    if (rollProperties["waybeyond20-attack-context"]?.isOwnTurn === false) return null;
     if (rollProperties && typeof wayBeyond20QueueAttackFollowup === "function" && !rollProperties["waybeyond20-hit-confirmed"]) {
         wayBeyond20QueueAttackFollowup(rollProperties, isEligibleAttack);
         return null;
@@ -6957,7 +7736,14 @@ async function wayBeyond20MaybeAddSmite(rollProperties, isEligibleAttack) {
 }
 
 async function wayBeyond20AddSelectedSmite(rollProperties, originalTab) {
-    const options = await wayBeyond20BuildSmiteOptions();
+    let options;
+    try {
+        options = await wayBeyond20BuildSmiteOptions();
+    } finally {
+        // Discovery reads native controls, but must not leave the player on Spells
+        // while the chooser is open. Resource spending reopens its own controls.
+        wayBeyond20RestoreCharacterSheetTab(originalTab);
+    }
     if (!options) return null;
     const selection = await wayBeyond20QuerySmite(options);
     if (!selection || !selection.smite || !selection.fuel) return null;
@@ -7073,11 +7859,18 @@ function wayBeyond20FindNumericFeaturePool(featureHeading) {
 async function wayBeyond20SpendNumericFeaturePool(featureHeading, amount) {
     const requested = Math.max(0, parseInt(amount) || 0);
     if (!requested) return true;
+    const owner = character;
+    const widgetFor = state => state.decrease[0]?.closest(".ct-slot-manager-large,.ddbc-slot-manager-large");
+    const pendingFor = widget => widget?.querySelector(".ct-slot-manager-large__diff,.ddbc-slot-manager-large__diff");
     const initial = wayBeyond20FindNumericFeaturePool(featureHeading);
-    if (initial.current === null || !initial.decrease.length) return false;
-    const expected = Math.max(0, initial.current - requested);
+    if (initial.current === null || !initial.decrease.length || requested > initial.current) return false;
+    // The minus button changes a preview, not saved uses. Never include an
+    // already-pending manual adjustment in our confirmation.
+    if (!widgetFor(initial) || pendingFor(widgetFor(initial))) return false;
+    const expected = initial.current - requested;
 
     for (let index = 0; index < requested; index++) {
+        if (character !== owner) return false;
         const before = wayBeyond20FindNumericFeaturePool(featureHeading);
         if (before.current === null || before.current <= expected || !before.decrease.length) break;
         before.decrease[0].click();
@@ -7087,8 +7880,26 @@ async function wayBeyond20SpendNumericFeaturePool(featureHeading, amount) {
             if (after.current !== null && after.current < before.current) break;
         }
     }
+    if (character !== owner) return false;
     const final = wayBeyond20FindNumericFeaturePool(featureHeading);
-    return final.current !== null && final.current <= expected;
+    if (final.current !== expected) return false;
+    const pending = pendingFor(widgetFor(final));
+    const delta = pending?.querySelector(".ct-slot-manager-large__diff-explain,.ddbc-slot-manager-large__diff-explain");
+    if (!delta || wayBeyond20ParseInteger(delta.textContent) !== -requested) return false;
+    const confirms = Array.from(pending.querySelectorAll("button")).filter(button =>
+        button.textContent.trim().toLowerCase() === "confirm" && !button.disabled);
+    if (confirms.length !== 1) return false;
+    confirms[0].click();
+    // One native commit. A still-pending preview is never reported as saved;
+    // failure is left for manual reconciliation rather than retrying a spend.
+    for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (character !== owner) return false;
+        const saved = wayBeyond20FindNumericFeaturePool(featureHeading);
+        const widget = widgetFor(saved);
+        if (widget && saved.current === expected && !pendingFor(widget)) return true;
+    }
+    return false;
 }
 
 // Lay on Hands (Paladin): as a Bonus Action, touch a creature (which could be yourself) and restore
@@ -7534,12 +8345,16 @@ async function wayBeyond20RollPaladinSpecialAction(actionName, actionParent, des
     return { handled: false, result: null };
 }
 
-async function rollAction(paneClass, force_to_hit_only = false, force_damages_only = false) {
+async function rollAction(paneClass, force_to_hit_only = false, force_damages_only = false, force_roll_mode = null, attack_context = null) {
+    if (attack_context && !wayBeyond20AttackContextCurrent(attack_context)) return false;
     if (key_modifiers["display_attack"]) {
         return displayAction(paneClass);
     }
     // b20-action-pane and ct-custom-action-page both use ct-action-detail for the details
     const properties = propertyListToDict($(`.${paneClass} [role=list] > div, .${paneClass} .ct-action-detail [role=list] > div`));
+    if (attack_context?.kind === "opportunity" && !properties["Attack Type"] &&
+        /\breach\b/i.test(properties["Range/Area"] || properties["Reach"] || ""))
+        properties["Attack Type"] = "Melee";
     //console.log("Properties are : " + String(properties));
     const action_name = $(".ct-sidebar__heading").text();
     const action_parent = $(".ct-sidebar__header-parent").text();
@@ -7613,7 +8428,8 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
             critical_limit = 19;
 
         // 2024 brutal strike add extra die and apply GWF
-        if (character.getSetting("brutal-strike") && character.hasClassFeature("Brutal Strike"))  {  
+        if (character.getSetting("brutal-strike") && character.hasClassFeature("Brutal Strike") &&
+            (!attack_context || wayBeyond20AttackRiderAllowed(attack_context, "Brutal Strike"))) {
             let strikeDieCount = character.hasClassFeature("Improved Brutal Strike") ? 2 : 1; 
 
             let brutal_strike_dmg = applyGWFIfRequired(action_name, properties, `${strikeDieCount}d10`);
@@ -7650,14 +8466,14 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
             "enhanced unarmed strike",
             "flurry of blows"
         ];
-        const isMeleeAttack = includesNormalized(meleeActions, action_name);
+        const isMeleeAttack = /^(Melee|Unarmed Strike)$/i.test(properties["Attack Type"] || "") || includesNormalized(meleeActions, action_name);
         
         const isRangedAttack = action_name.includes("Lightning Launcher");
 
-        to_hit = handleSpecialGeneralAttacks(damages, damage_types, properties, settings_to_change, {to_hit, action_name});
+        to_hit = handleSpecialGeneralAttacks(damages, damage_types, properties, settings_to_change, {to_hit, action_name, attack_context});
 
         if (isMeleeAttack || isRangedAttack) {
-            to_hit = handleSpecialWeaponAttacks(damages, damage_types, properties, settings_to_change, {to_hit, action_name});
+            to_hit = handleSpecialWeaponAttacks(damages, damage_types, properties, settings_to_change, {to_hit, action_name, attack_context});
             if (character.hasClassFeature("Improved Critical"))
                 critical_limit = 19;
             if (character.hasClassFeature("Invincible Conqueror") &&
@@ -7678,7 +8494,7 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
 
         const effects = [];
         if (isMeleeAttack) {
-            to_hit = handleSpecialMeleeAttacks(damages, damage_types, properties, settings_to_change, { to_hit, action_name, effects });
+            to_hit = handleSpecialMeleeAttacks(damages, damage_types, properties, settings_to_change, { to_hit, action_name, effects, attack_context });
         }
 
         if (isRangedAttack) {
@@ -7724,7 +8540,8 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
 
         // Asssassinate: consider all rolls as critical;
         if (character.hasClassFeature("Assassinate") &&
-            character.getSetting("rogue-assassinate", false)) {
+            character.getSetting("rogue-assassinate", false) &&
+            (!attack_context || wayBeyond20AttackRiderAllowed(attack_context, "Assassinate"))) {
             roll_properties["critical-limit"] = 1;
             roll_properties["advantage"] = RollType.OVERRIDE_ADVANTAGE;
             
@@ -7732,7 +8549,8 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
             if(!isLocked) settings_to_change["rogue-assassinate"] = false;
         }
         if (character.hasClassFeature("Assassinate 2024") &&
-            character.getSetting("rogue-assassinate-2024", false)) {
+            character.getSetting("rogue-assassinate-2024", false) &&
+            (!attack_context || wayBeyond20AttackRiderAllowed(attack_context, "Assassinate 2024"))) {
             roll_properties["advantage"] = RollType.OVERRIDE_ADVANTAGE;
 
             const isLocked = character.getSetting("rogue-assassinate-lock", false);
@@ -7753,6 +8571,7 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
             });
             wayBeyond20AttachNativeActionUse(roll_properties, action_name);
         }
+        if (attack_context && !await wayBeyond20ConfirmAttackContext(attack_context, roll_properties)) return false;
         await wayBeyond20MaybeAddSmite(
             roll_properties,
             wayBeyond20IsSmiteEligibleAttack(roll_properties, properties,
@@ -7761,6 +8580,11 @@ async function rollAction(paneClass, force_to_hit_only = false, force_damages_on
                     roll_properties["attack-type"] === "Melee" || roll_properties["attack-type"] === "Unarmed Strike"
                     ))
         );
+        if (force_roll_mode !== null && roll_properties.rollAttack) {
+            roll_properties.advantage = force_roll_mode;
+            roll_properties["waybeyond20-query-attack-mode"] = force_roll_mode === RollType.QUERY;
+            roll_properties["waybeyond20-explicit-attack-mode"] = force_roll_mode;
+        }
         return sendRollWithCharacter("attack", damages[0], roll_properties);
     } else {
         const rollProperties = {
@@ -8323,20 +9147,21 @@ function wayBeyond20ApplyRitualMode(rollProperties, ritualMode) {
     addEffect(rollProperties, "Cast as a Ritual; no spell slot expended");
 }
 
-async function rollSpell(force_display = false, force_to_hit_only = false, force_damages_only = false, nativeCast = null) {
+async function rollSpell(force_display = false, force_to_hit_only = false, force_damages_only = false, nativeCast = null, force_roll_mode = null, attack_context = null) {
     const properties = propertyListToDict($(".ct-spell-pane .ct-spell-detail [role=list] > div"));
     //console.log("Properties are : " + String(properties));
     const spell_source = $(".ct-sidebar__header-parent").text() || $(".ct-sidebar__header > div").text();
     const spell_full_name = $(".ct-sidebar__heading .ct-spell-name,.ct-sidebar__heading .ddbc-spell-name, .ct-sidebar__heading span[class*='styles_spellName']").text();
     const spell_name = $(".ct-sidebar__heading .ct-spell-name,.ct-sidebar__heading .ddbc-spell-name, .ct-sidebar__heading span[class*='styles_spellName']")[0].firstChild.textContent;
     const description = descriptionToString(`.ct-spell-pane .ct-spell-detail__description, .ct-spell-pane div[class*='styles_description']`);
+    if (attack_context && !await wayBeyond20ConfirmReactiveSpell(attack_context, properties, spell_name, description)) return false;
     const damage_modifiers = $(".ct-spell-pane .ct-spell-caster__modifiers--damages .ct-spell-caster__modifier--damage");
     const healing_modifiers = $(".ct-spell-pane .ct-spell-caster__modifiers--healing .ct-spell-caster__modifier--hp");
     const temp_hp_modifiers = $(".ct-spell-pane .ct-spell-caster__modifiers--healing .ct-spell-caster__modifier--temp");
     const castas = $(".ct-spell-caster__casting-level-current").text();
     const level = $(".ct-spell-pane .ct-spell-detail__level-school-item").toArray().map((i) => i.textContent).join(" ");
     const ritual = $(".ct-spell-pane .ct-spell-name__icon--ritual,.ct-spell-pane .ddbc-spell-name__icon--ritual, .ct-spell-pane .ct-sidebar__header-primary ddbc-ritual-icon").length > 0;
-    const waybeyond20_ritual_mode = await wayBeyond20ChooseRitualMode({ ritual, forceDisplay: force_display });
+    const waybeyond20_ritual_mode = attack_context ? "normal" : await wayBeyond20ChooseRitualMode({ ritual, forceDisplay: force_display });
     if (waybeyond20_ritual_mode === null) return;
     if (waybeyond20_ritual_mode === "display") force_display = true;
     let concentration = $(".ct-spell-pane .ct-spell-name__icon--concentration,.ct-spell-pane .ddbc-spell-name__icon--concentration, .ct-spell-pane .ct-sidebar__header-primary ddbc-concentration-icon").length > 0;
@@ -8400,7 +9225,7 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
         if (damages.length > 0) {
             wayBeyond20ApplySpellcastingModifierToDamage(damages, damage_types, {spellcasting_source: waybeyond20_scroll_spellcasting.source, description});
 
-            to_hit = handleSpecialGeneralAttacks(damages, damage_types, properties, settings_to_change, {to_hit, spell_name, spell_level: level});
+            to_hit = handleSpecialGeneralAttacks(damages, damage_types, properties, settings_to_change, {to_hit, spell_name, spell_level: level, attack_context});
         
             handleSpecialSpells(spell_name, damages, damage_types, {spell_level: level, spell_source, castas});
         }
@@ -8495,7 +9320,8 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
         let waybeyond20_spell_effect_plan = null;
         if (!force_display && wayBeyond20ShouldTrackSpellEffect(concentration, duration)) {
             const waybeyond20_spell_effect = wayBeyond20BuildSpellEffect(character, spell_name, spell_source, level, castas, concentration, duration, properties, waybeyond20_talent);
-            waybeyond20_spell_effect_plan = await wayBeyond20ApplySpellEffectWithTargets(character, waybeyond20_spell_effect, waybeyond20_talent);
+            waybeyond20_spell_effect_plan = await wayBeyond20ApplySpellEffectWithTargets(character, waybeyond20_spell_effect, waybeyond20_talent,
+                {singleOtherTarget: attack_context?.kind === "reactive-spell"});
             if (waybeyond20_spell_effect_plan === null) return;
             roll_properties["waybeyond20-spell-effect"] = waybeyond20_spell_effect;
             if (concentration) roll_properties["waybeyond20-concentration"] = waybeyond20_spell_effect;
@@ -8503,7 +9329,8 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
 
         // Asssassinate: consider all rolls as critical;
         if (character.hasClassFeature("Assassinate") &&
-            character.getSetting("rogue-assassinate", false)) {
+            character.getSetting("rogue-assassinate", false) &&
+            (!attack_context || wayBeyond20AttackRiderAllowed(attack_context, "Assassinate"))) {
             roll_properties["critical-limit"] = 1;
             roll_properties["advantage"] = RollType.OVERRIDE_ADVANTAGE;
             
@@ -8511,7 +9338,8 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
             if(!isLocked) settings_to_change["rogue-assassinate"] = false;
         }
         if (character.hasClassFeature("Assassinate 2024") &&
-            character.getSetting("rogue-assassinate-2024", false)) {
+            character.getSetting("rogue-assassinate-2024", false) &&
+            (!attack_context || wayBeyond20AttackRiderAllowed(attack_context, "Assassinate 2024"))) {
             roll_properties["advantage"] = RollType.OVERRIDE_ADVANTAGE;
 
             const isLocked = character.getSetting("rogue-assassinate-lock", false);
@@ -8541,6 +9369,12 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
         });
         if (!force_display && waybeyond20_ritual_mode === "normal" && nativeCast)
             wayBeyond20CommitAfterDispatch(roll_properties, nativeCast);
+        if (force_roll_mode !== null && roll_properties.rollAttack) {
+            roll_properties.advantage = force_roll_mode;
+            roll_properties["waybeyond20-query-attack-mode"] = force_roll_mode === RollType.QUERY;
+            roll_properties["waybeyond20-explicit-attack-mode"] = force_roll_mode;
+        }
+        if (attack_context && !await wayBeyond20ConfirmAttackContext(attack_context, roll_properties)) return false;
         return sendRollWithCharacter("spell-attack", damages[0] || "", roll_properties);
     } else {
         const roll_properties = {
@@ -8567,7 +9401,8 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
         wayBeyond20ApplyRitualMode(roll_properties, waybeyond20_ritual_mode);
         if (!force_display && wayBeyond20ShouldTrackSpellEffect(concentration, duration)) {
             const waybeyond20_spell_effect = wayBeyond20BuildSpellEffect(character, spell_name, spell_source, level, castas, concentration, duration, properties, waybeyond20_talent);
-            const waybeyond20_spell_effect_plan = await wayBeyond20ApplySpellEffectWithTargets(character, waybeyond20_spell_effect, waybeyond20_talent);
+            const waybeyond20_spell_effect_plan = await wayBeyond20ApplySpellEffectWithTargets(character, waybeyond20_spell_effect, waybeyond20_talent,
+                {singleOtherTarget: attack_context?.kind === "reactive-spell"});
             if (waybeyond20_spell_effect_plan === null) return;
             roll_properties["waybeyond20-spell-effect"] = waybeyond20_spell_effect;
             if (concentration) roll_properties["waybeyond20-concentration"] = waybeyond20_spell_effect;
@@ -8586,6 +9421,7 @@ async function rollSpell(force_display = false, force_to_hit_only = false, force
         });
         if (!force_display && waybeyond20_ritual_mode === "normal" && nativeCast)
             wayBeyond20CommitAfterDispatch(roll_properties, nativeCast);
+        if (attack_context && !await wayBeyond20ConfirmAttackContext(attack_context, roll_properties)) return false;
         return sendRollWithCharacter("spell-card", 0, roll_properties);
     }
 }
@@ -8700,7 +9536,7 @@ function handleCustomText(paneClass) {
     return customRolls;
 }
 
-async function execute(paneClass, {force_to_hit_only = false, force_damages_only = false, force_versatile = false, spell_group=null, nativeCast=null}={}) {
+async function execute(paneClass, {force_to_hit_only = false, force_damages_only = false, force_versatile = false, spell_group=null, nativeCast=null, force_roll_mode=null, attack_context=null}={}) {
     console.log("WayBeyond20: Executing panel : " + paneClass, force_to_hit_only, force_damages_only, force_versatile);
     const rollCustomText = async (customTextList) => {
         for (const customText of customTextList) {
@@ -8712,6 +9548,7 @@ async function execute(paneClass, {force_to_hit_only = false, force_damages_only
      };
      
     const customTextRolls = handleCustomText(paneClass);
+    let result = false;
     await rollCustomText(customTextRolls.before);
     if (customTextRolls.replace.length > 0) {
         await rollCustomText(customTextRolls.replace);
@@ -8727,11 +9564,11 @@ async function execute(paneClass, {force_to_hit_only = false, force_damages_only
             else if (paneClass == "b20-initiative-pane")
                 await rollInitiative();
             else if (paneClass == "b20-item-pane")
-                await rollItem(false, force_to_hit_only, force_damages_only, force_versatile, spell_group);
+                result = await rollItem(false, force_to_hit_only, force_damages_only, force_versatile, spell_group, force_roll_mode, ...(attack_context ? [attack_context] : []));
             else if (["b20-action-pane", "ct-custom-action-pane", "b20-custom-action-pane"].includes(paneClass))
-                await rollAction(paneClass, force_to_hit_only, force_damages_only);
+                result = await rollAction(paneClass, force_to_hit_only, force_damages_only, force_roll_mode, ...(attack_context ? [attack_context] : []));
             else if (paneClass == "ct-spell-pane")
-                await rollSpell(false, force_to_hit_only, force_damages_only, nativeCast);
+                result = await rollSpell(false, force_to_hit_only, force_damages_only, nativeCast, force_roll_mode, ...(attack_context ? [attack_context] : []));
             else
                 await displayPanel(paneClass);
         } finally {
@@ -8739,6 +9576,7 @@ async function execute(paneClass, {force_to_hit_only = false, force_damages_only
         }
     }
     await rollCustomText(customTextRolls.after);
+    return result;
 }
 
 function displayPanel(paneClass) {
@@ -8844,7 +9682,20 @@ function checkAndInjectDiceToRolls(selector, name = "") {
 }
 
 function addRollButtonEx(paneClass, where, options) {
-    addRollButton(character, () => execute(paneClass), where, options);
+    const attackPane = ["b20-item-pane", "b20-action-pane", "ct-custom-action-pane", "b20-custom-action-pane", "ct-spell-pane"].includes(paneClass);
+    const contextMenu = attackPane ? event => {
+        const pane = document.querySelector("." + paneClass);
+        if (!pane) return;
+        const properties = propertyListToDict($(pane).find("[role=list] > div"));
+        // Do not offer d20 choices for damage-only features or utility spells.
+        if (properties["To Hit"] === undefined || properties["To Hit"] === "--") return;
+        swallowRollEvent(event);
+        const owner = character;
+        const name = $(pane).find(".ct-sidebar__heading").text().trim();
+        wayBeyond20ShowAttackMenu(event.currentTarget, mode => execute(paneClass, {force_roll_mode:mode}),
+            () => character === owner && pane.isConnected && $(pane).find(".ct-sidebar__heading").text().trim() === name);
+    } : null;
+    addRollButton(character, () => execute(paneClass), where, {...options, contextMenu});
 }
 
 function addDisplayButtonEx(paneClass, where, options) {
@@ -9369,6 +10220,8 @@ var quick_roll = false;
 var quick_roll_force_attack = false;
 var quick_roll_force_damage = false;
 var quick_roll_force_versatile = false;
+var quick_roll_force_mode = null;
+var quick_roll_mode_target = null;
 var quick_roll_timeout = 0;
 
 
@@ -9421,10 +10274,14 @@ function activateQuickRolls() {
     } = deactivateQuickRolls();
 
     // The attack icon is a direct full-roll shortcut even when hover quick rolls are off.
-    actions.addClass("wb20-full-attack").attr({
-        role: "button", tabindex: "0",
-        title: "Roll attack and damage",
-        "aria-label": "Roll attack and damage"
+    actions.addClass("wb20-full-attack").each(function() {
+        const attrs = {role: "button", tabindex: "0"};
+        if (!this.closest('[data-wb20-action-cost]')) {
+            attrs.title = "Roll attack and damage. Right-click to choose Advantage or Disadvantage.";
+            attrs["aria-label"] = "Roll attack and damage";
+        }
+        for (const [key, value] of Object.entries(attrs))
+            if (this.getAttribute(key) !== value) this.setAttribute(key, value);
     });
 
     if (!settings["quick-rolls"])
@@ -9568,15 +10425,25 @@ function activateQuickRolls() {
 
 function executeQuickRoll(paneClass) {
     quick_roll_timeout = 0;
+    if (!quick_roll) return;
+    const modeTarget = quick_roll_mode_target;
+    if (modeTarget && (character !== modeTarget.owner ||
+        $("." + paneClass).find(".ct-sidebar__heading").text().trim() !== modeTarget.name)) {
+        resetHijackQuickRollState();
+        return;
+    }
     console.log("EXECUTING QUICK ROLL!");
     execute(paneClass, {
         force_to_hit_only: quick_roll_force_attack,
         force_damages_only: quick_roll_force_damage,
-        force_versatile: quick_roll_force_versatile
+        force_versatile: quick_roll_force_versatile,
+        force_roll_mode: quick_roll_force_mode
     });
     quick_roll_force_attack = false;
     quick_roll_force_damage = false;
     quick_roll_force_versatile = false;
+    quick_roll_force_mode = null;
+    quick_roll_mode_target = null;
     quick_roll = false;
 }
 
@@ -9598,6 +10465,7 @@ function documentModified(mutations, observer) {
     wayBeyond20InjectBardicInspirationButton();
     wayBeyond20InjectLayOnHandsControls();
     activateQuickRolls();
+    wayBeyond20RefreshCombinedActions();
     if (character._features_needs_refresh && !character._features_refresh_warning_displayed) {
         character._features_refresh_warning_displayed = true;
         alertify.alert("This is a new or recently leveled-up character sheet and WayBeyond20 needs to parse its information. <br/>Please select the <strong>'Features &amp; Traits'</strong> panel on your DnDBeyond Character Sheet for WayBeyond20 to parse this character's features and populate the character-specific options.");
@@ -9643,8 +10511,12 @@ function documentModified(mutations, observer) {
     function handlePane(paneClass) {
         console.log("WayBeyond20: New side panel is : " + paneClass);
         injectRollButton(paneClass);
-        if (quick_roll) {
-            if (quick_roll_timeout > 0) clearTimeout(quick_roll_timeout);
+        // A prior sidebar may still be mounted during the new pane's handoff.
+        if (quick_roll_mode_target && (character !== quick_roll_mode_target.owner ||
+            $("." + paneClass).find(".ct-sidebar__heading").text().trim() !== quick_roll_mode_target.name)) return;
+        if (quick_roll && !quick_roll_timeout) {
+            // DDB can keep mutating faster than 50ms. Re-arming on every
+            // observer callback starves the requested roll indefinitely.
             quick_roll_timeout = setTimeout(() => executeQuickRoll(paneClass), 50);
         }
     }
@@ -9657,7 +10529,7 @@ function documentModified(mutations, observer) {
     
     const pane = $(SUPPORTED_PANES.map(pane => `.${pane}`).join(","));
     if (pane.length > 0) {
-        pane.each((_, div) => handlePane(div.className));
+        pane.each((_, div) => handlePane(SUPPORTED_PANES.find(name => div.classList.contains(name))));
     } else {
         const sidebar = $(".ct-sidebar__portal .ct-sidebar__header");
         if (sidebar.length > 0) {
@@ -9947,9 +10819,10 @@ function swallowRollEvent(event) {
     }
 }
 
-function handleCombatAttackIntegratedDie(button) {
+function handleCombatAttackIntegratedDie(button, force_roll_mode = null) {
     const row = button.closest(".ct-combat-attack, .ddbc-combat-attack");
     if (!row) return false;
+    const owner = character;
 
     const isToHit = !!button.closest(".ct-combat-attack__tohit, .ddbc-combat-attack__tohit");
     const damageCell = button.closest(".ct-combat-attack__damage, .ddbc-combat-attack__damage");
@@ -9997,10 +10870,13 @@ function handleCombatAttackIntegratedDie(button) {
                 if ($(selector).length > 0) break;
                 await new Promise(resolve => setTimeout(resolve, 50));
             }
+            if (character !== owner || row.isConnected === false ||
+                $("." + paneClass).find(".ct-sidebar__heading").text().trim() !== name) return;
             execute(paneClass, {
                 force_to_hit_only: isToHit,
                 force_damages_only: isDamage,
-                force_versatile: forceVersatile
+                force_versatile: forceVersatile,
+                ...(force_roll_mode === null ? {} : { force_roll_mode })
             });
         };
         waitForPane();
@@ -10008,6 +10884,8 @@ function handleCombatAttackIntegratedDie(button) {
         quick_roll_force_attack = isToHit;
         quick_roll_force_damage = isDamage;
         quick_roll_force_versatile = forceVersatile;
+        quick_roll_force_mode = force_roll_mode;
+        quick_roll_mode_target = { owner, name };
         quick_roll = true;
 
         $(row)
@@ -10166,6 +11044,8 @@ function resetHijackQuickRollState() {
     quick_roll_force_attack = false;
     quick_roll_force_damage = false;
     quick_roll_force_versatile = false;
+    quick_roll_force_mode = null;
+    quick_roll_mode_target = null;
 
     if (quick_roll_timeout > 0) {
         clearTimeout(quick_roll_timeout);
@@ -10269,7 +11149,28 @@ function installDDBRollHijack() {
 
     window.addEventListener("click", interceptClick, true);
 
+    // Open options before entering execute/preflight. The native numeric dice
+    // retain their own menus; the full-attack icon shares the red button's menu.
+    const chooseAttackMode = (event) => {
+        const icon = event.target.closest(".ct-combat-attack__icon,.ddbc-combat-attack__icon");
+        if (!icon || !icon.closest(".ct-combat-attack,.ddbc-combat-attack")) return false;
+        swallowRollEvent(event);
+        ddbHijackPointerHandled = false;
+        const owner = character;
+        const row = icon.closest(".ct-combat-attack,.ddbc-combat-attack");
+        if (!row.querySelector(".ct-combat-attack__tohit .integrated-dice__container,.ddbc-combat-attack__tohit .integrated-dice__container")) return true;
+        const name = $(row).find(".ct-combat-attack__label,.ddbc-combat-attack__label").first().text();
+        wayBeyond20ShowAttackMenu(icon, mode => handleCombatAttackIntegratedDie(icon, mode),
+            () => character === owner && row.isConnected && $(row).find(".ct-combat-attack__label,.ddbc-combat-attack__label").first().text() === name);
+        return true;
+    };
+    window.addEventListener("contextmenu", chooseAttackMode, true);
+
     window.addEventListener("keydown", (event) => {
+        if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+            chooseAttackMode(event);
+            return;
+        }
         if (event.key !== "Enter" && event.key !== " ") return;
 
         const target = event.target.closest(selector);

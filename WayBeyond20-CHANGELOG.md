@@ -1,5 +1,442 @@
 # WayBeyond20 Changelog
 
+## v1.73.2 - Proficiency and saving-throw sync, 2026-10-21 (local candidate)
+
+Extension version 2.20.129. PATCH. Recognizes DDB's accessible proficiency
+labels as well as tooltip wording; writes native 2014 skill proficiency and
+expertise fields using the sheet's checkbox expressions. Copies displayed
+saving-throw totals and proficiency into native and wb20_* macro attributes.
+Unknown/missing data is not treated as zero. No combat or resource changes.
+Regression tests pass; live macro retest pending extension reload. Not published.
+
+## v1.73.1 - 2014 Roll20 sheet fields, 2026-10-20 (local candidate)
+
+Extension version 2.20.128. PATCH. Writes the 2014 sheet's displayed ability
+scores and modifiers, proficiency bonus, AC, speed, passive Perception, skill
+bonuses, and vision attributes in addition to the `wb20_*` macro fields. A
+2014 sheet may not run its sheet workers when attributes are created from the
+VTT page, so base scores alone are insufficient. Live DDB-to-Roll20 delivery
+worked after confirming and saving the opt-in switch; native 2014 fields await
+the next extension reload and live acceptance. Not published.
+
+## v1.73.0 - Optional DDB to Roll20 core-data sync, 2026-10-20 (local candidate)
+
+Extension version 2.20.127. MINOR. Adds an opt-in Roll20-only transfer of DDB
+ability scores, skill bonuses, passive scores, senses, proficiency bonus, AC
+and speed. The values are exposed as `wb20_*` Roll20 attributes for macros.
+Supported 2014 sheets also receive base ability scores; a loaded 2024 sheet
+receives ability-score, AC and sense entries in its native store. Name matching
+must be unique; uncertain senses are not cleared. No spells, inventory,
+features, HP or combat state are imported by this new path. Automated checks
+pass; live Roll20 2024 sheet and Wren-macro acceptance remain unverified. The
+new setting is off by default. This candidate is not published.
+
+## v1.72.4 - Preserve combat during Roll20 loading, 2026-10-20 (not published)
+
+Extension version 2.20.126. PATCH. Live Roll20 refresh zeroed the WB20 turn
+number and refilled a spent Reaction without changing initiative. The producer
+now waits while the editor loading overlay/document is loading or campaign/page
+data is unavailable. Unknown/malformed order data is not an ended battle. A
+loaded empty order still ends combat. New real-producer/real-receiver regression
+reproduced the premature end before the fix and passes afterward, covering
+spent resources, own-turn resets, duplicates, refresh, target retention and
+genuine end/restart. Live full rotation passed on 1.72.3; original order and
+counters restored. Live acceptance of the loading correction awaits reload.
+
+## v1.72.3 - Immediate target edit feedback, 2026-10-20 (not published)
+
+Extension version 2.20.125. PATCH. Live 1.72.2 still missed the second Undo in
+both orders. Target edits now reconcile from synchronous in-memory state before
+the next gesture is aimed, rather than waiting for the storage callback. The
+existing save queue and pressed-pointer guard remain unchanged. Expanded browser
+regression covers delayed paint before pointerdown as well as during a press;
+both orders, keyboard and cancellation pass. Live acceptance awaits reload.
+
+## v1.72.2 - Rapid target Undo, 2026-10-20 (not published)
+
+Extension version 2.20.124. PATCH. Defer target-panel DOM updates while a pointer
+is pressed; release, cancellation or window blur resumes the existing refresh.
+Prevents a shortened history/page from moving the second button between press
+and release. No save-queue changes: real writer tests already preserve both
+Undo orders with delayed storage and reversed broadcasts. Browser regression
+reproduces the lost click before the fix and passes after, including keyboard,
+cancelled gestures and unchanged economy. Live acceptance awaits reload.
+
+## v1.72.1 - Attack handoff and target drafts, 2026-10-20 (not published)
+
+Extension version 2.20.123. PATCH: do not debounce a pending roll indefinitely
+under frequent DDB mutations; use canonical pane classes and bind ordinary
+icon handoffs to the selected name/owner too. Keep target input nodes across
+record, initiative and resource updates. Patch saved summaries/history in place;
+retain focus, draft values, damage type and disclosure. Clear submitted fields
+immediately, not during the later refresh. Different targets receive clean fields.
+Both new regressions fail before and pass after. Live acceptance awaits reload.
+
+## v1.72.0 - Manual Roll20 token linking, 2026-10-20 (not published)
+
+Extension version 2.20.122. MINOR for the new compatible Link My Token menu
+control, PATCH reset. Choose one existing turn-order token without rerolling
+initiative. Replaces both stored binding fields, not combat state or any Roll20
+data. Current ID or unique matching name is preselected but requires explicit
+confirmation. Duplicate names display IDs; stale choices and character changes
+are rejected, Cancel is inert. Rendered regression and existing distance/economy
+checks pass. Live binding/distance acceptance awaits reload.
+
+## v1.71.2 - Keep Combat below the sheet, 2026-10-20 (not published)
+
+Extension version 2.20.121. PATCH: reconcile wrapper placement on the existing
+debounced DDB update path, before the unchanged-state early return. Move the
+existing tracker rather than recreating it, including when the preferred host
+changes. Preserve focused controls and scroll position. Stable updates do not
+reorder the wrapper. Regression recreates native content appended after Combat,
+verifies unchanged state/input/compass identity, and checks observer settling.
+Local verification is separate from live acceptance after extension reload.
+
+## v1.71.1 - Compass text clearance and distance diagnostics, 2026-10-20 (not published)
+
+Extension version 2.20.120. PATCH: lower/wider rim clears the side names without
+changing header height or their tilt. Regression samples the rendered SVG curve
+against the text bounds for Swarm of Quippers names. Missing distance now gives
+the concrete input failure, including map scale, coordinates, layer or token
+identity. This does not claim the live numeric distance failure is fixed.
+Live 1.71.0 Select Target, Viewing/return and unchanged173.78px height passed.
+Calan and every enemy in this test initiative order were GM-layer tokens.
+Approved temporary Calan Tokens-layer self test still showed unavailable;
+there is an additional unresolved cause. No numeric distance acceptance yet.
+
+## v1.71.0 - Compass targeting and distance, 2026-10-20 (not published)
+
+Extension version 2.20.119. Compatible new target preview/distance capability;
+MINOR increment resets PATCH. Select Target chooses the centered token by ID.
+Browsing heading is Viewing; a small return arrow restores the current turn.
+Floating hover/focus/tap details show initiative, recorded AC, gross damage
+and type subtotals, plus straight-line center-to-center map distance. No new
+permanent row or height. No automatic collection of other players' damage.
+Roll20 exports only token-layer position/map scale fields for turn-order
+tokens. Position changes send an update without changing turnKey, resetting
+economy or reopening manually ended combat. Ambiguous/missing own-token or
+different-page positions show unavailable. Position-only updates preserve
+preview, target selection and unfinished inputs. Refresh both tabs after reload.
+Browser fixture and geometry/receiver tests pass. Live gate pending reload.
+
+## v1.70.2 - Shared compass front curve, 2026-10-20 (not published)
+
+Extension version 2.20.118. Bill's annotated visual replaces the individual
+ovals with one wide front curve. Current name 18px, receding side names,
+filled curved arrows. Removed center ellipse/ticks. No extra header height.
+Responsive layout, browsing/reset and scroll-preservation fixture passed.
+
+## v1.70.1 - Reverse compass tilt, 2026-10-20 (not published)
+
+Extension version 2.20.117. Reversed side-name rotateY and rotateZ directions
+at Bill's request. No center, layout-height, behavior or resource changes.
+Live 1.70.0 shows correct neighbors and one-row toolbar; browsing verification
+was interrupted by this visual correction. Do not claim live browse acceptance.
+
+## v1.70.0 - Interactive turn compass, 2026-10-20 (not published)
+
+Extension version 2.20.116. MINOR for the compatible turn-order browser; PATCH
+reset. Centered compass shows previous/current/next by Roll20 token identity
+and order, with perspective side names, curved arrows and sheet accent color.
+Side buttons browse without changing any combat/target state; Back to current
+returns to the active combatant. Real turn changes reset preview. Repeated
+refreshes do not trigger continuous animation; reduced-motion disables reveal.
+Source and turn number remain at far right. Responsive and functional fixture
+checks pass; live compass acceptance awaits reload. Compact 1.69.2 verified live.
+Target information is centered. Back to current replaces the small caption,
+not a new row. Local long-page tests verify stable header height and scroll
+position while browsing, returning, and receiving an active-token change.
+
+## v1.69.2 - Compact Combat layout, 2026-10-20 (not published)
+
+Extension version 2.20.115. Resources and My Target/New Turn/End Combat now
+share one wrapping toolbar. Target information is a horizontal row underneath
+inside the same themed frame, with on-demand Damage & history. Removed forced
+240px height and side-by-side target panel. Target state is preserved across
+Combat rerenders; theme-only refresh retains unfinished input. Local regression
+checks desktop single-row controls, target placement, 320-1200px widths, Haste,
+long target names, AC/damage persistence and End Combat cleanup. Live compact
+layout awaits reload. Previous 1.69.1 native theme verified live on Calan.
+
+## v1.69.1 - My Target sheet theme, 2026-10-20 (not published)
+
+Extension version 2.20.114. My Target reuses Combat's native sheet theme and
+frame instead of following OS dark mode independently. Select-menu surfaces
+match the sheet. Decorative edges have a safe inset; theme-only updates retain
+focused inputs. Local light/dark theme and responsive layout regression passed.
+Live theme acceptance awaits reload. Fresh battle names and initiatives passed
+live on 1.69.0: Zombie 1 = 18, Calan = 10.17. No counters or turns changed.
+
+## v1.69.0 - Typed formula parts and My Target, 2026-10-20 (not published)
+
+Extension version 2.20.113. MINOR for compatible new features, PATCH reset.
+Custom typed brace groups preserve each type's complete formula and the global
+fallback; shared renderer shows type subtotals and one total without rerolling.
+My Target uses the existing Roll20 token list plus initiative, with persistent
+per-target AC observations (attack total, Hit/Miss, Undo), and manual gross
+damage entries by type. AC follows Bill's narrowing sequence without a qualifier.
+No native HP writes or economy spending from target controls. Responsive panel.
+All core/regression and representative browser-fixture tests pass; Chrome and
+Firefox builds syntax checked. Live acceptance pending reload, not published.
+
+## v1.68.0 - Automatic descriptions and advanced custom dice, 2026-10-20 (not published)
+
+Extension version 2.20.112. MINOR for expanded compatible custom-roll features;
+PATCH resets to zero. Missing descriptions for remembered visible selections
+load in a bounded batch without casting. Native identity and interruption
+guards remain; cached text is reused, failed attempts do not loop endlessly.
+Manage's Automatic label is now Use detected category with the detected result.
+Custom grammar adds kh/kl/dh/dl, once-only ro<=N rerolls, minN group totals,
+decimal constants and standard damage-type labels. Limits: 100 base dice and
+240 characters; no scripts, variables, exploding dice or general arithmetic.
+Formula note uses Bill's final wording: Your dice formula will be shown with
+the result. No special disclosure or forced public roll; privacy is unchanged.
+Roll20 custom requests bypass prose substitution to preserve full notation.
+Roll20 handles each reroll term; Foundry translates combined group minimums.
+Deterministic local totals and transport translation tests pass, not live VTT
+acceptance. Custom damage type is a result label, not automatic HP application.
+
+## v1.67.4 - Empty native sidebar guard, 2026-10-20 (not published)
+
+Extension version 2.20.111. Inspection of Calan's closed sidebar showed a
+full-width, zero-height portal retained in the DOM. jQuery :visible treats its
+width as visible, so the broad portal guard blocked description loading.
+Guard the visible native sidebar header instead. Native-shaped zero-height
+portal regression failed before this fix and passes afterward. Existing
+open-sidebar protection still passes. Includes all 1.67.3 presentation changes.
+
+## v1.67.3 - Quiet spell defaults and clean selectors, 2026-10-20 (not published)
+
+Extension version 2.20.110. PATCH for quick-list presentation and defaults.
+Only Attack/Damage and Healing categories default visible; Manage explicitly
+enables other groups while preserving hidden choices and character isolation.
+Closed selectors display only the name. Expanded choices retain source/level
+so multiclass and upcast variants remain distinguishable. Transparent idle
+borders reveal on hover or keyboard focus without changing geometry.
+Hover text uses cached, exact-identity native descriptions, not inferred text.
+Selecting an uncached spell reads its native details without casting and returns
+to Actions; existing sidebars/dialogs are not disturbed. Hover never navigates.
+Missing descriptions are honestly labeled. Local tests are not live acceptance.
+Live 1.67.2 Starry Wisp now produced attack 11 and radiant damage 1, then returned
+to Actions. No VTT was connected, so delivery is not verified.
+
+## v1.67.2 - Cantrip pane label ordering, 2026-10-20 (not published)
+
+Extension version 2.20.109. PATCH: native cantrip pane identity checks all
+level/school items for the exact Cantrip label, rather than assuming it is first.
+Observed school-first markup failed a new regression before correction and
+passes afterward; source and level mismatch cases still reject. No resource
+or casting rules changed. Corrected cantrip activation awaits live reload.
+
+## v1.67.1 - Wait for native spell-tab transition, 2026-10-20 (not published)
+
+Extension version 2.20.108. PATCH for the asynchronous tab handoff correction.
+Live discovery left the sheet on Spells. The shared visit helper checked active
+tab state before React committed the switch, exited early, and skipped restoring
+Actions. Wait for that transition within the existing bounded loop; still stop
+when the user navigates elsewhere. Delayed-render regression failed before the
+fix and passes afterward. Live casting and corrected restoration await reload.
+
+## v1.67.0 - Universal spell quick list and Manage, 2026-10-20 (not published)
+
+Extension version 2.20.107. MINOR for compatible new capabilities; PATCH resets.
+Categories use live native timing/effect metadata, not class-specific spell lists.
+Each category/timing group remembers its spell/source/casting-level selection.
+Other is the classification fallback; Manage can correct categories. Longer
+casting has explicit time and purple border, not the gray free-action meaning.
+Initial discovery briefly visits Spells and restores Actions; native filters
+limit discovery. Casting re-resolves the exact native entry and uses existing
+spell execution/resource ownership, restoring the prior tab.
+Manage hides/restores entries without editing native features or equipment.
+Custom lines support validated simple dice plus optional A/BA/Reaction cost;
+no arbitrary code, dynamic variables, slot/feature spending, riders or HP writes.
+Identical native entries share visibility. Preferences are per character.
+
+## v1.66.17 - Clearer Opportunity Attack dialog and legend help, 2026-10-20 (not published)
+
+Extension version 2.20.106. Presentation only: stacked labeled attack, roll mode,
+and turn fields; concise Reaction cost; longer rules behind a closed disclosure.
+Color legend titles explain each cost, including gray's trigger/resource limits.
+Keyboard focus and accessible descriptions added. No change to turn prompts,
+eligibility, attack dispatch, or resource spending.
+
+## v1.66.16 - Natural melee Properties guard, 2026-10-20 (not published)
+
+Extension version 2.20.105. Live1.66.15 reached rollAction after the handoff
+fix, then failed in applyGWFIfRequired on undefined Properties. Normalize that
+optional field to empty text, never infer Versatile/Two-Handed. Browser fixture
+now uses the real helper and an action pane without Properties; failed before
+the guard, passes afterward. No live roll or resource spend occurred.
+
+## v1.66.15 - Default Opportunity Attack and brighter green, 2026-10-20 (not published)
+
+Extension version 2.20.104. Finish the prompt event before opening the native
+attack pane, preventing a closing/outside click from dismissing it. Adds a
+per-character default after a successful explicit melee choice. Row reads live
+name/range/hit/damage; icon uses default, Choose different Attack reopens chooser.
+Right-click uses the standard attack-mode menu. Unknown turn still prompts.
+Missing/ambiguous matches fail back to choosing, not an arbitrary substitute.
+Action borders and legend now use vivid #00a83b; Free/Special stays gray.
+
+## v1.66.14 - Opportunity Attack native rerender handoff, 2026-10-20 (not published)
+
+Extension version 2.20.103. A live chooser attempt stopped without rolling or
+spending. Reproduced a silent cancellation when native detail opening replaces
+the selected list row. After opening, validate the character/turn and matching
+pane instead of requiring the original row to survive. Added a failing-then-
+passing browser regression. Live acceptance must still be checked.
+
+## v1.66.13 - Gray Free/Special borders, 2026-10-20 (not published)
+
+Extension version 2.20.102. Bill requested gray instead of black to improve
+distinction from green Actions. Shared Free/Special color is now #808080 for
+icons, hover/focus treatments and legend. No gameplay changes.
+Blood and Bone's chooser uses Target / Hit Die on two deliberate lines.
+Notes die shortcuts use identical text-sized widths with four-pixel side
+padding and no fixed minimum; retain wrapping and the phone HP Die label.
+Live Opportunity Attack acceptance remains pending: browser control requires
+an update to the ChatGPT Chrome extension. No character counters changed.
+
+## v1.66.12 - Opportunity Attack and paid grants, 2026-10-20 (not published)
+
+Extension version2.20.101. Add Reaction-row melee/Unarmed Strike chooser
+with reach and roll mode, using native attack builders. Reaction buys one
+attack, not an Action or Extra Attack. Bounded grants isolate character/turn,
+guard duplicate dispatch, and pay only on success. Agile uses an already-paid
+grant. Deferred off-turn hits cannot later offer Bonus Action Smite.
+Live rule-granted reactive spell replacement checks casting time and retains
+native spell-resource accounting, including non-damage/save spells. Player
+confirms trigger/single target/slot timing; ambiguous rider rules require
+review. General multi-attack producers and complete rules enforcement remain
+open. Fangs/Claws reuses the native Unarmed Strike icon without replacing its
+clickable wrapper. Offline checks pass; live acceptance follows reload.
+
+## v1.66.11 - Consistent talent row presentation, 2026-10-20 (not published)
+
+Extension version 2.20.100. Correct the missing separators and inconsistent
+spacing on added talents. View beside Sort offers Standard (default, dotted
+separators) or Compact (no lines, less spacing). Persist per character,
+preserve columns/font/button sizes and gameplay, and restore native layout
+when the combined list is disabled. Keyboard/outside-click dismissal and
+stale-character guard included. Live acceptance follows reload.
+
+## v1.66.10 - Blood and Bone columns, 2026-10-20 (not published)
+
+Extension version 2.20.99. Restore Range 5 ft Touch, Hit/DC --; Damage has a
+Target Hit Die button (HP Die on phone-width screens) opening the existing
+Use chooser. Notes holds d4/d6/d8/d10/d12 shortcuts to existing controls.
+Wrap buttons within Notes. Sort by actual range, not a Hit Die label.
+Includes tested off-turn Attack-action pool and Bonus Action availability
+corrections plus internal bounded attack-grant foundation. Opportunity
+Attack UI, spell substitution and complete rider integration remain unfinished.
+No new Opportunity Attack capability is claimed in this patch.
+
+## v1.66.9 - Talent category subtitles, 2026-10-20 (not published)
+
+Extension version 2.20.98. Help Ally for Bardic Inspiration, Heal Ally for
+Blood and Bone; remove redundant cost subtitles from added rows. Native
+attack descriptions remain untouched. Category typography copies native
+attack meta-item styling (live sample: Roboto Condensed 10px/400, 10px line
+height, normal capitalization). No new targeting or gameplay constraints.
+
+## v1.66.8 - Blood and Bone shared-row choices, 2026-10-20 (not published)
+
+Extension version 2.20.97. Replace the empty shared-row cells and generic
+Use note with d6 / d8 / d10 / d12 buttons in Range / Hit-DC / Damage / Notes.
+Forward to existing die controls; preserve the left Use chooser, native
+details, disabled state and character ownership. No new rules/resource path.
+Hit Die choices do not become sortable attack damage or numeric range.
+
+## v1.66.7 - Native action-label typography, 2026-10-19 (not published)
+
+Extension version2.20.96. Calan's live computed styles confirm native labels
+use Roboto Condensed14px/400 with14px line height; Blood and Bone inherited
+Roboto13px/400 and added Inspiration usedRoboto13px/700. Match the native
+label's computed family/size/weight/line-height/letter-spacing, without copying
+spell-specific italics or changing handlers/resource accounting. Guard writes
+so repeated mutation refreshes remain inert; fixture checks equality and churn.
+More Options code is unchanged. Original transition passes the isolated fixture
+and Bill confirms it loads in an unconnected duplicate tab. The blank connected
+tab is not a demonstrated defect in that transition; speculative change removed.
+
+## v1.66.6 - Classify before on-hit routing, 2026-10-19 (not published)
+
+Extension version2.20.95. A regression reproduced late unarmed classification
+skipping the hit-confirmed continuation when no other follow-up flag existed.
+Normalize shared attack semantics before the continuation decision; enforce
+Draining Attack's explicit Natural Attack prerequisite. No Agile-specific
+trigger or attack-name condition added. Differently named unarmed attacks
+award once after hit/damage, never on a miss. Existing VTT award suppression
+remains. This defect is verified, but the player's earlier symptom is not
+claimed fully explained or live-fixed. Includes1.66.5 shared-row merge.
+
+## v1.66.5 - Merge Agile Strikes with its attack, 2026-10-19 (not published)
+
+Extension version2.20.94. Bill confirmed Bardic Damage is the Agile Strikes
+attack. When both native entries exist, link the original rules from that
+attack's Notes and omit the empty feature shortcut. Preserve native label,
+range, to-hit, damage, black border, handlers and sort values. Keep the feature
+shortcut if its attack is absent. No changes to attack execution or accounting.
+1.66.4 columns and compact Sort verified live on Calan; this merge is a new
+correction with separate reload acceptance.
+
+## v1.66.4 - Shared feature rows and compact Sort, 2026-10-19 (not published)
+
+Extension version 2.20.93. Completes the combined-list correction: Bardic
+Inspiration uses native columns; die and uses belong in Notes. Adds shortcuts
+for non-attack features rendered in the native action sections, deduplicated
+against existing attack rows. Supported existing Use controls are reused;
+otherwise shortcuts open native details, without invented execution/spending.
+Compact Sort opens Action order, Name, Damage and Range. Sort choice persists
+per character and is shown only in the open menu. Damage compares displayed
+primary formula averages, Range normal range; missing values sort last.
+No automatic spell-list import. Manage visibility/selected spells/custom
+formula entries are recorded follow-up scope, not implemented in this build.
+Automated acceptance precedes reload; live acceptance remains pending.
+
+## v1.66.3 - Responsive Actions header, 2026-10-19 (not published)
+
+Extension version2.20.92. Consolidates the native attacks-per-action count,
+colored action-cost legend and right-aligned sort control into a wrapping
+toolbar. Adapts to panel width, not screen size or manual spacer characters.
+Native count updates are reflected; missing values are not invented.
+No roll, resource or sort behavior changes. Live acceptance pending.
+
+## v1.66.2 - Combined action rows, 2026-10-19 (not published)
+
+Plain version label per Bill's naming clarification. Previously labeled
+1.66.1-dev.4 locally; label/documentation-only change, no executable change.
+
+Extension version 2.20.91. One visually combined list, default Action / Bonus
+Action / Reaction order, with per-character alphabetical sorting. Native nodes
+are not moved or duplicated. Border colors indicate cost separately from sort
+affinity; Bardic Damage stays with Actions with a black free/special border.
+Left-side Bardic Inspiration icon reuses the existing Inspire button, including
+disabled state. Default-on per-character layout switch. Offline tests pass;
+live acceptance pending. No resource/attack accounting changes in this layer.
+
+## v1.66.1-dev.3 - Immediate full-attack menu, 2026-10-19 (not published)
+
+Extension version 2.20.90. Corrects the dev.2 interaction requirement mismatch.
+- The row icon and red attack button share an anchored Advantage / Flat (One Die) / Disadvantage menu. Only Roll Full Attack starts the existing attack sequence and preflight warnings.
+- Opening, selecting, dismissing, or cancelling options spends nothing. Stale character/sidebar targets cannot roll. Explicit mode is request-local, including when a hotkey is held.
+- Native numeric dice menus and saved recipient settings are unchanged. Dev.2's later Ask each time dialog was not equivalent to this behavior. New live acceptance remains required.
+
+## v1.66.1-dev.2 - Attack icon and native pool confirmation, 2026-10-19 (not published)
+
+Extension version 2.20.89. Compatible bug-fix candidate; live validation pending.
+- Attack icon right-click or keyboard context menu opens the existing roll-mode chooser. Its request does not change saved roll preferences or affect the next ordinary click.
+- Smite discovery no longer navigates before attack/hit resolution. After weapon damage, it returns to the original tab before showing choices. Native resource accounting may still briefly mount its controls.
+- Lay on Hands commits the native pool's staged adjustment with its own Confirm control, verifies acknowledgement, and refuses to commit pre-existing manual edits.
+- Free Smite replay repair from dev.1 passed one live DDB-only attack/damage/Smite/Efreeti sequence. Reporter-specific and live VTT confirmation remain open.
+
+## v1.66.1-dev.1 - Smite resource replay, 2026-10-19 (not published)
+
+Extension version 2.20.88. Compatible bug fix; patch candidate.
+- Free Paladin's Smite accounting no longer re-enters the native Cast/Use listener as a second spell cast. The content fallback and cross-context direct-cast replay use the same button-scoped marker.
+- A fresh player Cast/Use click is still handled normally. Replay markers are removed in finally, including when the native click throws.
+- New offline Chromium integration reproduces the failure on prior source and passes on the fix. Live confirmation of the reported sequence is still required. Lay on Hands persistence remains unresolved; no pool ownership change.
+
 ## v1.66.0 - Portent Dice and sheet improvements, 2026-10-18
 
 Extension version 2.20.87. Compatible new capability; minor-version increment.

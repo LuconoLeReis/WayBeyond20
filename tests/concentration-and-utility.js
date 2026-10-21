@@ -202,6 +202,36 @@ async function run() {
                 await fixture.rollSpell(false,false,false,()=>spent++);
                 assert.equal(spent,0,"failed dispatch does not run native spend callback");
                 assert.equal(effects,0,"failed dispatch does not apply effects");
+                // The same real spell builder must support a Reaction replacement
+                // for attack, save, healing and non-damage spell cards alike.
+                Object.assign(fixture, {
+                    wayBeyond20GetTurnTrackerState:()=>({combatSource:"Roll20",inCombat:true,
+                        currentRoll20Turn:{turnKey:"enemy",isThisCharactersTurn:false}}),
+                    wayBeyond20HasActiveCombatState:()=>true,
+                    wayBeyond20EscapeFollowupText:String,
+                    dndbeyondDiceRoller:{_prompter:{prompt:async()=>true}},
+                    alertify:{warning(){}}
+                });
+                vm.runInContext(read("src/dndbeyond/content-scripts/opportunity-attacks.js"),fixture);
+                for (const name of ["wayBeyond20AttackActivationTurnKey","wayBeyond20CreateAttackActivation","wayBeyond20PerformGrantedAttack"])
+                    vm.runInContext(fn(content,name),fixture);
+                const normalSend=fixture.sendRollWithCharacter;
+                fixture.sendRollWithCharacter=async(type,fallback,args)=>{
+                    assert.equal(args["waybeyond20-attack-context"].kind,"reactive-spell");
+                    return fixture.wayBeyond20PerformGrantedAttack(args["waybeyond20-attack-activation"],args,
+                        async()=>{
+                            assert.equal(args["waybeyond20-turn-resource"].resource,"reaction");
+                            return normalSend(type,fallback,args);
+                        });
+                };
+                const activation=fixture.wayBeyond20CreateAttackActivation({resource:"reaction",attacks:1});
+                activation.kind="spell";
+                const context={kind:"reactive-spell",activation,isOwnTurn:false,attackAction:false,rules:[],review:new Map()};
+                spent=0;effects=0;sent=[];delivered=true;
+                await fixture.rollSpell(false,false,false,()=>spent++,null,context);
+                assert.equal(spent,1,`${kind}: native resource callback once for Reaction casting`);
+                assert.equal(activation.remaining,0);
+                assert.equal(sent.length,1);
             }
         }
     }

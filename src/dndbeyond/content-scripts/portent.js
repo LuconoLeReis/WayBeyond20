@@ -225,6 +225,15 @@ function wayBeyond20ApplySheetTheme(node) {
     // Sheet themes use decorative SVG frames rather than CSS borders. Reuse
     // that displayed artwork as an inert background, never its IDs or handlers.
     const frame = native.querySelector('.ddbc-box-background svg');
+    // DDB's frame starts with its surface silhouette, then decorative edges.
+    // Native select menus need an opaque surface matching that artwork.
+    const surface = frame?.querySelector('path[fill]:not([fill="none"]),rect[fill]:not([fill="none"])');
+    node.style.setProperty('--wb20-sheet-surface', surface ? getComputedStyle(surface).fill : node.style.backgroundColor);
+    const accent = frame && [...frame.querySelectorAll('[fill]')].find(part => {
+        const fill = getComputedStyle(part).fill;
+        return fill !== 'none' && fill !== 'transparent' && fill !== getComputedStyle(surface || native).fill;
+    });
+    node.style.setProperty('--wb20-sheet-accent', accent ? getComputedStyle(accent).fill : style.color);
     node.classList.toggle('waybeyond20-sheet-frame', !!frame);
     if (frame) {
         const copy = frame.cloneNode(true);

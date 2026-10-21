@@ -166,6 +166,153 @@ async function updateHP(name, current, total, temp) {
     }
 }
 
+async function wayBeyond20SyncCoreStats(core) {
+    if (!core || typeof core.name !== "string" || !core.abilities || !window.Campaign?.characters) return;
+    const abilityNames = {
+        str: "Strength", dex: "Dexterity", con: "Constitution",
+        int: "Intelligence", wis: "Wisdom", cha: "Charisma"
+    };
+    if (Object.keys(abilityNames).some(abbr => {
+        const score = Number(core.abilities[abbr]);
+        return !Number.isInteger(score) || score < 1 || score > 30;
+    })) return;
+    const matches = window.Campaign.characters.filter(c =>
+        c.attributes.name.toLowerCase().trim() === core.name.toLowerCase().trim());
+    // Never guess which of two same-named Roll20 characters belongs to DDB.
+    if (matches.length !== 1) {
+        if (matches.length > 1) console.warn("WayBeyond20: Core sync skipped: duplicate Roll20 character name", core.name);
+        return;
+    }
+    const character = matches[0];
+    await loadCharacterAttributes(character);
+    if (!character.attribs || typeof character.attribs.find !== "function") return;
+
+    const setAttribute = (name, value) => {
+        // Native OGL checkboxes store these sheet-defined expressions, not 1.
+        const proficiencyFormula = typeof value === 'string' &&
+            /^\(@\{pb\}(?:\*@\{[a-z_]+_type\})?\)$/.test(value);
+        if (!Number.isFinite(value) && !proficiencyFormula) return;
+        const current = String(value);
+        const existing = character.attribs.find(a => a.attributes.name === name);
+        if (existing) {
+            if (existing.attributes.current !== current) {
+                existing.set("current", current);
+                existing.save();
+            }
+        } else if (typeof character.attribs.create === "function") {
+            character.attribs.create({ name, current });
+        }
+    };
+
+    for (const [abbr] of Object.entries(abilityNames)) {
+        const score = Number(core.abilities[abbr]);
+        setAttribute(`wb20_${abbr}`, score);
+    }
+    setAttribute("wb20_proficiency_bonus", Number(core.proficiency));
+    setAttribute("wb20_ac", Number(core.ac));
+    setAttribute("wb20_speed_ft", Number(core.speed));
+    for (const [skill, value] of Object.entries(core.skills || {})) {
+        const slug = skill.toLowerCase().replace(/[^a-z]/g, "_").replace(/_+/g, "_");
+        if (slug && slug.length < 40) setAttribute(`wb20_skill_${slug}`, Number(value));
+    }
+    for (const [skill, value] of Object.entries(core.skillProficiencies || {})) {
+        const slug = skill.toLowerCase().replace(/[^a-z]/g, "_").replace(/_+/g, "_");
+        if (slug && slug.length < 40) setAttribute(`wb20_skill_proficiency_${slug}`, Number(value));
+    }
+    for (const abbr of Object.keys(abilityNames)) {
+        if (Number.isFinite(core.saves?.[abbr]))
+            setAttribute(`wb20_save_${abbr}`, core.saves[abbr]);
+        if ([0, 0.5, 1, 2].includes(core.saveProficiencies?.[abbr]))
+            setAttribute(`wb20_save_proficiency_${abbr}`, core.saveProficiencies[abbr]);
+    }
+    for (const skill of ["perception", "investigation", "insight"])
+        setAttribute(`wb20_passive_${skill}`, Number(core.passives?.[skill]));
+    for (const sense of ["darkvision", "blindsight", "tremorsense", "truesight"])
+        if (core.sensesComplete) setAttribute(`wb20_${sense}_ft`, Number(core.senses?.[sense] || 0));
+
+    const sheet = character.characterSheet?.shortName;
+    if (sheet === "ogl5e" || sheet === "dnd5e") {
+        // The legacy sheet exposes ordinary attributes to token macros. Its
+        // sheet workers may not run when an attribute is created from the VTT
+        // page, so write both the base input and the readable result.
+        for (const [abbr, name] of Object.entries(abilityNames)) {
+            const score = Number(core.abilities[abbr]);
+            const key = name.toLowerCase();
+            setAttribute(`${key}_base`, score);
+            setAttribute(key, score);
+            setAttribute(`${key}_mod`, Math.floor((score - 10) / 2));
+        }
+        setAttribute("pb", Number(core.proficiency));
+        setAttribute("ac", Number(core.ac));
+        setAttribute("speed", Number(core.speed));
+        setAttribute("passive_wisdom", Number(core.passives?.perception));
+        for (const [skill, value] of Object.entries(core.skills || {})) {
+            const slug = skill.toLowerCase().replace(/[^a-z]/g, "_").replace(/_+/g, "_");
+            if (slug && slug.length < 40) setAttribute(`${slug}_bonus`, Number(value));
+        }
+        for (const [skill, rank] of Object.entries(core.skillProficiencies || {})) {
+            const slug = skill.toLowerCase().replace(/[^a-z]/g, '_').replace(/_+/g, '_');
+            if (!slug || slug.length >= 40 || ![0, 0.5, 1, 2].includes(rank)) continue;
+            setAttribute(`${slug}_type`, rank === 2 ? 2 : 1);
+            setAttribute(`${slug}_prof`, rank >= 1 ? `(@{pb}*@{${slug}_type})` : 0);
+        }
+        for (const [abbr, name] of Object.entries(abilityNames)) {
+            const key = name.toLowerCase();
+            if (Number.isFinite(core.saves?.[abbr]))
+                setAttribute(`${key}_save_bonus`, core.saves[abbr]);
+            const rank = core.saveProficiencies?.[abbr];
+            if ([0, 1].includes(rank))
+                setAttribute(`${key}_save_prof`, rank === 1 ? '(@{pb})' : 0);
+        }
+        if (core.sensesComplete) {
+            for (const sense of ["darkvision", "blindsight", "tremorsense", "truesight"])
+                setAttribute(sense, Number(core.senses?.[sense] || 0));
+        }
+        return;
+    }
+    if (sheet !== "dnd2024byroll20") return;
+
+    const sheetCharacter = character.characterSheet?.state?.characters?.[character.id];
+    const integrants = sheetCharacter?.attributes?.store?.integrants?.integrants;
+    if (!integrants || !character.characterSheet?.headlessRelay) {
+        console.warn("WayBeyond20: Open the Roll20 character sheet once before syncing its 2024 fields", core.name);
+        return;
+    }
+    const changes = {};
+    const makeIntegrant = (key, type, label, value, position, extra = {}) => {
+        const old = integrants[key];
+        if (old && Number(old.valueFormula?.flatValue) === value && old._enabled !== false) return;
+        changes[key] = old ? { valueFormula: { flatValue: value }, _enabled: true } : {
+            _enabled: true, _label: "WayBeyond20 " + label, arrayPosition: position,
+            builderDisplayName: "",
+            calculation: type === "Sense" ? "Set Base" : "Set Value",
+            childIDs: "[]", createdTime: Date.now(), name: type === "Sense" ? label : "",
+            overwriteDisabled: false, parentDisabled: false, parentID: "",
+            shortID: key.replace(/[^a-z0-9]/gi, "").slice(-9), source: "Custom",
+            type, valueFormula: { flatValue: value }, ...extra
+        };
+    };
+    let position = Math.max(0, ...Object.values(integrants)
+        .map(entry => Number(entry.arrayPosition) || 0)) + 1;
+    for (const [abbr, name] of Object.entries(abilityNames))
+        makeIntegrant(`wb20-core-${abbr}`, "Ability Score", name, Number(core.abilities[abbr]), position++, { ability: name });
+    if (Number.isFinite(Number(core.ac)) && Number(core.ac) > 0)
+        makeIntegrant("wb20-core-ac", "Armor Class", "Armor Class", Number(core.ac), position++, { defaultAbility: false });
+    for (const sense of ["darkvision", "blindsight", "tremorsense", "truesight"]) {
+        const value = Number(core.senses?.[sense]);
+        if (Number.isFinite(value) && value > 0)
+            makeIntegrant(`wb20-sense-${sense}`, "Sense", sense[0].toUpperCase() + sense.slice(1), value, position++);
+        else if (core.sensesComplete && integrants[`wb20-sense-${sense}`])
+            changes[`wb20-sense-${sense}`] = { _enabled: false };
+    }
+    if (Object.keys(changes).length) {
+        character.characterSheet.headlessRelay.postMessage({
+            type: "change",
+            character: { id: character.id, attributes: { store: { integrants: { integrants: changes } } } }
+        });
+    }
+}
+
 function createHitpointIntegrantEntry(arrayPosition, hitpointType, initialValue = 0) {
     let label, source, calculation;
 
@@ -355,6 +502,26 @@ function wayBeyond20GetGraphicName(tokenId) {
 }
 
 
+function wayBeyond20ReadTokenPosition(tokenId, diagnostic = {}) {
+    const unavailable = reason => { diagnostic.reason = reason; return null; };
+    try {
+        const page = Campaign.activePage();
+        const graphic = page?.thegraphics?.models.find(g => String(g.id) === String(tokenId));
+        const a = graphic?.attributes;
+        const p = page?.attributes;
+        const number = value => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+        // Whitelist map geometry only. Never export GM-layer positions or token bars.
+        if (!a) return unavailable("Token position has not loaded on this map");
+        if (a.layer !== "objects") return unavailable("Token is not on the Tokens layer");
+        if (!page.id) return unavailable("Map identity has not loaded");
+        if (!number(a.left) || !number(a.top)) return unavailable("Token coordinates have not loaded");
+        if (!number(p?.scale_number) || Number(p.scale_number) <= 0) return unavailable("Map distance scale is unavailable");
+        if (a._pageid && String(a._pageid) !== String(page.id)) return unavailable("Token is on a different map");
+        return {pageId: String(page.id), x: Number(a.left), y: Number(a.top),
+            scale: Number(p.scale_number), units: String(p.scale_units || "units")};
+    } catch (error) { return unavailable("Roll20 map position could not be read"); }
+}
+
 function wayBeyond20ReadTurnOrderTargets(order) {
     if (!Array.isArray(order)) return [];
     const targets = [];
@@ -367,13 +534,19 @@ function wayBeyond20ReadTurnOrderTargets(order) {
         const key = String(entry.id || name).toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
+        const diagnostic = {};
+        const position = wayBeyond20ReadTokenPosition(entry.id, diagnostic);
         targets.push({
             key: String(entry.id),
             tokenId: String(entry.id),
             name,
             tokenName,
             custom: entry.custom || "",
-            relation: "unknown"
+            initiative: entry.pr !== undefined && entry.pr !== null ? String(entry.pr) : "",
+            pageId: entry._pageid || "",
+            relation: "unknown",
+            position,
+            positionStatus: diagnostic.reason || ""
         });
     }
     return targets;
@@ -383,9 +556,20 @@ let wayBeyond20LastTurnOrderKey = "";
 
 function wayBeyond20ReadCurrentTurn() {
     try {
+        // Roll20 creates Campaign before it has loaded the saved initiative order.
+        // An empty value during that interval is unknown, not an ended battle.
+        // Publishing it would clear DDB's persisted turn and refill spent counters
+        // when the real order arrives. Wait for the editor, not a fixed timeout.
+        const loadingOverlay = document.getElementById("loading-overlay");
+        if (document.readyState === "loading" ||
+            (loadingOverlay && loadingOverlay.getClientRects().length > 0)) return null;
+        const page = Campaign.activePage();
+        if (!page || !page.id) return null;
         const raw = Campaign.get("turnorder");
+        if (raw === undefined || raw === null) return null;
         const order = raw ? JSON.parse(raw) : [];
-        if (!Array.isArray(order) || order.length === 0) return { active: false, targets: [] };
+        if (!Array.isArray(order)) return null;
+        if (order.length === 0) return { active: false, targets: [] };
         const current = order[0] || {};
         const orderKey = JSON.stringify(order.map(entry => ({
             id: entry && entry.id ? String(entry.id) : "",
@@ -425,10 +609,12 @@ function wayBeyond20PollCurrentTurn() {
     }
 
     if (!current.tokenId || current.tokenId === "-1") return;
-    const key = current.orderKey || [current.tokenId, current.custom, current.pr, current.pageId].join("|");
+    const turnKey = current.orderKey || [current.tokenId, current.custom, current.pr, current.pageId].join("|");
+    // Movement/name changes refresh the preview, but are NOT new turns.
+    const key = JSON.stringify([turnKey, current.targets]);
     if (key === wayBeyond20LastTurnOrderKey) return;
     wayBeyond20LastTurnOrderKey = key;
-    current.turnKey = key;
+    current.turnKey = turnKey;
     sendCustomEvent("SendMessage", [{
         action: "waybeyond20-turn-update",
         current
@@ -481,6 +667,9 @@ function disconnectAllEvents() {
 
 var registered_events = [];
 registered_events.push(addCustomEventListener("UpdateHP", updateHP));
+registered_events.push(addCustomEventListener("SyncCoreStats", core => {
+    wayBeyond20SyncCoreStats(core).catch(error => console.warn("WayBeyond20: Core sync failed", error));
+}));
 registered_events.push(addCustomEventListener("CombatTracker", updateCombatTracker));
 registered_events.push(addCustomEventListener("BindSelectedToken", wayBeyond20BindSelectedToken));
 // Stop WayBeyond20's own turn poller before Beyond20 removes the registered

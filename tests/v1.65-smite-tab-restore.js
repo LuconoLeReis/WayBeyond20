@@ -68,7 +68,7 @@ function buildSheet({ tab = "Actions", smite = "none", slotsOnSpellsTab = true, 
     document.body.append(tabs, main);
     const spellsMounted = () => state.tab === "Spells";
     return {
-        document, state,
+        document, state, startTab: tab,
         rows: () => spellsMounted() && smite !== "none" ? [Object.assign({}, DIVINE_SMITE_ROW)] : [],
         slots: () => smite === "available" && (spellsMounted() || !slotsOnSpellsTab) ? [{ level: 1, available: 2 }] : []
     };
@@ -93,6 +93,7 @@ function createSandbox(sheet, { query = "cancel", sendResult = true, preflightAl
         wayBeyond20FirstDamageFormula: () => "2d8",
         wayBeyond20DamageTypeFromText: () => "Radiant",
         wayBeyond20QuerySmite: async options => {
+            assert.equal(sheet.state.tab, sheet.startTab, 'Restore the original tab BEFORE displaying the Smite chooser');
             log.queries++;
             if (query === "throw") throw new Error("dialog failed");
             if (query === "cancel") return null;

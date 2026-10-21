@@ -8,10 +8,13 @@ function wayBeyond20QueueAttackFollowup(args, eligible) {
 }
 
 function wayBeyond20NeedsAttackFollowup(args) {
-    return args && !args["waybeyond20-followup-phase"] &&
-        (args.rollAttack || args.rollDamage) &&
-        (args["waybeyond20-smite-eligible"] || args["waybeyond20-savage-attacker"]?.mode === "post-result" ||
-            (args["waybeyond20-unarmed-strike"] && character.hasRacialTrait("Draining Attack")));
+    if (!args || args["waybeyond20-followup-phase"] || !(args.rollAttack || args.rollDamage)) return false;
+    // Classify before choosing the continuation, not only later at dispatch.
+    // A producer's name or Smite eligibility must not gate an unarmed on-hit rule.
+    wayBeyond20NormalizeAttackSemantics(args, args.name);
+    return !!(args["waybeyond20-smite-eligible"] || args["waybeyond20-savage-attacker"]?.mode === "post-result" ||
+        (args["waybeyond20-unarmed-strike"] && character.hasRacialTrait("Draining Attack", true) &&
+            character.hasRacialTrait("Natural Attack", true)));
 }
 
 function wayBeyond20RunAttackFollowup(rollType, fallback, args) {
@@ -40,13 +43,11 @@ async function wayBeyond20ConfirmAttackHit(name, rolls) {
 }
 
 async function wayBeyond20ResolveAttackFollowup(rollType, fallback, args) {
-    const originalTab = wayBeyond20ActiveCharacterSheetTab();
-    let smiteOptions = null;
-    try {
-        if (args["waybeyond20-smite-eligible"]) smiteOptions = await wayBeyond20BuildSmiteOptions();
-    } finally {
-        wayBeyond20RestoreCharacterSheetTab(originalTab);
-    }
+    // Do not navigate to Spells to discover fuel before the attack is even rolled.
+    // Actual Smite choices are read after a confirmed hit and weapon damage, when
+    // the rider can be used. A miss/cancel never needs to mount the Spells tab.
+    const smiteOptions = args["waybeyond20-attack-context"]?.isOwnTurn !== false &&
+        args["waybeyond20-smite-eligible"] && wayBeyond20MayHaveSmiteAfterHit();
     const savage = args["waybeyond20-savage-attacker"];
     wayBeyond20NormalizeAttackSemantics(args, args.name || fallback);
     wayBeyond20ApplyDrainingAttackIntent(args, args.name || fallback);
@@ -105,7 +106,8 @@ async function wayBeyond20FinishAttackDamage(pending) {
         advantage: RollType.NORMAL, "waybeyond20-await-hit": true, "waybeyond20-followup-phase": "damage" };
     // This is the damage from an already-performed attack, not another attack/action.
     for (const key of ["to-hit", "waybeyond20-turn-resource", "waybeyond20-turn-resources",
-        "waybeyond20-limited-use", "waybeyond20-after-dispatch", "waybeyond20-attack-continuation"])
+        "waybeyond20-limited-use", "waybeyond20-after-dispatch", "waybeyond20-attack-continuation",
+        "waybeyond20-attack-activation"])
         delete damageArgs[key];
     if (pending.whisper !== undefined) damageArgs.whisper = pending.whisper;
     let resolved = null;
@@ -117,12 +119,15 @@ async function wayBeyond20FinishAttackDamage(pending) {
     // on-hit riders. Deferred damage follows this same path when its button is used;
     // it must not spend Smite/CD while still waiting for the weapon damage roll.
     const riderDamage = [];
-    if (smiteOptions && pending.owner === character) {
+    if (smiteOptions && pending.owner === character &&
+        (!args["waybeyond20-attack-context"] ||
+            args["waybeyond20-attack-context"].turnKey === wayBeyond20AttackActivationTurnKey())) {
         const smite = {
             name: args.name, description: "", rollAttack: false, rollDamage: true, rollCritical: critical,
             damages: [], "damage-types": [], "critical-damages": [], "critical-damage-types": [],
             advantage: RollType.NORMAL,
-            "waybeyond20-followup-phase": "smite", "waybeyond20-hit-confirmed": true
+            "waybeyond20-followup-phase": "smite", "waybeyond20-hit-confirmed": true,
+            "waybeyond20-attack-context": args["waybeyond20-attack-context"]
         };
         // Use the actual damage request's privacy choice for damage-only entry too.
         if (resolved.request) smite.whisper = resolved.request.whisper;

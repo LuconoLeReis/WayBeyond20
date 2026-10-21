@@ -23,7 +23,8 @@ const HELPERS = [
     "waybeyond20-concentration-check-helper",
     "waybeyond20-condition-casting-warning",
     "waybeyond20-lay-on-hands-helper",
-    "musician-rest-reminder"
+    "musician-rest-reminder",
+    "waybeyond20-combined-actions"
 ];
 
 function between(source, startText, endText) {
@@ -217,13 +218,13 @@ function createHelperJq() {
 async function exerciseHelpers(character, globalSettings) {
     const jq = createHelperJq();
     const attributes = new Map();
-    const calls = { bonusAction: 0, query: 0, musician: 0, popout: 0, concentrationCheck: 0, upsert: [], layOnHands: 0 };
+    const calls = { bonusAction: 0, query: 0, musician: 0, popout: 0, concentrationCheck: 0, upsert: [], layOnHands: 0, combined: 0 };
     const row = jq.newEl("div");
     const anchor = jq.newEl("span");
     anchor.parent = row;
     const ctx = {
         character,
-        document: { documentElement: {
+        document: { addEventListener() {}, querySelectorAll: selector => { if (selector.includes('ct-actions-list')) calls.combined++; return []; }, documentElement: {
             hasAttribute: name => attributes.has(name),
             setAttribute: (name, value) => attributes.set(name, value),
             removeAttribute: name => attributes.delete(name)
@@ -256,6 +257,7 @@ async function exerciseHelpers(character, globalSettings) {
     vm.runInContext("let wayBeyond20LayOnHandsInFlight = false;", ctx);
     for (const name of [
         "wayBeyond20RollLayOnHands",
+        "wayBeyond20RefreshNaturalAttackIcons", "wayBeyond20RefreshCombinedActions",
         "wayBeyond20CharacterHelperEnabled",
         "wayBeyond20ShowMusicianRestReminder",
         "wayBeyond20InjectWizardHelpers",
@@ -270,6 +272,7 @@ async function exerciseHelpers(character, globalSettings) {
     }
 
     ctx.wayBeyond20ShowMusicianRestReminder("long");
+    ctx.wayBeyond20RefreshCombinedActions();
     ctx.wayBeyond20InjectWizardHelpers();
     const tools = row.children.find(child => child.classes.includes("waybeyond20-wizard-tools"));
     const toolText = tools ? jq.texts(tools).join(" ") : "";
@@ -286,6 +289,7 @@ async function exerciseHelpers(character, globalSettings) {
     await ctx.wayBeyond20RollLayOnHands("Lay On Hands: Heal", "", {});
 
     return {
+        "waybeyond20-combined-actions": calls.combined === 1,
         "waybeyond20-lay-on-hands-helper": calls.layOnHands === 1,
         "musician-rest-reminder": calls.musician === 1,
         "wizard-occultist-intrusion-helper": toolText.includes("INTRUSION d8") && intrusionQueried,

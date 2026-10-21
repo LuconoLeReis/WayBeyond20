@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WayBeyond20 v1.66.0</title>
+    <title>WayBeyond20 v1.73.2</title>
     <link rel="stylesheet" href="Updates.css">
 </head>
 <body>
@@ -11,14 +11,170 @@
         <header>
             <img src="images/icons/icon128.png" alt="WayBeyond20">
             <div>
-                <p class="eyebrow">Release · October 18, 2026</p>
-                <h1>WayBeyond20 v1.66.0</h1>
+                <p class="eyebrow">Local development · October 21, 2026</p>
+                <h1>WayBeyond20 v1.73.2</h1>
                 <p class="lede">Complete changes from the Beyond20 2.20.1 base</p>
             </div>
         </header>
 
         <section>
-            <h2>New in v1.66.0: Portent Dice and sheet improvements</h2>
+            <h2>Proficiency and saving-throw synchronization</h2>
+            <p>Extension version 2.20.129. Corrects proficiency-label parsing and writes native 2014 skill proficiency/expertise flags and saving-throw bonuses/proficiency, alongside wb20_* macro attributes. No combat or resource changes. Local candidate; live macro retest pending.</p>
+        </section>
+        <section>
+            <h2>Optional DDB-to-Roll20 core data</h2>
+            <p>Extension version 2.20.128. The optional DDB-to-Roll20 sync now writes the visible 2014 sheet fields as well as wb20_* macro attributes. It does not import spells, inventory, features or combat state. The transfer to the 2014 character was observed live; visible field acceptance awaits an extension reload. Local candidate, not published.</p>
+        </section>
+        <section>
+            <h2>Preserve combat through Roll20 loading</h2>
+            <p>Extension version 2.20.126. The turn feed waits for the editor to finish loading instead of treating a temporary empty order as an ended battle. This prevents an unintended turn-count reset and resource refill during refresh. A genuinely loaded empty order still ends combat. Full live turn rotation passed; this correction passes local lifecycle regressions and awaits live reload verification. Not published.</p>
+        </section>
+        <section>
+            <h2>Reliable rapid Undo</h2>
+            <p>Extension version 2.20.125. Target edits update the panel immediately, without waiting for the storage callback. This closes a timing gap before the next mouse press; the existing protection during a pressed gesture remains. Expanded tests cover both Undo orders, delayed updates before and during a press, keyboard use, cancelled gestures and saved-state reload. Live acceptance awaits reload. Not published.</p>
+        </section>
+        <section>
+            <h2>Attack shortcuts and uninterrupted target entry</h2>
+            <p>Extension version 2.20.123. Pending icon rolls no longer restart their timer on every DDB update. Target updates retain unfinished values, damage type, focus and open history. Submitting clears only that field; choosing a different enemy starts clean. Live acceptance awaits reload. Not published.</p>
+        </section>
+        <section>
+            <h2>Link My Token without rerolling</h2>
+            <p>Extension version 2.20.122. Use Link My Token in the WB20 header menu to choose your token from Roll20's turn order. This replaces WB20's stored link without changing initiative, position, counters or your selected enemy. Cancel leaves the link unchanged. Local tests pass; live verification awaits reload. Not published.</p>
+        </section>
+        <section>
+            <h2>Combat stays below the sheet</h2>
+            <p>Extension version 2.20.121. Corrects the tracker placement after DDB rebuilds the sheet. Existing controls, unfinished entries and battle state are preserved. Local regression checks pass; live acceptance awaits reload. Not published.</p>
+        </section>
+        <section>
+            <h2>Clearer compass and distance status</h2>
+            <p>Extension version 2.20.120. The rim clears the angled side names without adding height. Unavailable distance now identifies the missing input, rather than hiding every failure behind the same message. Live numeric distance is still under investigation. Select Target, Viewing and compact layout passed live on 1.71.0. Not published.</p>
+        </section>
+        <section>
+            <h2>Select the centered combatant</h2>
+            <p>Extension version 2.20.119. Select Target chooses whoever is centered in the compass. Browsing shows Viewing with a small return arrow. Hover, focus or tap the centered name for initiative, recorded AC and damage by type, and a straight-line distance estimate from your character's Roll20 token.</p>
+            <p>The floating card adds no tracker height. Movement updates distance without advancing combat or resetting resources. Refresh Roll20 after reloading the extension for the new position feed. Local checks passed; live verification awaits reload. Not published.</p>
+        </section>
+        <section>
+            <h2>A shared compass face</h2>
+            <p>Extension version 2.20.118. One wide front curve replaces the individual ovals, with a larger current name, receding side names and filled curved arrows. No extra header height; browsing and scroll preservation checks still pass locally. Live appearance awaits reload. Not published.</p>
+        </section>
+        <section>
+            <h2>Compass tilt adjustment</h2>
+            <p>Extension version 2.20.117. Reversed both side names' perspective and slope. Center, spacing, height and behavior are unchanged. Local candidate; not published.</p>
+        </section>
+        <section>
+            <h2>Interactive turn compass</h2>
+            <p>Extension version 2.20.116. A centered, sheet-colored compass shows the active combatant with angled previous and upcoming names and curved arrows. Click the side names to browse the order, then Back to current to return. Browsing never advances Roll20 or changes resources or targets.</p>
+            <p>The far right shows only source and turn number. A brief reveal follows turn changes; reduced-motion settings disable it. Compact layout verified live on 1.69.2. Compass verification awaits reload. Not published.</p>
+        </section>
+        <section>
+            <h2>Compact Combat layout</h2>
+            <p>Extension version 2.20.115. One sheet-themed frame contains the action economy and its controls on a shared toolbar, with a horizontal target row underneath. The forced 240px height is removed. Controls wrap to fit narrower screens; Damage &amp; history expands only when opened.</p>
+            <p>Layout, theme and target regressions passed locally. Live layout verification awaits reload. Not published.</p>
+        </section>
+        <section>
+            <h2>My Target follows your sheet theme</h2>
+            <p>Extension version 2.20.114. My Target now shares the character sheet's colors and decorative frame with Combat, including matching dropdown surfaces and a safe inset for readable text. Theme changes retain unfinished input.</p>
+            <p>Theme regression and responsive layout checks passed locally. Live theme verification awaits reload. Battle target names and initiative values were verified live on 1.69.0. Not published.</p>
+        </section>
+        <section>
+            <h2>Typed damage parts and My Target</h2>
+            <p>Extension version 2.20.113. Custom formulas now accept {Fire:3d6}+{Piercing:1d6+6}. Unmarked parts use the row's global damage type. Results retain the formula, type subtotals and combined total.</p>
+            <p>My Target appears beside Combat, with a Roll20 target selector, initiative, AC and recorded gross damage. Enter an attack total and choose Hit or Miss to narrow AC. Undo corrects the last entry. Damage &amp; history records damage by type. Notes persist by token and character; no token HP or action economy is changed by target controls. Narrow screens stack the panels.</p>
+            <p>Local candidate only. Live reload and VTT delivery checks remain pending. Not published.</p>
+        </section>
+        <section>
+            <h2>Automatic descriptions and richer custom rolls</h2>
+            <p>Extension version 2.20.112. Remembered visible spell selections automatically load missing descriptions in one bounded batch, without casting. Manage now says Use detected category and shows the detected result.</p>
+            <p>Custom rows support mixed dice, keep/drop, one-time rerolls and minimum totals, plus a damage type. Your dice formula will be shown with the result. Normal whisper settings remain unchanged. Formula examples and limits are in Manage. Live reload verification remains pending. Not published.</p>
+        </section>
+        <section>
+            <h2>Native sidebar compatibility</h2>
+            <p>Extension version 2.20.111. Description loading recognizes an actual visible sidebar header, not the empty sidebar container D&amp;D Beyond retains on closed sheets. A regression reproduced the blocked description and now passes. All quieter selector changes below are included. Awaiting live reload; not published.</p>
+        </section>
+        <section>
+            <h2>Quieter spell quick list</h2>
+            <p>Extension version 2.20.110. Only Attack/Damage and Healing categories appear by default; enable others in Manage. Closed selectors show only the spell name, with a border and arrow on hover or keyboard focus. Hover descriptions use native D&amp;D Beyond text, read on selection when available without casting. Existing sidebars and dialogs are left alone. Local checks passed; this presentation update awaits a live extension reload. Not published.</p>
+        </section>
+        <section>
+            <h2>Cantrip pane recognition</h2>
+            <p>Extension version 2.20.109. Recognize a Cantrip label after its school label in the native spell pane. Exact spell name and source checks remain. Delayed spell-tab handoff, leveled spell slots and custom dice passed representative local live tests; the corrected cantrip path awaits reload. Not published.</p>
+        </section>
+        <section>
+            <h2>Spell-list tab handoff</h2>
+            <p>Extension version 2.20.108. Wait for D&amp;D Beyond to finish switching tabs before reading spell rows. This fixes discovery leaving the sheet on Spells and an early exit from the same casting handoff. Delayed-render regression passes; live retest follows reload. Not published.</p>
+        </section>
+        <section>
+            <h2>Spell categories, Manage, and custom lines</h2>
+            <p>Extension version 2.20.107. One class-independent organizer groups available spells by purpose and casting time. Select a spell under a category to show its live sheet values; the left icon uses the existing casting flow. Choices remember their source and casting level. Longer casting times are separate and purple, never treated as free.</p>
+            <p>Manage hides or restores list entries without changing the character sheet. It also allows category corrections and custom simple-dice lines with an action cost. Custom lines do not automate spell slots, limited uses, hit-point changes, or attack riders. Clear the native Spells search/filter if entries are missing. Not published; live acceptance follows reload.</p>
+        </section>
+        <section>
+            <h2>Clearer attack choices and color explanations</h2>
+            <p>Extension version 2.20.106. Opportunity Attack choices now have clearly labeled full-width fields. Longer rules are collapsed under Trigger and rules reminder. Turn questions and gameplay behavior are unchanged. Hover over Actions, Bonus Actions, Reactions, or Free/Special for an explanation of the color and cost. Not published.</p>
+        </section>
+        <section>
+            <h2>Natural melee attack compatibility</h2>
+            <p>Extension version 2.20.105. The shared Great Weapon Fighting helper tolerates a missing weapon Properties field on natural/unarmed melee actions. Missing properties do not grant weapon eligibility. This corrects the error observed after Opportunity Attack successfully opened Calan's native pane. Live retest follows reload; not published.</p>
+        </section>
+        <section>
+            <h2>Default Opportunity Attack and brighter green</h2>
+            <p>Extension version 2.20.104. Opportunity Attack remembers the last successfully chosen melee attack per character. The row shows its name, current range, attack bonus and damage. The icon uses that default; Choose different Attack opens the chooser. Right-click the icon for Advantage or Disadvantage. Missing or ambiguous matches ask for another choice. Unknown turn ownership is still confirmed.</p>
+            <p>The attack-pane handoff now waits for the chooser click to finish before opening native details. Action borders and the legend use brighter green. Live acceptance follows reload; not published.</p>
+        </section>
+        <section>
+            <h2>Opportunity Attack pane handoff</h2>
+            <p>Extension version 2.20.103. Opening native attack details may replace the original list row. That replacement no longer silently cancels an Opportunity Attack. Character, turn, name, melee eligibility and attack-bonus checks still apply before rolling. Live acceptance is separate from the passing regression test. Not published.</p>
+        </section>
+        <section>
+            <h2>Clearer Free/Special borders</h2>
+            <p>Extension version 2.20.102. Free/Special icon borders and the matching legend use medium gray instead of black, to distinguish them from green Actions. Other cost colors, sorting, layout and resource accounting are unchanged. This local candidate is not published.</p>
+            <p>Blood and Bone's chooser puts Target on the first line and Hit Die together on the second. The five Notes buttons share the width of the widest label plus four pixels of padding per side, without a fixed minimum width. HP Die remains the phone label.</p>
+        </section>
+        <section>
+            <h2>Opportunity Attack and activation accounting</h2>
+            <p>Extension version 2.20.101. The red Opportunity Attack row opens a melee weapon or Unarmed Strike chooser, with attack mode and reach information. One Reaction grants one attack, not another Action or Extra Attack. Cancel, stale turn and failed delivery do not spend it. Draining Attack remains tied to qualifying Unarmed Strikes; off-turn attacks do not offer Bonus Action Smite even when damage is deferred.</p>
+            <p>Agile Strikes uses an already-paid, bounded attack grant. A live rule granting reactive spell substitution unlocks a spell choice with one-Action casting-time validation and the existing native casting resource path. Confirm the feat's actual trigger, the single provoking target and any spell-slot timing restriction. Unambiguous timing conflicts omit a modifier; missing or multi-benefit rule text requires review. This is not a general Monk attack-grant executor or automatic map/reach enforcement.</p>
+            <p>Fangs/Claws now uses the native Unarmed Strike icon. Live acceptance follows reload. This local candidate is not published.</p>
+        </section>
+        <section>
+            <h2>Standard and Compact talent views</h2>
+            <p>Extension version 2.20.100. The View button beside Sort offers Standard, with consistent dotted separators and spacing across native and added talents, and Compact, with no separator lines and less spacing. Text and buttons keep their size; columns and sorting are unchanged. Your choice is saved per character. Live acceptance is pending reload; this candidate is not published.</p>
+        </section>
+        <section>
+            <h2>Blood and Bone: range and complete Hit Die choices</h2>
+            <p>Extension version 2.20.99. Range shows 5 ft Touch and Hit/DC shows --. Damage contains a Target Hit Die button that opens the existing Use chooser, labeled HP Die on phone-width screens. Notes contains d4, d6, d8, d10 and d12 buttons using the existing controls. Buttons wrap within their column. Range sorts as 5 feet; the target's Hit Die is not treated as fixed attack damage.</p>
+            <p>Off-turn accounting no longer consumes leftover attacks from an Attack action or treats an unspent Bonus Action as available off-turn. Opportunity Attack's new UI and complete follow-up eligibility are still unfinished. This local candidate is not published.</p>
+        </section>
+        <section>
+            <h2>Talent categories beneath names</h2>
+            <p>Extension version 2.20.98. Bardic Inspiration shows Help Ally; Blood and Bone shows Heal Ally. Added rows no longer repeat action costs beneath their names. Categories match the native attack subtitle font, size and color. Cost colors and native attack descriptions remain intact. These labels do not change targeting or execution rules.</p>
+        </section>
+        <section>
+            <h2>Blood and Bone die shortcuts</h2>
+            <p>Extension version 2.20.97. The shared row places clickable d6, d8, d10 and d12 Hit Die choices in Range, Hit/DC, Damage and Notes. Each invokes the existing matching control, with no separate resource handling. The left Use icon still opens the full chooser. Hit Die choices are not treated as attack damage or range when sorting. Live acceptance pending reload; not published.</p>
+        </section>
+        <section>
+            <h2>Match native action-label typography</h2>
+            <p>Extension version 2.20.96. Added feature labels and Bardic Inspiration use the native sheet label's font family, size, weight, line height and letter spacing. Existing controls and resource accounting are unchanged. More Options navigation is unchanged; a blank window in the connected test tab is still being investigated.</p>
+        </section>
+        <section>
+            <h2>Unarmed on-hit trigger correction</h2>
+            <p>Extension version 2.20.95. Classify unarmed attacks before selecting hit-confirmed effects. Draining Attack requires the traits stated by its rule and an Unarmed Strike, regardless of its displayed name or Smite eligibility. Tests cover confirmed hits and misses; live gameplay confirmation remains pending.</p>
+        </section>
+        <section>
+            <h2>Shared action rows and compact Sort menu</h2>
+            <p>Extension version 2.20.94. Agile Strikes now links from Bardic Damage's Notes instead of a duplicate empty row. Native range, attack bonus, damage and roll controls stay intact. Attacks, Bardic Inspiration and non-attack features from DDB's action sections share one table. The compact Sort button offers Action order, Name, Damage (primary formula average) and Range (normal range). The current choice appears only inside the menu. Unknown values sort last; inspiration is not treated as damage. Feature shortcuts use existing supported controls or open native details without inventing resource spending.</p>
+            <p>Attacks per Action and the colored legend align left, with Sort flush right and wrapping when needed. Green, blue and red borders show action costs; black denotes free/special abilities. Manage visibility, selected spells and custom formulas remain future work. Live validation is pending. Not published.</p>
+            <p>Full-attack icons and red attack buttons share an immediate right-click menu. Only Roll starts the attack sequence. Native numeric dice retain their menus.</p>
+        </section>
+        <section>
+            <h2>Development candidate: attack icons and resource confirmation</h2>
+            <p>Extension version 2.20.89. Right-click an attack icon to choose Advantage or Disadvantage without changing your saved settings. Smite discovery waits until after a hit and weapon damage, then returns to your original tab before showing the chooser. Native resource accounting may still briefly show its controls.</p>
+            <p>Lay on Hands now confirms the native pool adjustment instead of leaving an unsaved preview. These changes await live validation. The free Smite replay fix passed one live D&amp;D Beyond-only attack/damage/Smite/Elemental sequence in dev.1; reporter-specific and VTT confirmation remain open. This build is not published.</p>
+        </section>
+        <section>
+            <h2>Previously in v1.66.0: Portent Dice and sheet improvements</h2>
             <p>Extension version 2.20.87. Characters with Portent get a name-adjacent dice panel. Completed Long Rests replace the pool; refreshing the sheet does not reroll it. Select or deselect a die, confirm before replacing the next supported d20 test, and configure optional modified-total thresholds in Portent Settings. The confirmation preference is reversible.</p>
             <p>The compact WB20 header button and native-themed panels preserve the sheet layout. The Combat frame keeps clear of its text and controls. Musician reminders remain open until dismissed, with guards against duplicate rest handling and duplicate windows.</p>
             <p><strong>Known issue: double-Smite is still reported and is not fixed here.</strong> Its exact duplication path is still under investigation. Check Smite damage and resource use with your group. Existing Lay on Hands pool persistence also remains unresolved.</p>

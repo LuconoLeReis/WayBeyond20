@@ -1181,7 +1181,16 @@ if (!window.__beyond20_mb2_initialized__) {
         try {
             entry.button.scrollIntoView?.({ block: "nearest", inline: "nearest" });
             entry.button.focus?.({ preventScroll: true });
-            entry.button.click();
+            // This click accounts for an already-performed Smite. The content
+            // native-Cast listener must not turn it into a second spell cast.
+            const button = entry.button;
+            const replay = button.getAttribute("data-waybeyond20-resource-replay");
+            button.setAttribute("data-waybeyond20-resource-replay", "true");
+            try { button.click(); }
+            finally {
+                if (replay === null) button.removeAttribute("data-waybeyond20-resource-replay");
+                else button.setAttribute("data-waybeyond20-resource-replay", replay);
+            }
         } catch (error) {
             attempts.push({ method: "main-native-click", error: String(error) });
         }
