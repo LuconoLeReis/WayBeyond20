@@ -7,12 +7,13 @@ function wb20AttackEscape(value) {
 
 async function wb20ConfirmAttackOutcome(name, rolls) {
     const active = rolls.filter(roll => !roll.isDiscarded());
-    const choices = active.map((roll, index) => `<option value="${index}">${wb20AttackEscape(roll.total)}</option>`).join("");
+    const label = roll => `${wb20AttackEscape(roll.total)}${roll.isCriticalHit?.() ? " — Critical Hit" : ""}`;
+    const choices = active.map((roll, index) => `<option value="${index}">${label(roll)}</option>`).join("");
     const html = `<form class="wb20-feature-prompt wb20-attack-outcome"><p>${wb20AttackEscape(name)}</p>` +
-        (active.length ? `<label>Attack result <select name="attack-index" aria-label="Attack result">${choices}</select></label>` : "") +
-        '<label>Outcome <select name="outcome" aria-label="Outcome"><option value="">Choose outcome</option>' +
-        '<option value="hit">Hit</option><option value="miss">Miss</option></select></label></form>';
-    const form = await dndbeyondDiceRoller._prompter.prompt("Attack result", html, "Continue", "Skip");
+        (active.length > 1 ? `<label>Attack result <select name="attack-index" aria-label="Attack result">${choices}</select></label>` :
+            `<input type="hidden" name="attack-index" value="0"><p>Attack result: <strong>${active.length ? label(active[0]) : "Not available"}</strong></p>`) +
+        '<input type="hidden" name="outcome" value="hit"></form>';
+    const form = await dndbeyondDiceRoller._prompter.prompt("Attack result", html, "Hit", "Skip/Cancel");
     if (!form || typeof form.find !== "function") return {hit: null, roll: null};
     const outcome = form.find('[name="outcome"]').val();
     const index = Number(form.find('[name="attack-index"]').val());

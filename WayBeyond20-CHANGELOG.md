@@ -1,3 +1,15 @@
+## 1.73.25 / 2.20.157 — October 25, 2026
+
+Owner-authorized release of queued attacks and the themed Action menu. Explicit Attack sends one source-aware card; automatic weapon purchases add no duplicate card. Attack outcome uses direct Hit/Miss/Skip-Cancel controls; one total is plain text and critical damage remains driven by the selected roll. Automated verification and live menu/display inspection are distinct from complete live acceptance. No battlefield, movement-path or tactical-advice feature is included.
+
+## 1.73.24 / 2.20.156 — local development candidate, 2026-10-25
+
+- Combat Attacks displays actual queued attacks / standard attacks per Attack action. Explicit Attack and automatic weapon purchase share resource preflight/commit. Additional Actions are converted only when spent; Haste queues one, separately from standard and feature-bound attacks.
+- Action hover/click/focus menu offers the eleven requested 2024 choices; Haste menu offers its five permitted choices. Attack queues without rolling; Dash adds current Speed; Dodge/Disengage/Help show local turn effects and deliver descriptive cards through the existing route. Dexterity saves benefit from valid Dodge.
+- Skill actions reuse the real skill pane/roll preparation with a one-shot resource intent. Magic opens Spells without spending; native activation pays once. Utilize records a described nonmagical interaction; tracked items must use their own sheet activation. Cancellation, delivery failure and stale turns do not commit.
+- Correction accepts additive standard queues above the per-Action denominator and exposes queued Haste separately. Existing attack workflows and feature-specific grant restrictions retained.
+- Automated fixtures are not live DDB/VTT acceptance. Help recipients and incoming enemy attacks use the announced rules; no automatic remote token effects are claimed.
+
 # WayBeyond20 Changelog
 
 ## v1.73.23 stable release on 2026-10-25

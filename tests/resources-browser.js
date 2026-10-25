@@ -35,7 +35,7 @@ const pool=(name,total,used)=>`<div class="ct-feature-snippet"><h3 class="ct-fea
   await page.getByLabel('Focus Points remaining').waitFor();
   assert.equal(await page.getByLabel('Focus Points remaining').inputValue(),'2');assert.equal(await page.getByLabel('Bardic Inspiration remaining').inputValue(),'3');assert.equal(await page.getByLabel('Healing Pool remaining').inputValue(),'12');
   const standard=page.getByLabel('# of Attacks (standard) remaining');
-  assert.equal(await standard.inputValue(),'0');assert.equal(await standard.getAttribute('max'),'2');
+  assert.equal(await standard.inputValue(),'0');assert.equal(await standard.getAttribute('max'),null,'additive queue is not capped by the per-Action denominator');
   assert.equal(await standard.locator('..').locator('span').textContent(),'/ 2');
   assert.equal(await page.locator('.wb20-resource-dialog').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(250, 245, 230)');
   await page.getByLabel('Focus Points remaining').fill('3');await page.getByLabel('Healing Pool remaining').fill('14');await page.getByRole('button',{name:'Save corrections',exact:true}).click();await page.evaluate(()=>correcting);

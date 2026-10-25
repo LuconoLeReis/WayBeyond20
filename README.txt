@@ -1,14 +1,31 @@
-WAYBEYOND20 v1.73.23
+WAYBEYOND20 v1.73.25
 ===================
 
-Release: October 25, 2026. Chrome numeric version: 2.20.155.
+Release: October 25, 2026. Chrome numeric version: 2.20.157.
 Stable release authorized by the project owner after the verification below.
 
 WayBeyond20 connects D&D Beyond character sheets to Roll20, Foundry VTT,
 Discord and supported local/TaleSpire pathways. It is a modified distribution
 of Beyond20. Required GPL and MIT attribution and licenses are included.
 
-WHAT CHANGED SINCE 1.73.2
+WHAT CHANGED IN 1.73.25
+-----------------------
+- Combat shows queued attacks / attacks per standard Attack action, with a tooltip.
+- The themed Action menu offers eleven choices. Extra Actions remain Actions
+  until spent, and Haste's Attack action grants one attack.
+- Taking Attack explicitly sends one descriptive card and queues attacks;
+  weapon clicks retain their existing attack message without another card.
+- The attack outcome window has Hit, Miss and Skip/Cancel buttons. One total
+  is displayed as text; multiple kept results can still be selected. Critical
+  damage uses the selected resolved roll without another critical declaration.
+- Cancelled or failed operations preserve resources. Opening Magic spends
+  nothing; the actual native activation owns its payment.
+- Automated tests and isolated browser checks cover these changes. The updated
+  menu and queue display were observed on a live sheet; complete live acceptance
+  of every new Action choice and VTT is not claimed. Prior live results below
+  describe 1.73.23. Incoming enemy attacks and Help benefits remain table-applied.
+
+PREVIOUS RELEASE CHANGES SINCE 1.73.2
 ------------------------
 
 - Compact sheet-themed Manage/WB20/Share, Rest and Correction controls.

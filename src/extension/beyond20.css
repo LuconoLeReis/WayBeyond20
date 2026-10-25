@@ -1362,6 +1362,23 @@ span.dice-roll.beyond20-tooltip-content {
     opacity: 0.8;
 }
 
+.wb20-action-menu { position:relative; display:inline-block; }
+.wb20-action-choices {
+    display:none; position:absolute; left:0; bottom:100%; z-index:100;
+    grid-template-columns:repeat(3,minmax(72px,1fr)); gap:4px; padding:8px;
+    min-width:260px; max-width:calc(100vw - 32px);
+    background:var(--wb20-sheet-surface,Canvas); color:var(--wb20-sheet-ink,inherit);
+    border:1px solid var(--wb20-sheet-accent,currentColor); border-radius:4px;
+    box-shadow:0 3px 10px #0004;
+}
+.wb20-action-open > .wb20-action-choices { display:grid; }
+.wb20-action-choices button {
+    font:inherit; font-size:12px; padding:7px 5px; cursor:pointer;
+    color:inherit; background:transparent; border:1px solid currentColor; border-radius:3px;
+}
+.wb20-action-choices button:hover { background:color-mix(in srgb,currentColor 12%,transparent); }
+.wb20-action-menu button:focus-visible { outline:2px solid var(--wb20-sheet-accent,currentColor); outline-offset:2px; }
+
 .waybeyond20-combat-end {
     font-weight: 700;
 }

@@ -2037,7 +2037,7 @@ function wayBeyond20RollAlreadyHasAdvantage(rollProperties = {}) {
     return configured === RollType.ADVANTAGE || configured === RollType.SUPER_ADVANTAGE;
 }
 
-async function rollSkillCheck(paneClass) {
+async function rollSkillCheck(paneClass, combatAction = null) {
     const skill_name = $("." + paneClass + "__header-name").text();
     let ability = $("." + paneClass + "__header-ability").text();
     let modifier = $("." + paneClass + "__header-modifier").text();
@@ -2239,6 +2239,10 @@ async function rollSkillCheck(paneClass) {
         }
     }
 
+    if (combatAction) {
+        roll_properties["waybeyond20-turn-resource"] = combatAction.request;
+        roll_properties.description = `${combatAction.request.actionType} action${combatAction.details ? ": " + combatAction.details : ""}`;
+    }
     return sendRollWithCharacter("skill", "1d20" + modifier, roll_properties);
 }
 
@@ -2351,6 +2355,11 @@ function applyAbilityOrSavingThrowEffects({ rollType, ability_name, ability, mod
     }
 
     if (rollType === "saving-throw") {
+        if (ability === "DEX" && typeof wb20ActiveCombatActionEffects === "function" &&
+            wb20ActiveCombatActionEffects(wayBeyond20GetTurnTrackerState()).some(effect=>effect.name === "Dodge")) {
+            roll_properties["advantage"] = RollType.OVERRIDE_ADVANTAGE;
+            addEffect(roll_properties, "Dodge");
+        }
         const saveAdvantageEffects = wayBeyond20GetTrackedSpellEffects().filter(effect => {
             const entries = wayBeyond20EffectDataEntries(effect);
             if (entries.some(entry =>
@@ -3952,7 +3961,13 @@ function wayBeyond20NormalizeTurnTrackerState(state, effects = null, options = {
     // Attacks left in an Attack action already taken this turn. A new turn starts with none:
     // the Attack action has not been taken yet.
     if (options.reset || current.attacksRemaining === undefined) current.attacksRemaining = 0;
-    if (options.reset) current.featureGrants = {};
+    if (options.reset) { current.featureGrants = {}; current.combatActionEffects = {}; }
+    if (current.combatActionEffects?.Dodge && typeof wb20DodgeUnavailable === "function" && wb20DodgeUnavailable()) {
+        current.combatActionEffects = {...current.combatActionEffects};
+        delete current.combatActionEffects.Dodge;
+    }
+    if (options.reset || current.hasteAttacksRemaining === undefined) current.hasteAttacksRemaining = 0;
+    current.hasteAttacksRemaining = Math.max(0, wayBeyond20ParseInteger(current.hasteAttacksRemaining) ?? 0);
     current.attacksRemaining = Math.max(0, wayBeyond20ParseInteger(current.attacksRemaining) ?? 0);
     if (options.reset || current.maxAction === undefined) current.maxAction = defaults.maxAction;
     if (options.reset || current.maxBonusAction === undefined) current.maxBonusAction = defaults.maxBonusAction;
@@ -4091,8 +4106,8 @@ async function wayBeyond20PreflightTurnResource(resource, options = {}) {
         rollType: options.rollType || ""
     });
     const proceed = await wayBeyond20ConfirmChoice(
-        `No ${resourceName} Available`,
-        `You have no available ${resourceName} this turn. Do you wish to proceed anyway?`,
+        options.actionType === "Attack" ? "No Attacks Available" : `No ${resourceName} Available`,
+        options.actionType === "Attack" ? "You have no queued attacks or available Action to take the Attack action. Make this attack anyway?" : `You have no available ${resourceName} this turn. Do you wish to proceed anyway?`,
         "Proceed",
         "Cancel"
     );
@@ -4876,6 +4891,8 @@ function wayBeyond20FindCombatSectionHost() {
 
 function wayBeyond20BuildCombatResource(label, resource, count, isMovement = false) {
     const amount = wayBeyond20ParseInteger(count) ?? 0;
+    if (["action","hasteAction"].includes(resource) && typeof wb20BuildCombatActionMenu === "function")
+        return wb20BuildCombatActionMenu(label, resource, amount);
     const chip = $("<button>")
         .attr("type", "button")
         .addClass("waybeyond20-combat-resource")
@@ -4907,7 +4924,10 @@ function wayBeyond20InjectTurnResourceTracker(effects) {
     }
 
     const activeEffects = Array.isArray(effects) ? effects : wayBeyond20GetTrackedSpellEffects();
-    const state = wayBeyond20NormalizeTurnTrackerState(wayBeyond20GetTurnTrackerState(), activeEffects);
+    const savedState = wayBeyond20GetTurnTrackerState();
+    const state = wayBeyond20NormalizeTurnTrackerState(savedState, activeEffects);
+    if (savedState.combatActionEffects?.Dodge && !state.combatActionEffects?.Dodge)
+        wayBeyond20SetTurnTrackerState(state);
     if (!wayBeyond20HasActiveCombatState(state)) {
         $(".wb20-combat-layout").remove();
         $(".waybeyond20-combat-section").remove();
@@ -4953,6 +4973,9 @@ function wayBeyond20InjectTurnResourceTracker(effects) {
         hasteAction: state.hasteAction,
         movement: state.movement,
         attacksRemaining: state.attacksRemaining,
+        attacksPerAction: wayBeyond20AttacksPerAttackAction(),
+        hasteAttacksRemaining: state.hasteAttacksRemaining,
+        combatActionEffects: state.combatActionEffects,
         featureGrants: state.featureGrants,
         maxHasteAction: state.maxHasteAction,
         combatSource: state.combatSource,
@@ -4991,7 +5014,12 @@ function wayBeyond20InjectTurnResourceTracker(effects) {
     resources.append(wayBeyond20BuildCombatResource("Action", "action", state.action));
     resources.append(wayBeyond20BuildCombatResource("Bonus Action", "bonusAction", state.bonusAction));
     resources.append(wayBeyond20BuildCombatResource("Reaction", "reaction", state.reaction));
-    resources.append($("<span>").addClass("waybeyond20-turn-resource-chip").text(`Attacks: ${state.attacksRemaining || 0}`));
+    const queued = typeof wb20QueuedAttackCount === "function" ? wb20QueuedAttackCount(state) : state.attacksRemaining || 0;
+    resources.append($("<span>").addClass("waybeyond20-turn-resource-chip")
+        .text(`Attacks: ${queued}/${wayBeyond20AttacksPerAttackAction()}`)
+        .attr("title",`Attacks already queued / attacks granted by one standard Attack action. Extra Actions add no attacks until used to take Attack. Haste queues one; feature attacks keep their own restrictions. Standard queued: ${state.attacksRemaining || 0}; Haste queued: ${state.hasteAttacksRemaining || 0}.`));
+    if (typeof wb20ActiveCombatActionEffects === "function") for (const effect of wb20ActiveCombatActionEffects(state))
+        resources.append($("<span>").addClass("waybeyond20-turn-resource-chip").text(effect.name).attr("title",effect.description));
     for (const grant of Object.values(state.featureGrants || {})) {
         if (grant.remaining > 0 && grant.turnKey === wayBeyond20AttackActivationTurnKey()) resources.append($("<span>").addClass("waybeyond20-turn-resource-chip").text(`${grant.name}: ${grant.remaining}`));
     }

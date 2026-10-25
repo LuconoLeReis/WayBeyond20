@@ -447,14 +447,18 @@ function initializeAlertify() {
                     okButton.removeAttribute("aria-disabled");
                     okButton.classList.remove("waybeyond20-query-proceed-disabled");
                     okButton.style.display = "";
+                    this.elements.dialog?.querySelectorAll(".wb20-outcome-extra").forEach(button=>button.remove());
                     const attackOutcome = this.elements.content.querySelector("form.wb20-attack-outcome");
                     if (attackOutcome) {
-                        const syncOutcome = () => {
-                            okButton.disabled = !["hit", "miss"].includes(attackOutcome.querySelector('[name="outcome"]').value);
-                            okButton.setAttribute("aria-disabled", String(okButton.disabled));
-                        };
-                        attackOutcome.addEventListener("change", syncOutcome);
-                        syncOutcome();
+                        const miss = document.createElement("button");
+                        miss.type = "button"; miss.textContent = "Miss";
+                        miss.className = "wb20-outcome-extra " + alertify.defaults.theme.cancel;
+                        miss.addEventListener("click",()=>{
+                            attackOutcome.querySelector('[name="outcome"]').value = "miss";
+                            this.get('resolver').call(this,$(attackOutcome));
+                        });
+                        const cancel = this.__internal.buttons[1].element;
+                        cancel.parentNode.insertBefore(miss,cancel);
                     }
                     const portentForm = this.elements.content.querySelector("form.waybeyond20-portent-query");
                     if (portentForm && typeof wayBeyond20WirePortentPrompt === "function")

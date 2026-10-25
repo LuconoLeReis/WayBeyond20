@@ -16,7 +16,8 @@ let loading = true;
 let readyState = 'complete';
 let page = {id:'map'};
 let state = {inCombat:true,combatSource:'Roll20',combatStartedAt:1,localTurnNumber:2,
-    action:0,bonusAction:0,reaction:0,movement:10,attacksRemaining:1,
+    action:0,bonusAction:0,reaction:0,movement:10,attacksRemaining:1,hasteAttacksRemaining:1,
+    combatActionEffects:{Dodge:{name:'Dodge'},Disengage:{name:'Disengage'}},
     lastRoll20TurnKey:'old',currentRoll20Turn:{tokenId:'mob',isThisCharactersTurn:false},
     selectedTargetKey:'mob',targetRecords:{mob:{damage:[{amount:8}]}}};
 const messages = [];
@@ -49,6 +50,8 @@ readyState='complete';order(['mob','self','other']);
 assert.deepEqual(counters(),[0,0,0,10,1,2],'same current combatant after reload preserves spent resources');
 poll();assert.equal(messages.length,1,'identical polls are silent');
 order(['self','other','mob']);assert.deepEqual(counters(),[1,1,1,30,0,3],'own turn resets once');
+assert.equal(state.hasteAttacksRemaining,0,'new own turn clears queued Haste attacks');
+assert.equal(Object.keys(state.combatActionEffects).length,0,'next own start expires Dodge and Help');
 state={...state,action:0,bonusAction:0,reaction:0,movement:5,attacksRemaining:1};
 // A new page-script session and a new DDB receiver must both preserve a spent own turn.
 vm.runInContext('wayBeyond20LastTurnOrderKey="";wayBeyond20LastObservedRoll20TokenId="";wayBeyond20LastObservedRoll20WasCharacter=false;',c);

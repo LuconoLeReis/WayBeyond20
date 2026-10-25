@@ -151,6 +151,7 @@ const SRC_FILES = {
         "src/dndbeyond/content-scripts/concentration.js",
         "src/dndbeyond/content-scripts/portent.js",
         "src/dndbeyond/content-scripts/resources.js",
+        "src/dndbeyond/content-scripts/combat-actions.js",
         "src/dndbeyond/content-scripts/feature-activations.js",
         "src/dndbeyond/content-scripts/attack-workflow-character.js",
         "src/dndbeyond/content-scripts/attack-handoff.js",

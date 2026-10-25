@@ -122,11 +122,13 @@ function wb20Resources(owner = character) {
     }
     const state = typeof wayBeyond20GetTurnTrackerState === "function" ? wayBeyond20GetTurnTrackerState() : {};
     if (state.inCombat) {
-        for (const [id,name] of [["action","Action"],["bonusAction","Bonus Action"],["reaction","Reaction"],["hasteAction","Haste attack action"],["attacksRemaining","# of Attacks (standard)"],["movement","Movement"]]) {
+        for (const [id,name] of [["action","Action"],["bonusAction","Bonus Action"],["reaction","Reaction"],["hasteAction","Haste attack action"],["attacksRemaining","# of Attacks (standard)"],["hasteAttacksRemaining","# of Attacks (Haste queued)"],["movement","Movement"]]) {
             if (id === "hasteAction" && !state.maxHasteAction) continue;
+            if (id === "hasteAttacksRemaining" && !state.maxHasteAction && !state.hasteAttacksRemaining) continue;
             const max = id === "attacksRemaining" ? wayBeyond20AttacksPerAttackAction()
                 : id === "hasteAction" ? state.maxHasteAction : null;
-            pools.set(id, {name, kind: "turn", remaining: Number(state[id]) || 0, max: Number.isInteger(max) ? max : null});
+            pools.set(id, {name, kind: "turn", remaining: Number(state[id]) || 0, max: Number.isInteger(max) ? max : null,
+                uncapped: id === "attacksRemaining"});
         }
         for (const [id,grant] of Object.entries(state.featureGrants || {}))
             if (grant.turnKey === wayBeyond20AttackActivationTurnKey()) pools.set("grant:" + id, {...grant, kind:"grant", remaining: grant.remaining, max: grant.max});
@@ -228,7 +230,7 @@ async function wb20SetResource(name, desired, {owner = character, reason = "Corr
     const apply = async () => {
         const fresh = wb20Resource(name,owner);
         if (!fresh || owner !== character) return false;
-        if (!Number.isInteger(desired) || desired < 0 || fresh.max !== null && desired > fresh.max) return false;
+        if (!Number.isInteger(desired) || desired < 0 || !fresh.uncapped && fresh.max !== null && desired > fresh.max) return false;
         if (expected !== undefined && fresh.remaining !== expected) return false;
         if (fresh.remaining === desired) return true;
         let changed = false;
@@ -276,16 +278,17 @@ async function wb20DispatchResources(args, intents, dispatch) {
     return wb20ResourceLocked(async()=>{
         if (owner !== character || turn !== wayBeyond20AttackActivationTurnKey()) return false;
         for (const request of requests) {
-            if (request.actionType === "Attack" && request.resource === "action" && wayBeyond20AttacksRemainingInAttackAction()>0) continue;
+            if (wb20PrepareCombatRequest(request, intents, args)) continue;
             const state=wayBeyond20GetTurnTrackerState();
             const actionType=request.actionType || (/spell/.test(intents.rollType || '') || /\bmagic action\b/i.test(args.description || '') ? "Magic" : "Other");
             const extra=Object.entries(state.featureGrants || {}).find(([,grant])=>grant.turnKey === turn && grant.unit === request.resource && grant.remaining > 0 && !(grant.excludes || []).includes(actionType));
             if (state.inCombat && Number(state[request.resource]) === 0 && extra &&
                 (request.resource === "reaction" || state.currentRoll20Turn?.isThisCharactersTurn !== false)) {request.grantId=extra[0];continue;}
-            if (request.actionType === "Attack" && request.resource === "action" && state.action === 0 && state.hasteAction > 0) {
-                request.resource="hasteAction"; request.actionType="Granted Attack";
+            if (request.resource === "action" && request.hasteEligible !== false && state.action === 0 && state.hasteAction > 0 &&
+                ["Attack","Dash","Disengage","Hide","Utilize"].includes(request.actionType)) {
+                request.resource="hasteAction";
             }
-            if (!await wayBeyond20PreflightTurnResource(request.resource,{name:request.name || args.name})) return false;
+            if (!await wayBeyond20PreflightTurnResource(request.resource,{name:request.name || args.name, actionType:request.actionType})) return false;
         }
         if (perTurn && turn && wb20ResourceStore(owner).turns[perTurn] === turn &&
             !await wayBeyond20ConfirmChoice("Feature already used",`${perTurn} is already recorded this turn. Proceed anyway?`,"Proceed","Cancel")) return false;
@@ -311,6 +314,15 @@ async function wb20DispatchResources(args, intents, dispatch) {
             charges.push({name:cost.name,before:pool.remaining,after:pool.remaining-cost.amount});
         }
         if (owner !== character || turn !== wayBeyond20AttackActivationTurnKey()) return false;
+        const explicitAttack = requests.find(request=>request.takeAction && request.combatAttack);
+        if (explicitAttack && args["source-type"] === "Combat action") {
+            const state = wayBeyond20GetTurnTrackerState();
+            const available = explicitAttack.grantId ? state.featureGrants?.[explicitAttack.grantId]?.remaining : state[explicitAttack.resource];
+            const amount = explicitAttack.resource === "hasteAction" ? 1 : wayBeyond20AttacksPerAttackAction();
+            args.description = wb20CombatOwnTurn(state) && available > 0
+                ? `Takes the Attack action, queuing ${amount} attack${amount === 1 ? "" : "s"}. No attack has been rolled yet.`
+                : "Records the Attack action without spending a tracked Action. No attacks are added to the queue.";
+        }
         const result=await dispatch();
         if (result !== true) return result;
         if (owner !== character || turn !== wayBeyond20AttackActivationTurnKey() || intents.isCurrent && !intents.isCurrent()) {
@@ -318,6 +330,7 @@ async function wb20DispatchResources(args, intents, dispatch) {
         }
         const beforeTurn={...wayBeyond20GetTurnTrackerState()};
         for (const request of requests) {
+            if (wb20CommitCombatRequest(request, args.name)) continue;
             if (request.grantId) {
                 const state={...wayBeyond20GetTurnTrackerState()},grant=state.featureGrants?.[request.grantId];
                 if (grant?.remaining > 0) {
@@ -329,7 +342,7 @@ async function wb20DispatchResources(args, intents, dispatch) {
             else wayBeyond20SpendTurnResource(request.resource,{name:args.name});
         }
         const afterTurn=wayBeyond20GetTurnTrackerState(),turnHistory=[];
-        for (const id of ["action","bonusAction","reaction","hasteAction","attacksRemaining"]) {
+        for (const id of ["action","bonusAction","reaction","hasteAction","attacksRemaining","hasteAttacksRemaining"]) {
             if (Number.isInteger(beforeTurn[id]) && beforeTurn[id] !== afterTurn[id])
                 turnHistory.push({at:Date.now(),name:id,before:beforeTurn[id],after:afterTurn[id],reason:args.name || "Action use"});
         }
@@ -359,6 +372,56 @@ async function wb20DispatchResources(args, intents, dispatch) {
     },owner);
 }
 
+// Explicit Attack and implicit weapon purchase share this transaction. An Action
+// grant is currency, not a promise of attacks. Only its successful conversion
+// creates attacks. Haste stays separate because its Attack action permits one.
+function wb20CombatOwnTurn(state) {
+    return wayBeyond20HasActiveCombatState(state) &&
+        state.currentRoll20Turn?.isThisCharactersTurn !== false;
+}
+
+function wb20PrepareCombatRequest(request, intents = {}, args = {}) {
+    if (request.actionType !== "Attack" || !["action","hasteAction"].includes(request.resource)) return false;
+    request.combatAttack = true;
+    request.hasteEligible = request.takeAction || intents.rollType === "attack" && args.rollAttack !== false && args["attack-source"] !== "spell";
+    const state = wayBeyond20GetTurnTrackerState();
+    if (!wb20CombatOwnTurn(state) || request.takeAction) return false;
+    if (request.resource === "action" && state.attacksRemaining > 0) request.attackPool = "attacksRemaining";
+    else if (request.hasteEligible && state.hasteAttacksRemaining > 0) request.attackPool = "hasteAttacksRemaining";
+    return !!request.attackPool;
+}
+
+function wb20CommitCombatRequest(request, name) {
+    if (!request.combatAttack) return false;
+    const state = {...wayBeyond20GetTurnTrackerState()};
+    if (!wb20CombatOwnTurn(state)) return true;
+    if (request.attackPool) {
+        state[request.attackPool] = Math.max(0, (state[request.attackPool] || 0) - 1);
+    } else {
+        const grant = state.featureGrants?.[request.grantId];
+        const available = request.grantId ? grant?.remaining : state[request.resource];
+        // An explicitly overridden roll never manufactures a pool or debt.
+        if (!(available > 0)) return true;
+        if (request.grantId) state.featureGrants = {...state.featureGrants,
+            [request.grantId]: {...grant, remaining: grant.remaining - 1}};
+        else state[request.resource]--;
+        const pool = request.resource === "hasteAction" ? "hasteAttacksRemaining" : "attacksRemaining";
+        const allowance = pool === "hasteAttacksRemaining" ? 1 : wayBeyond20AttacksPerAttackAction();
+        state[pool] = Math.max(0, Number(state[pool]) || 0) + allowance - (request.takeAction ? 0 : 1);
+        wayBeyond20CharacterDebug("Attack action purchased", {source: request.grantId || request.resource,
+            allowance, consumed: !request.takeAction, name});
+    }
+    wayBeyond20SetTurnTrackerState(state, wayBeyond20ScheduleActiveEffectBadgeRefresh);
+    return true;
+}
+
+function wb20QueuedAttackCount(state) {
+    const turn = wayBeyond20AttackActivationTurnKey();
+    return Math.max(0, Number(state.attacksRemaining) || 0) + Math.max(0, Number(state.hasteAttacksRemaining) || 0) +
+        Object.values(state.featureGrants || {}).filter(grant => grant.unit === "attack" && grant.turnKey === turn)
+            .reduce((sum, grant) => sum + Math.max(0, Number(grant.remaining) || 0), 0);
+}
+
 function wb20RecordAttackGrant(activation) {
     if (!activation.source || activation.owner !== character || activation.turnKey !== wayBeyond20AttackActivationTurnKey()) return;
     const state={...wayBeyond20GetTurnTrackerState()};
@@ -377,7 +440,7 @@ async function wb20CorrectResources() {
         if (owner !== character) return;
         const esc=value=>String(value ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
         const entries=[...pools].filter(([,pool])=>pool.remaining !== null || pool.kind === "local");
-        const rows=entries.map(([id,pool],i)=>`<label>${esc(pool.name)} <input name="resource-${i}" type="number" min="0" ${pool.max === null ? '' : `max="${pool.max}"`} value="${pool.remaining ?? ''}" placeholder="Unknown" aria-label="${esc(pool.name)} remaining"><span>${pool.max === null ? '' : '/ '+pool.max}</span></label>`).join("");
+        const rows=entries.map(([id,pool],i)=>`<label>${esc(pool.name)} <input name="resource-${i}" type="number" min="0" ${pool.max === null || pool.uncapped ? '' : `max="${pool.max}"`} value="${pool.remaining ?? ''}" placeholder="Unknown" aria-label="${esc(pool.name)} remaining"><span>${pool.max === null ? '' : '/ '+pool.max}</span></label>`).join("");
         const history=wb20ResourceStore(owner).history.slice().reverse().map(entry=>`<li>${esc(new Date(entry.at).toLocaleTimeString())} · ${esc(entry.name)}: ${entry.before ?? '?'} → ${entry.after} · ${esc(entry.reason)}</li>`).join("");
         const form=await dndbeyondDiceRoller._prompter.prompt("Correction",`<form class="wb20-resource-correction"><p>Remaining resources. Only changed values will be saved.</p>${rows || '<p>No feature resources are currently exposed on this sheet.</p>'}<details><summary>Recent resource history · local only</summary><ol>${history || '<li>No recorded changes.</li>'}</ol></details></form>`,"Save corrections","Cancel");
         if (!form || owner !== character || turn !== wayBeyond20AttackActivationTurnKey()) return;
@@ -385,7 +448,7 @@ async function wb20CorrectResources() {
         for (let i=0;i<entries.length;i++) {
             const raw=String(form.find(`[name="resource-${i}"]`).val()).trim(), value=raw === '' ? null : Number(raw), [id,pool]=entries[i];
             if (value === pool.remaining) continue;
-            if (!Number.isInteger(value) || value < 0 || pool.max !== null && value > pool.max) {alertify.warning("Enter valid remaining amounts. Nothing was changed.");return;}
+            if (!Number.isInteger(value) || value < 0 || !pool.uncapped && pool.max !== null && value > pool.max) {alertify.warning("Enter valid remaining amounts. Nothing was changed.");return;}
             updates.push({id,pool,value});
         }
         await wb20ResourceLocked(async()=>{

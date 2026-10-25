@@ -1,11 +1,12 @@
 {
   "name": "waybeyond20",
-  "version": "2.20.155",
+  "version": "2.20.157",
   "description": "WayBeyond20: D&D Beyond & Roll20/Foundry VTT Integration",
   "directories": {
     "doc": "docs"
   },
   "scripts": {
+    "test:combat-actions": "node tests/combat-actions.js && node tests/combat-actions-browser.js",
     "test:attack-workflow": "node tests/attack-workflow.js",
     "test:attack-workflow-browser": "node tests/attack-workflow-browser.js && node tests/attack-handoff-browser.js && node tests/attack-icon-browser.js && node tests/attack-input-lifecycle-browser.js && node tests/attack-stat-block-browser.js",
     "test:attack-input-lifecycle-browser": "node tests/attack-input-lifecycle-browser.js",
@@ -15,7 +16,7 @@
     "test:header-browser": "node tests/header-browser.js",
     "test:monk": "node tests/monk.js && node tests/monk-browser.js",
     "test:resources": "node tests/monk.js && node tests/resources-browser.js && node tests/action-economy.js",
-    "test": "node tests/v1.63-regressions.js && node tests/v1.64-smite.js && node tests/v1.65-wizard.js && node tests/v1.65-helper-settings.js && node tests/v1.65-draining-attack.js && node tests/v1.65-elemental-strike.js && node tests/v1.65-paladin-smite-spend.js && node tests/v1.65-named-resource.js && node tests/v1.65-spell-slot-spend.js && node tests/v1.65-sheet-route.js && node tests/v1.65-dispatch-failure.js && node tests/v1.65-settings-concurrency.js && node tests/v1.65-smite-tab-restore.js && node tests/v1.65-group-reports.js && node tests/v1.65-lay-on-hands.js && node tests/attack-followups.js && node tests/attack-workflow.js && node tests/concentration-and-utility.js && node tests/portent.js && node tests/core-roll20-sync.js && node tests/talespire.js && node tests/fvtt-lifecycle.js && node tests/board-isolation.js",
+    "test": "node tests/v1.63-regressions.js && node tests/v1.64-smite.js && node tests/v1.65-wizard.js && node tests/v1.65-helper-settings.js && node tests/v1.65-draining-attack.js && node tests/v1.65-elemental-strike.js && node tests/v1.65-paladin-smite-spend.js && node tests/v1.65-named-resource.js && node tests/v1.65-spell-slot-spend.js && node tests/v1.65-sheet-route.js && node tests/v1.65-dispatch-failure.js && node tests/v1.65-settings-concurrency.js && node tests/v1.65-smite-tab-restore.js && node tests/v1.65-group-reports.js && node tests/v1.65-lay-on-hands.js && node tests/attack-followups.js && node tests/attack-workflow.js && node tests/concentration-and-utility.js && node tests/portent.js && node tests/core-roll20-sync.js && node tests/talespire.js && node tests/fvtt-lifecycle.js && node tests/board-isolation.js && node tests/combat-actions.js",
     "test:talespire": "node tests/talespire.js && node tests/talespire-return.js",
     "test:talespire-browser": "node tests/talespire-browser.js && node tests/talespire-return-browser.js",
     "test:portent-browser": "node tests/portent-browser.js",
