@@ -45,7 +45,7 @@ const OPTIONAL_CHARACTER_FUNCTIONS = ["wayBeyond20DispatchRollWithCharacter", "w
 
 // runtime modes: "ok" (Roll20 answered), "no-vtt" (background: no VTT, local display), "throw" (orphaned
 // script: sendMessage throws), "last-error" (callback with lastError), "no-id" (runtime.id gone).
-function createSandbox({ runtime = "ok", digitalDice = false, rendererSends = true, rendererThrows = false } = {}) {
+function createSandbox({ runtime = "ok", digitalDice = false, rendererSends = true, rendererThrows = false, talespireConnection = true } = {}) {
     const log = { runtimeSends: [], errors: [], warnings: [], localDisplays: [], rendered: [], turnSpends: [],
         limitedUseSpends: [], slotSpends: [], freeSmiteSpends: 0, selfEffects: [], intrusion: [], removedEffects: [],
         merges: [], remoteEffects: [], effectsUpdates: [], restoredTabs: 0 };
@@ -66,6 +66,11 @@ function createSandbox({ runtime = "ok", digitalDice = false, rendererSends = tr
                     callback({ success: false, vtt: null, request: message, error: "No VTT found that matches your settings." });
                     return;
                 }
+                if (runtime.startsWith('talespire')) {
+                    callback({success: runtime === 'talespire-ok', vtt: ['talespire'], request: message,
+                        error: runtime === 'talespire-ok' ? null : 'Protocol rejected'});
+                    return;
+                }
                 callback({ success: true, vtt: ["roll20"], error: null, request: message });
             }, 1);
         },
@@ -76,7 +81,9 @@ function createSandbox({ runtime = "ok", digitalDice = false, rendererSends = tr
         _id: 7, _name: "Test Sheet", _settings: {},
         type: () => "Character",
         getDict: () => ({ id: 7, name: "Test Sheet", type: "Character", settings: {} }),
-        getGlobalSetting: (key, fallback) => key === "use-digital-dice" ? digitalDice : fallback,
+        getGlobalSetting: (key, fallback) => key === "use-digital-dice" ? digitalDice :
+            key === 'vtt-tab' && runtime.startsWith('talespire') ? {vtt: 'talespire'} :
+            key === 'talespire-url' && runtime.startsWith('talespire') ? (talespireConnection ? 'talespire://symbiote/test/' : '') : fallback,
         getSetting: (key, fallback) => fallback,
         hasRacialTrait: () => false,
         mergeCharacterSettings(data, callback) { log.merges.push(data); if (callback) callback(data); }
@@ -135,6 +142,7 @@ function createSandbox({ runtime = "ok", digitalDice = false, rendererSends = tr
         ...CHARACTER_FUNCTIONS.map(name => topLevelFunction(characterSource, name)),
         ...OPTIONAL_CHARACTER_FUNCTIONS.map(name => topLevelFunction(characterSource, name, { optional: true }))
     ].join("\n"), Object.assign(context, { displayerHolder: displayer }));
+    if (runtime.startsWith('talespire')) displayer.value.postHTML = () => log.localDisplays.push('talespire-result');
     return context;
 }
 
@@ -214,6 +222,27 @@ section("5. No VTT open: the supported local D&D Beyond display still counts as 
     assert.equal(await run(ctx, "sendRoll")(ctx.character, "attack", "1d8", { name: "Longsword" }), true);
     assert.equal(ctx.log.localDisplays.length, 1, "local display shown");
     assert.deepEqual(ctx.log.errors, []);
+});
+
+section("TaleSpire forces resolved output once and preserves post-dispatch resource boundaries", async () => {
+    const success = createSandbox({runtime: 'talespire-ok'});
+    assert.equal(await run(success, 'sendRollWithCharacter')('attack', '1d8 + 3', fullRequest(success)), true);
+    await settle();
+    assert.equal(success.log.rendered.length, 1);
+    assert.equal(success.log.runtimeSends.length, 1);
+    assert.equal(success.log.runtimeSends[0].action, 'rendered-roll');
+    assert.equal(success.log.localDisplays.length, 1);
+    assert.deepEqual(success.log.turnSpends, ['action', 'bonusAction']);
+    assert.deepEqual(success.log.limitedUseSpends, ['Channel Divinity']);
+    assert.deepEqual(success.log.slotSpends, [1]);
+    for (const options of [{runtime: 'talespire-failed'}, {runtime: 'talespire-ok', talespireConnection: false}]) {
+        const failed = createSandbox(options);
+        assert.equal(await run(failed, 'sendRollWithCharacter')('attack', '1d8 + 3', fullRequest(failed)), false);
+        await settle();
+        assertNothingCommitted(failed.log, 'TaleSpire failed or unconfigured');
+        if (!options.talespireConnection && options.talespireConnection !== undefined)
+            assert.equal(failed.log.rendered.length, 0, 'missing connection does not roll');
+    }
 });
 
 section("6. Digital dice: the renderer's later send decides the outcome", async () => {

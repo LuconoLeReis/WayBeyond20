@@ -329,6 +329,9 @@ async function buildAttackRoll(character, attack_source, name, description, prop
     if (properties["Properties"] !== undefined) {
         roll_properties["properties"] = properties["Properties"].split(", ");
     }
+    // Preserve live weapon classification for rule-based on-hit eligibility.
+    const weaponType = properties["Weapon Type"] || properties["Type"];
+    if (weaponType && /simple|martial/i.test(weaponType)) roll_properties["weapon-type"] = weaponType;
     if (attack_source === "item") {
         roll_properties["proficient"] = properties["Proficient"] === "Yes";
     }
@@ -563,7 +566,7 @@ function addCustomDamages(character, damages, damage_types) {
     }
 }
 
-async function sendRoll(character, rollType, fallback, args) {
+async function sendRoll(character, rollType, fallback, args, isCurrent = null) {
     let whisper = parseInt(character.getGlobalSetting("whisper-type", WhisperType.NO));
     const whisper_monster = parseInt(character.getGlobalSetting("whisper-type-monsters", WhisperType.YES));
     let is_monster = character.type() == "Monster" || character.type() == "Vehicle";
@@ -648,6 +651,7 @@ async function sendRoll(character, rollType, fallback, args) {
     if (req["waybeyond20-query-attack-mode"] && req.rollAttack) req.advantage = RollType.QUERY;
     delete req["waybeyond20-query-attack-mode"];
     const dispatch = async () => {
+    if (isCurrent && !isCurrent()) return false;
     if (req.whisper === WhisperType.QUERY) {
         req.whisper = await dndbeyondDiceRoller.queryWhisper(args.name || rollType, is_monster);
         if (req.whisper === null) return false; // Query was cancelled
@@ -660,6 +664,9 @@ async function sendRoll(character, rollType, fallback, args) {
         req.advantage = await dndbeyondDiceRoller.queryAdvantage(args.name || rollType, req["advantage-query"]);
         if (req.advantage === null) return false; // Query was cancelled
     }
+    // Queries may outlive their actor/destination/turn. This local callback is
+    // never serialized; both secondary adapters use the same transport boundary.
+    if (isCurrent && !isCurrent()) return false;
     // Carry the resolved privacy choice to later parts of this same cast without
     // asking again or accidentally making a whispered follow-up public.
     if (args["waybeyond20-elemental-after-cast"]) args["waybeyond20-resolved-whisper"] = req.whisper;
@@ -692,7 +699,13 @@ async function sendRoll(character, rollType, fallback, args) {
         wayBeyond20NotifyDispatchFailure("Extension context invalidated.");
         return false;
     }
-    if (req["waybeyond20-portent-value"] !== undefined || typeof args["waybeyond20-capture-result"] === "function" ||
+    if (character.getGlobalSetting("vtt-tab", null)?.vtt === "talespire" &&
+        !character.getGlobalSetting("talespire-url", "").trim()) {
+        wayBeyond20NotifyDispatchFailure("Paste the connection from the WayBeyond20 TaleSpire Symbiote into WB20 settings first.");
+        return false;
+    }
+    if (character.getGlobalSetting("vtt-tab", null)?.vtt === "talespire" ||
+        req["waybeyond20-portent-value"] !== undefined || typeof args["waybeyond20-capture-result"] === "function" ||
         (character.getGlobalSetting("use-digital-dice", false) && DigitalDiceManager.isEnabled())) {
         req.sendMessage = true;
         const delivery = wayBeyond20TrackRollDelivery(req);
@@ -761,6 +774,8 @@ function wayBeyond20SendRuntimeMessage(message) {
                 }
                 if (lastError) {
                     resolve({ ok: false, error: String(lastError.message || lastError), response });
+                } else if (response?.vtt?.includes('talespire') && !response.success) {
+                    resolve({ ok: false, error: response.error || 'TaleSpire did not accept the roll handoff.', response });
                 } else {
                     resolve({ ok: true, response });
                 }

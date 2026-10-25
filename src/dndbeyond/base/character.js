@@ -844,7 +844,7 @@ class Character extends CharacterBase {
         // Make a copy of the settings but without the features since they are;
         // the.includes(already) dict;
         for (let key in this._settings) {
-            if (!["class-features", "racial-traits", "feats", "actions", "waybeyond20-portent",
+            if (!["class-features", "racial-traits", "feats", "actions", "waybeyond20-portent", "waybeyond20-resources", "waybeyond20-monk-2024", "waybeyond20-foundry-turn-state",
                 "spell_modifiers", "spell_saves", "spell_attacks",
                 "conditions", "exhaustion-level"].includes(key))
                 settings[key] = this._settings[key];

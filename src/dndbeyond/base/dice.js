@@ -69,6 +69,9 @@ class DNDBDisplayer {
         const outcome = await wayBeyond20SendRuntimeMessage(req);
         if (outcome.ok) beyond20SendMessageFailure(character, outcome.response);
         else if (!delivery) wayBeyond20NotifyDispatchFailure(outcome.error);
+        if (outcome.ok && outcome.response?.success && outcome.response.vtt?.includes('talespire'))
+            this.postHTML(request, title, html, character, whisper, play_sound, source, attributes, description,
+                attack_rolls, roll_info, damage_rolls, total_damages, open);
         if (delivery) delivery.resolve(outcome);
     }
     displayError(message) {

@@ -12,7 +12,7 @@ function unit(name) {
     return source.slice(start.index, end ? start.index + start[0].length + end.index : source.length);
 }
 function fixture() {
-    const state = {inCombat: true, combatSource: "Roll20", combatStartedAt: 1,
+    const state = {inCombat: true, combatSource: process.env.WB20_TEST_VTT || "Roll20", combatStartedAt: 1,
         localTurnNumber: 2, currentRoll20Turn: {isThisCharactersTurn: false, turnKey: "other"},
         action: 1, bonusAction: 1, reaction: 1, attacksRemaining: 1};
     const log = {sent: [], warnings: [], preflights: []};

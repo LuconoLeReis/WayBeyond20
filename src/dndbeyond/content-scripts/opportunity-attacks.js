@@ -90,16 +90,17 @@ async function wayBeyond20ConfirmAttackContext(context, rollProperties) {
     if (!wayBeyond20AttackContextCurrent(context)) return false;
     if (context.review.size) {
         const escape = wayBeyond20EscapeFollowupText;
-        const html = "<form><p>These enabled modifiers need a rules check for this Reaction attack. " +
+        const granting = context.activation.resource === "bonusAction" ? "Bonus Action" : "Reaction";
+        const html = `<form><p>These enabled modifiers need a rules check for this ${granting} attack. ` +
             "Confirm that each is legal now, including its trigger and any once-per-turn limit. " +
             "An Attack-action benefit does not apply. A new Bonus Action cannot be used off-turn, " +
-            "and this attack already uses your Reaction. Previously active effects may still apply.</p>" +
+            `and this attack already uses your ${granting}. Previously active effects may still apply.</p>` +
             Array.from(context.review, ([name, rule]) =>
                 `<p><strong>${escape(name)}</strong>${rule.ongoing ? " (already active)" : ""}<br>` +
                 `${escape(rule.reason)}<br>` +
                 `${escape(rule.text || "Full rule text is not currently available on this sheet.")}</p>`).join("") +
             "<p>Cancel to adjust the enabled modifiers before attacking. No resource has been spent.</p></form>";
-        if (!await dndbeyondDiceRoller._prompter.prompt("Reaction attack: check modifiers", html, "Confirm remaining modifiers", "Cancel"))
+        if (!await dndbeyondDiceRoller._prompter.prompt(`${granting} attack: check modifiers`, html, "Confirm remaining modifiers", "Cancel"))
             return false;
     }
     if (!wayBeyond20AttackContextCurrent(context)) return false;
@@ -108,6 +109,16 @@ async function wayBeyond20ConfirmAttackContext(context, rollProperties) {
         kind: context.kind, isOwnTurn: context.isOwnTurn, attackAction: false,
         turnKey: context.activation.turnKey
     };
+    if (context.kind === "feature") {
+        rollProperties["waybeyond20-unarmed-strike"] = true;
+        rollProperties["waybeyond20-monk-type-chosen"] = true;
+        rollProperties["waybeyond20-monk-free-harm"] = context.freeHarm;
+        if (context.featureCost) Object.assign(rollProperties,wb20FeatureCost(context.featureCost));
+        if (context.damageType === "Force") {
+            if (rollProperties["damage-types"]?.length) rollProperties["damage-types"][0] = "Force";
+            if (rollProperties["critical-damage-types"]?.length) rollProperties["critical-damage-types"][0] = "Force";
+        }
+    }
     return true;
 }
 

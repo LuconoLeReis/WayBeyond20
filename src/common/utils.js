@@ -436,6 +436,8 @@ function initializeAlertify() {
                 "build": () => { },
                 "prepare": function () {
                     this.elements.content.innerHTML = this.get('content');
+                    if (this.elements.content.querySelector('.wb20-resource-correction,.wb20-feature-prompt') && typeof wb20ThemeResourcePrompt === "function")
+                        wb20ThemeResourcePrompt(this.elements.dialog);
                     this.__internal.buttons[0].element.innerHTML = this.get('ok_label');
                     this.__internal.buttons[1].element.innerHTML = this.get('cancel_label');
                     // The dialog instance is reused. Clear a Proceed lock left by an earlier
@@ -445,6 +447,15 @@ function initializeAlertify() {
                     okButton.removeAttribute("aria-disabled");
                     okButton.classList.remove("waybeyond20-query-proceed-disabled");
                     okButton.style.display = "";
+                    const attackOutcome = this.elements.content.querySelector("form.wb20-attack-outcome");
+                    if (attackOutcome) {
+                        const syncOutcome = () => {
+                            okButton.disabled = !["hit", "miss"].includes(attackOutcome.querySelector('[name="outcome"]').value);
+                            okButton.setAttribute("aria-disabled", String(okButton.disabled));
+                        };
+                        attackOutcome.addEventListener("change", syncOutcome);
+                        syncOutcome();
+                    }
                     const portentForm = this.elements.content.querySelector("form.waybeyond20-portent-query");
                     if (portentForm && typeof wayBeyond20WirePortentPrompt === "function")
                         wayBeyond20WirePortentPrompt(portentForm, this, okButton);

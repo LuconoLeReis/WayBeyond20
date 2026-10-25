@@ -18,6 +18,34 @@ function wb20TargetRecord(state) {
     return state.targetRecords?.[state.selectedTargetKey] || {observations: [], damage: []};
 }
 
+function wb20AttackBoardKey() {
+    if (typeof wb20TSSelected === "function" && wb20TSSelected()) return "talespire";
+    return typeof settings !== "undefined" && settings["vtt-tab"]?.vtt === "fvtt" ? "fvtt" : "roll20";
+}
+
+function wb20TargetObserveAttack(context, roll, hit) {
+    const skip = reason => { context.observationStatus = reason; return false; };
+    if (context.observationStatus === "recorded") return false;
+    if (context.actor !== character || !context.targetKey || typeof hit !== "boolean") return skip("unattributed");
+    const state = wayBeyond20GetTurnTrackerState();
+    if (context.boardKey !== wb20AttackBoardKey() || context.combatStartedAt !== state.combatStartedAt)
+        return skip("combat-changed");
+    if (context.combatSource !== (state.combatSource || null)) return skip("source-changed");
+    if (!roll || roll.isDiscarded() || !Number.isInteger(roll.total)) return skip("no-single-result");
+    // Natural 1/20 do not constrain AC. Inspect the actual kept d20, not a
+    // critical threshold (which may be 19) or a total that includes modifiers.
+    const dice = (roll.dice || []).filter(die => die.faces === 20)
+        .flatMap(die => die.rolls.filter(value => !value.discarded).map(value => value.roll));
+    if (dice.length !== 1) return skip("unknown-d20");
+    if (dice[0] === 1 || dice[0] === 20) return skip("natural-outcome");
+    const key = context.targetKey, old = state.targetRecords?.[key] || {observations: [], damage: []};
+    const next = {...state, targetRecords: {...state.targetRecords, [key]: {...old,
+        observations: [...(old.observations || []), {total: roll.total, hit}]}}};
+    wayBeyond20SetTurnTrackerState(next, wayBeyond20ScheduleActiveEffectBadgeRefresh);
+    context.observationStatus = "recorded";
+    return true;
+}
+
 function wb20TargetEdit(update) {
     const state = {...wayBeyond20GetTurnTrackerState()};
     if (!state.selectedTargetKey) return;
@@ -36,16 +64,18 @@ function wb20TargetEdit(update) {
 
 function wb20TargetChoose(key) {
     const state = {...wayBeyond20GetTurnTrackerState()};
-    const target = (state.knownTargets || []).find(t => (t.tokenId || t.key) === key);
+    const target = [...(state.knownTargets || []),...(state.extraTargets || [])].find(t => (t.tokenId || t.key) === key);
     if (key && !target) return;
     state.selectedTargetKey = key;
+    if (typeof wb20TSRememberSheetTarget === "function") wb20TSRememberSheetTarget(key);
     if (target) state.targetRecords = {...state.targetRecords,
         [key]: {...(state.targetRecords?.[key] || {observations: [], damage: []}), name: target.name, initiative: target.initiative || ""}};
     wayBeyond20SetTurnTrackerState(state, wayBeyond20ScheduleActiveEffectBadgeRefresh);
 }
 
 function wb20TargetBuildPanel(state) {
-    const panel = $("<aside>").addClass("wb20-my-target").attr({"aria-label": "My Target", "data-target-key": state.selectedTargetKey || ""});
+    const panel = $("<aside>").addClass("wb20-my-target").attr({"aria-label": "My Target", "data-target-key": state.selectedTargetKey || ""})
+        .data("wb20TargetBound", true);
     // A delayed save can shorten history and scroll the page between a second
     // button's pointerdown and pointerup. Keep its click target stationary until
     // the gesture completes; keyboard activation still uses the normal click.
@@ -72,7 +102,7 @@ function wb20TargetBuildPanel(state) {
     const heading = $("<div>").addClass("wb20-target-label").text("Target");
     const select = $("<select>").attr("aria-label", "Choose my target");
     select.append($("<option>").val("").text("Select a target"));
-    const targets = state.knownTargets || [];
+    const targets = [...(state.knownTargets || []),...(state.extraTargets || [])];
     const selected = targets.find(t => (t.tokenId || t.key) === state.selectedTargetKey);
     const record = wb20TargetRecord(state);
     for (const target of targets) {
@@ -95,6 +125,7 @@ function wb20TargetBuildPanel(state) {
     const damage = (record.damage || []).reduce((sum, entry)=>sum + entry.amount, 0);
     summary.append($("<span>").addClass("wb20-target-damage-total").text(`Damage: ${damage}`)
         .attr("title", "Recorded gross damage"));
+    if (state.combatSource === 'TaleSpire') summary.append($('<span>').addClass('wb20-target-distance').text(wb20TargetDistance(state,selected) || 'Distance: unavailable'));
     panel.append(summary);
     const attacks = $("<form>").addClass("wb20-target-attacks").on("submit", e=>e.preventDefault());
     const total = $("<input>").attr({type:"number", step:"1", placeholder:"Attack total", "aria-label":"Attack total"});
@@ -140,11 +171,23 @@ function wb20TargetBuildPanel(state) {
 function wb20TargetDistance(state, target, diagnostic = {}) {
     const unavailable = reason => { diagnostic.reason = reason; return null; };
     const point = target?.position;
+    if (state.combatSource === 'TaleSpire') {
+        const binding=character?.getSetting?.('waybeyond20-talespire-mini',null);
+        const candidates=[...(state.knownTargets || []),...(state.extraTargets || [])];
+        const own=candidates.find(c=>c.nativeId === binding?.id);
+        const from=own?.position;
+        if (!from || !point || ![from.x,from.y,from.z,point.x,point.y,point.z,point.scale].every(Number.isFinite) || point.scale <= 0)
+            return unavailable('Link your TaleSpire mini and wait for positions');
+        if (from.pageId !== point.pageId || from.locId !== point.locId) return unavailable('Minis are on different boards or sub-boards');
+        const distance=Math.hypot(point.x-from.x,point.y-from.y,point.z-from.z)*point.scale;
+        return `${Number(distance.toFixed(1))} ${point.units || 'units'}`;
+    }
     const valid = p => p && p.pageId && [p.x, p.y, p.scale].every(Number.isFinite) && p.scale > 0;
     if (!valid(point)) return unavailable(target?.positionStatus || "Waiting for this token's Roll20 position");
     if (typeof character === "undefined") return unavailable("Character has not loaded");
-    const primary = String(character?.getSetting?.("waybeyond20-roll20-token-id", "") || "");
-    const bound = character?.getSetting?.("waybeyond20-roll20-token-ids", []) || [];
+    const prefix = state.combatSource === "Foundry" ? "waybeyond20-foundry" : "waybeyond20-roll20";
+    const primary = String(character?.getSetting?.(prefix + "-token-id", "") || "");
+    const bound = character?.getSetting?.(prefix + "-token-ids", []) || [];
     const ids = new Set([primary, ...(Array.isArray(bound) ? bound.map(String) : [])].filter(Boolean));
     const candidates = state.knownTargets || [];
     let own = candidates.filter(t => ids.has(String(t.tokenId || t.key)));
@@ -218,7 +261,13 @@ function wb20BuildTurnCompass(state, animate = false) {
             .addClass("wb20-compass-reset").text("↩")
             .on("click", () => render(index, true)));
         const info = $("<div>").attr({id:"wb20-compass-info", role:"tooltip", hidden:true}).addClass("wb20-compass-info");
-        const refreshInfo = () => info.text(wb20CompassInfo(wayBeyond20GetTurnTrackerState(), key));
+        const refreshInfo = () => {
+            const text = wb20CompassInfo(wayBeyond20GetTurnTrackerState(), key);
+            // jQuery.text replaces the text node even when its value is equal.
+            // That mutation wakes documentModified, which schedules this same
+            // refresh again. Unchanged tooltip content must leave the DOM alone.
+            if (info.text() !== text) info.text(text);
+        };
         const showInfo = () => { refreshInfo(); info.prop("hidden", false); };
         center.on("mouseenter focusin", showInfo).on("click", event => {
             if (!$(event.target).closest("button").length) showInfo();
@@ -241,10 +290,16 @@ function wb20TargetMount(section, state) {
         layout = section.parent();
     }
     const signature = JSON.stringify([state.selectedTargetKey,
-        (state.knownTargets || []).map(t => [t.tokenId || t.key, t.name, t.initiative]), state.targetRecords]);
+        [...(state.knownTargets || []),...(state.extraTargets || [])].map(t => [t.tokenId || t.key, t.name, t.initiative]), state.targetRecords]);
     // Position-only updates leave unfinished inputs, preview and scroll untouched.
     section.find(".wb20-turn-compass").data("refreshInfo")?.();
-    if (section.attr("data-target-signature") !== signature || !section.children(".wb20-my-target").length) {
+    if (state.combatSource === 'TaleSpire') {
+        const target=[...(state.knownTargets || []),...(state.extraTargets || [])].find(t=>(t.tokenId || t.key) === state.selectedTargetKey);
+        const distance = wb20TargetDistance(state,target) || 'Distance: unavailable';
+        const label = section.find('.wb20-target-distance');
+        if (label.text() !== distance) label.text(distance);
+    }
+    if (section.attr("data-target-signature") !== signature || !section.children(".wb20-my-target").data("wb20TargetBound")) {
         const current = section.children(".wb20-my-target");
         if (current.data("pointerHeld")) {
             current.data("refreshPending", true);
@@ -253,7 +308,14 @@ function wb20TargetMount(section, state) {
         section.attr("data-target-signature", signature);
         const old = section.children(".wb20-my-target");
         const fresh = wb20TargetBuildPanel(state);
-        if (old.length && old.attr("data-target-key") === (state.selectedTargetKey || "")) {
+        if (old.length && old.attr("data-target-key") === (state.selectedTargetKey || "") && !old.data("wb20TargetBound")) {
+            // Copied markup retains the signature but loses event handlers and
+            // jQuery data. Recreate its controls, retaining unfinished drafts.
+            for (const selector of [".wb20-target-attacks input", ".wb20-target-history input", ".wb20-target-history select"])
+                fresh.find(selector).val(old.find(selector).val());
+            fresh.find("details").prop("open", old.find("details").prop("open"));
+            old.replaceWith(fresh);
+        } else if (old.length && old.attr("data-target-key") === (state.selectedTargetKey || "")) {
             // Keep the native input/select nodes, caret, focus and disclosure.
             // Patch only saved data; a late save must not erase the next draft.
             const choice = old.children("select");

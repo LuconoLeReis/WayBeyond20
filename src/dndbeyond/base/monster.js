@@ -658,7 +658,8 @@ class Monster extends CharacterBase {
                         if (key_modifiers["display_attack"]) {
                             return sendRoll(this, "trait", "0", roll_properties);
                         }
-                        sendRoll(this, "attack", "1d20" + (roll_properties["to-hit"] || ""), roll_properties)
+                        return wb20SendStatBlockAttack(this, "1d20" + (roll_properties["to-hit"] || ""),
+                            roll_properties, "Monster.lookForActions");
                     }, block, {small: true, before: true, image: true, text: action_name});
                     $("#" + id).css({ "float": "", "text-align": "", "margin-top": "15px" });
                 } else {

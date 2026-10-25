@@ -1,0 +1,25 @@
+{
+  "manifestVersion": 1,
+  "name": "WayBeyond20",
+  "version": "1.1.1",
+  "summary": "WB20 roll display and optional local board return connection. No Internet relay or DLL required.",
+  "entryPoint": "/index.html",
+  "descriptionFilePath": "/README.md",
+  "license": "GPL-3.0-only",
+  "about": { "website": "https://github.com/LuconoLeReis/WayBeyond20", "authors": ["WayBeyond20"] },
+  "api": {
+    "version": "0.1",
+    "interop": { "id": "e6cfa5cd-1ebd-4b45-a74b-60c01ecc8927" },
+    "subscriptions": {
+      "symbiote": { "onStateChangeEvent": "wb20TaleSpireState" },
+      "urls": { "onUrlMessage": "wb20TaleSpireMessage" },
+      "picking": { "onPickingEvent": "wb20ReturnPicked" }
+    }
+  },
+  "controls": { "reload": true },
+  "environment": {
+    "webViewBackgroundColor": "#20252b",
+    "capabilities": ["runInBackground"],
+    "extras": ["colorStyles", "/local-config.js", "/return-feed.js", "/bridge.js"]
+  }
+}

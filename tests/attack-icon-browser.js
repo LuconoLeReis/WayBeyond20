@@ -4,6 +4,7 @@ const {chromium} = require(process.env.WB20_PLAYWRIGHT || 'playwright');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..');
 const source=fs.readFileSync(path.join(root,'src/dndbeyond/content-scripts/character.js'),'utf8');
+const installerSource=process.env.WB20_ICON_INSTALLER_SOURCE ? fs.readFileSync(process.env.WB20_ICON_INSTALLER_SOURCE,'utf8') : source;
 const utils=fs.readFileSync(path.join(root,'src/dndbeyond/base/utils.js'),'utf8');
 function fn(name,code=source){
     const start=code.search(new RegExp(`^(?:async )?function ${name}\\(`,'m'));
@@ -18,6 +19,7 @@ function fn(name,code=source){
         page.setDefaultTimeout(8000);
         await page.setContent(`<div class="ddbc-combat-attack"><span class="ddbc-combat-attack__icon" role="button" tabindex="0">Attack</span><span class="ddbc-combat-attack__name"><span class="ddbc-combat-attack__label">Test sword</span></span><span class="ddbc-combat-attack__tohit"><button class="integrated-dice__container">+5</button></span></div><div class="b20-item-pane"><h2 class="ct-sidebar__heading">Test sword</h2><div class="ct-item-detail"></div></div><button id="other">Other</button>`);
         await page.addScriptTag({path:path.join(root,'libs/jquery-3.4.1.min.js')});
+        await page.addScriptTag({content:fs.readFileSync(path.join(root,'src/dndbeyond/content-scripts/attack-handoff.js'),'utf8')});
         await page.addScriptTag({content:`
             var ddbRollHijackInstalled=false,ddbHijackPointerHandled=false;
             var quick_roll=false,quick_roll_force_attack=false,quick_roll_force_damage=false,
@@ -33,6 +35,12 @@ function fn(name,code=source){
             function getBadgeIconFromClass(){return '';}
             function propertyListToDict(){return {'To Hit':'+5'};}
             var calls=[],nativeClicks=0,menus=0;
+            var nativeDismiss=false;
+            // Native outside-click listener is registered before the extension.
+            window.addEventListener('click',event=>{
+                if(nativeDismiss && !event.target.closest('.ct-sidebar__portal'))
+                    document.querySelectorAll('.ct-sidebar__portal').forEach(el=>el.remove());
+            },true);
             var RollType={NORMAL:0,QUERY:2,ADVANTAGE:3,DISADVANTAGE:4};
             function handleCustomText(){return {before:[],replace:[],after:[]};}
             function pauseHotkeyHandling(){} function resumeHotkeyHandling(){}
@@ -45,7 +53,7 @@ function fn(name,code=source){
             function handleSavingThrowIntegratedDie(){return false;}
             function handleSkillIntegratedDie(){return false;}
             ${['wayBeyond20ShowAttackMenu','addRollButton'].map(n=>fn(n,utils)).join('\n')}
-            ${['swallowRollEvent','canHandleDDBRollTarget','installDDBRollHijack','handleCombatAttackIntegratedDie','execute','executeQuickRoll','resetHijackQuickRollState','addRollButtonEx'].map(n=>fn(n)).join('\n')}
+            ${['swallowRollEvent','canHandleDDBRollTarget','wayBeyond20DDBRollInputAvailable','installDDBRollHijack','wayBeyond20QueueCombatAttackIcon','handleCombatAttackIntegratedDie','execute','executeQuickRoll','resetHijackQuickRollState','addRollButtonEx'].map(n=>fn(n,n==='installDDBRollHijack'?installerSource:source)).join('\n')}
             addRollButtonEx('b20-item-pane','.ct-sidebar__heading',{image:false});
             installDDBRollHijack();installDDBRollHijack();
             document.addEventListener('click',()=>nativeClicks++);
@@ -81,8 +89,9 @@ function fn(name,code=source){
         await icon.click({button:'right'});
         assert.equal(await page.evaluate(()=>quick_roll),false,'No pane navigation until Roll');
         await page.getByRole('button',{name:'ROLL FULL ATTACK',exact:true}).click();
-        assert.deepEqual(await page.evaluate(()=>[quick_roll,quick_roll_force_mode,calls.length]),[true,0,4]);
-        await page.evaluate(()=>{document.querySelector('.ct-sidebar__heading').textContent='Test sword';executeQuickRoll('b20-item-pane');});
+        await page.waitForFunction(()=>wb20CombatHandoff!==null);
+        assert.deepEqual(await page.evaluate(()=>[!!wb20CombatHandoff,wb20CombatHandoff.options.force_roll_mode,calls.length]),[true,0,4]);
+        await page.evaluate(()=>{document.querySelector('.ct-sidebar__heading').textContent='Test sword';wb20ContinueCombatHandoff();});
         await page.waitForFunction(()=>calls.length===5);
         assert.equal(await page.evaluate(()=>calls[4].at(-1)),0);
         assert.deepEqual(await page.evaluate(()=>[quick_roll,quick_roll_force_mode]),[false,null]);
@@ -97,7 +106,8 @@ function fn(name,code=source){
         await page.evaluate(()=>{document.querySelector('.ct-sidebar__heading').textContent='Other sword';});
         await icon.click({button:'right'});
         await page.getByRole('button',{name:'ROLL FULL ATTACK',exact:true}).click();
-        await page.evaluate(()=>executeQuickRoll('b20-item-pane'));
+        await page.waitForFunction(()=>wb20CombatHandoff!==null);
+        await page.evaluate(()=>wb20ContinueCombatHandoff());
         assert.equal(await page.evaluate(()=>calls.length),7,'No query mode applied to a different pane');
         assert.equal(await page.evaluate(()=>quick_roll_force_mode),null);
         // Escape, outside dismissal, stale character and sidebar identity do no work.
@@ -156,6 +166,62 @@ function fn(name,code=source){
         await page.waitForFunction(n=>calls.length===n+1,beforeChurn,{timeout:1000});
         await page.evaluate(()=>clearInterval(window.churn));
         assert.equal(await page.evaluate(()=>calls.at(-1)[0]),'spell');
+        // Compose the real icon listener with the real document observer and
+        // delayed DDB-shaped action pane, rather than manually calling the
+        // quick-roll continuation after changing a heading.
+        const beforeHandoff=await page.evaluate(()=>{
+            resetHijackQuickRollState();
+            document.querySelectorAll('.b20-item-pane,.b20-action-pane,.ct-spell-pane,.ct-beyond20-roll').forEach(el=>el.remove());
+            document.querySelector('.ddbc-combat-attack__label').textContent='Test sword';
+            document.querySelector('.ddbc-combat-attack__label').onclick=()=>setTimeout(()=>{
+                const portal=document.createElement('div');portal.className='ct-sidebar__portal';
+                portal.innerHTML='<div><header class="ct-sidebar__header"><h1 class="ct-sidebar__heading"><span class="ddbc-action-name">Test sword</span></h1></header><div class="ct-available-actions"></div></div>';
+                document.body.append(portal);
+            },10);
+            window.handoffObserver=new MutationObserver(documentModified);
+            window.handoffObserver.observe(document.body,{subtree:true,childList:true,characterData:true});
+            return calls.length;
+        });
+        await icon.click();
+        await page.waitForFunction(n=>calls.length===n+1,beforeHandoff,{timeout:1500});
+        assert.equal(await page.evaluate(()=>calls.at(-1)[0]),'action');
+        assert.deepEqual(await page.evaluate(()=>[quick_roll,quick_roll_mode_target]),[false,null]);
+        await page.evaluate(()=>window.handoffObserver.disconnect());
+        // DDB may synchronously open the requested pane from the synthetic name
+        // click, then dismiss it on the still-unfinished outer icon click.
+        const beforeDismiss=await page.evaluate(()=>{
+            resetHijackQuickRollState();
+            document.querySelectorAll('.ct-sidebar__portal').forEach(el=>el.remove());
+            document.querySelector('.ddbc-combat-attack__label').onclick=null;
+            window.nativeOpen=event=>{
+                if(!event.target.closest('.ddbc-combat-attack__label'))return;
+                const portal=document.createElement('div');portal.className='ct-sidebar__portal';
+                portal.innerHTML='<div><header class="ct-sidebar__header"><h1 class="ct-sidebar__heading"><span class="ddbc-action-name">Test sword</span></h1></header><div class="ct-action-detail"></div></div>';
+                document.body.append(portal);
+            };
+            document.addEventListener('click',window.nativeOpen);
+            nativeDismiss=true;
+            window.handoffObserver.observe(document.body,{subtree:true,childList:true,characterData:true});
+            return calls.length;
+        });
+        await icon.click();
+        await page.waitForFunction(n=>calls.length===n+1,beforeDismiss,{timeout:1500});
+        assert.equal(await page.evaluate(()=>calls.at(-1)[0]),'action');
+        await icon.click({button:'right'});
+        await page.getByRole('radio',{name:'Advantage',exact:true}).click();
+        await page.getByRole('button',{name:'ROLL FULL ATTACK',exact:true}).click();
+        await page.waitForFunction(n=>calls.length===n+2,beforeDismiss,{timeout:1500});
+        assert.equal(await page.evaluate(()=>calls.at(-1).at(-1)),3);
+        await page.evaluate(()=>{nativeDismiss=false;window.handoffObserver.disconnect();document.removeEventListener('click',window.nativeOpen);});
+        const staleQueue=await page.evaluate(async()=>{
+            const before=calls.length,icon=document.querySelector('.ddbc-combat-attack__icon');
+            wayBeyond20QueueCombatAttackIcon(icon);character={};
+            await new Promise(resolve=>setTimeout(resolve,20));
+            wayBeyond20QueueCombatAttackIcon(icon);icon.remove();
+            await new Promise(resolve=>setTimeout(resolve,20));
+            return calls.length-before;
+        });
+        assert.equal(staleQueue,0,'Queued icon rejects changed character and disconnected caller');
         // Final roll construction must attach the explicit query to the request,
         // not a mutable global preference or a later damage/rider roll.
         for(const name of ['rollItem','rollAction','rollSpell']){

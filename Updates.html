@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WayBeyond20 v1.73.2</title>
+    <title>WayBeyond20 v1.73.23</title>
     <link rel="stylesheet" href="Updates.css">
 </head>
 <body>
@@ -11,12 +11,120 @@
         <header>
             <img src="images/icons/icon128.png" alt="WayBeyond20">
             <div>
-                <p class="eyebrow">Local development · October 21, 2026</p>
-                <h1>WayBeyond20 v1.73.2</h1>
+                <p class="eyebrow">Release preparation · October 25, 2026</p>
+                <h1>WayBeyond20 v1.73.23</h1>
                 <p class="lede">Complete changes from the Beyond20 2.20.1 base</p>
             </div>
         </header>
 
+        <section>
+            <h2>Candidate verification on October 25</h2>
+            <p>The standard tests, supplemental resource and turn checks, all 22 isolated browser files, both builds and compiled JavaScript syntax checks passed. Live Roll20 checks covered a full character attack, an explicit hit and AC observation, damage and Draining Attack, hit-only damage continuation, repeated continuation protection and a native turn reset. Character values were restored. This candidate is prepared for review and is not published.</p>
+            <p>The secondary attack option remains off by default and preserves an existing user's saved choice. Universal creature feature/resource/target parity and anonymous native dice attribution remain incomplete. No new full live Foundry/Forge or TaleSpire acceptance run is claimed. Earlier development entries below retain their historical test limitations.</p>
+        </section>
+
+        <section>
+            <h2>Old extension instances yield attack input</h2>
+            <p>After an extension reload, an invalidated instance now leaves pointer, keyboard and menu input for the active instance. When updating from older versions, refresh an already-open character sheet once to clear its old listeners. The attack shortcuts passed preflight checks on a fresh sheet; no test rolls or resources were spent.</p>
+        </section>
+
+        <section>
+            <h2>Attack controls wait for ready pane data</h2>
+            <p>Combat icons, numeric dice and their shortcuts now share one pending request. It waits for the native attack properties before using the existing attack executor. Changed, cancelled or expired requests cannot fire later. This replaces the previous fixed-delay handoff; live verification of this candidate is still pending.</p>
+        </section>
+
+        <section>
+            <h2>Full-attack icon handoff</h2>
+            <p>Full-attack icons now finish their outer click before opening or using the attack pane. Their roll-mode menu uses the same handoff, so native outside-click dismissal cannot immediately close the pane they just opened. All still use the existing shared attack workflow.</p>
+        </section>
+
+        <section>
+            <h2>Secondary stat-block attack entry</h2>
+            <p>The default-off Test secondary attacks option now includes stat-block and Extras attacks in the shared lifecycle. They retain their own identity, privacy and destination hit handling. The open character's target and resources are not borrowed. Creature feature and resource parity is still in progress; existing workflows remain available.</p>
+        </section>
+
+        <section>
+            <h2>Header Manage and control recovery</h2>
+            <p>Manage now opens D&amp;D Beyond's native pane after the header click finishes, using the same forwarding path as Rest. This prevents the outer click from immediately dismissing the pane. Copied Manage, Rest and Correction controls also recover their handlers. The selected sheet theme and compact layout are preserved.</p>
+        </section>
+
+        <section>
+            <h2>One owner for managed damage</h2>
+            <p>When the character sheet manages the hit and damage follow-ups, Roll20 and Foundry now leave the Draining Attack award to that continuation. Rendering its damage card no longer requests a second HP update. Rolls resolved by the destination retain their normal return path.</p>
+        </section>
+
+        <section>
+            <h2>Combat refresh loop and target controls</h2>
+            <p>Combat no longer rewrites unchanged tooltip and distance text. Those writes triggered the sheet observer and repeatedly scheduled another refresh. The target panel also repairs controls when copied markup has lost their handlers, retaining unfinished inputs. The intermittent live Undo issue remains under investigation.</p>
+        </section>
+
+        <section>
+            <h2>Settings button after header updates</h2>
+            <p>The sheet Settings button now keeps its click handling when header markup is replaced. Repeated sheet updates do not add duplicate handlers. Existing settings and the secondary attack test switch are preserved.</p>
+        </section>
+
+        <section>
+            <h2>Secondary attack workflow — opt-in test</h2>
+            <p>The advanced setting “Test secondary attacks” starts off. Enabling it uses the secondary workflow for character-sheet attacks while keeping the existing workflow available. Stat blocks now share the lifecycle while retaining destination hit handling. Unclaimed native dice keep their current route.</p>
+            <p>Hit, Miss and Skip are distinct. Choose the relevant attack result when several are shown. Confirmed results update the target selected when the attack began; natural 1 and 20 results do not set AC bounds. Damage and feature follow-ups share the existing resource rules. This is a local test candidate; live acceptance is still pending.</p>
+        </section>
+
+        <section>
+            <h2>Foundry rolls after the browser has been idle</h2>
+            <p>Chrome puts WayBeyond20's background worker to sleep after a short idle period, and it forgot which tabs were Foundry games. The next rolls or spell casts could fail with "Virtual Table Top Not Found" or "The spell could not complete". WayBeyond20 now checks the open Foundry tabs on every roll, the same way it already did for Roll20.</p>
+        </section>
+
+        <section>
+            <h2>Rolls reach the selected Foundry world</h2>
+            <p>When "Send rolls to" was set to a specific Foundry world, every roll stayed on D&amp;D Beyond with "Virtual Table Top Not Found". WayBeyond20 now keeps the Foundry tab's world name up to date, so rolls arrive in the chosen world.</p>
+        </section>
+
+        <section>
+            <h2>Correction attack pools and target selection</h2>
+            <p>Correction shows # of Attacks (standard) with its feature-derived maximum. Haste attack actions and current feature-granted attacks stay separate. Choosing a target on the sheet takes precedence over an existing TaleSpire pick; a new explicit board pick can still change it.</p>
+        </section>
+
+        <section>
+            <h2>VTT turns after rolling initiative</h2>
+            <p>Rolling initiative on your sheet starts WayBeyond20's own combat tracker. When Roll20 or Foundry then reports turns, the VTT now takes over again instead of being ignored.</p>
+        </section>
+
+        <section>
+            <h2>Foundry VTT loads again</h2>
+            <p>WayBeyond20's Foundry page script stopped at startup because a shared setting tried to use an extension-only browser feature inside the Foundry page. Foundry rolls, turns and targets now load. Found while live-testing on Foundry 14.</p>
+        </section>
+
+        <section>
+            <h2>Foundry VTT turns, targets and privacy</h2>
+            <p>The Foundry adapter reports combat turns, token links, combatants, straight-line grid distance and supported resolved damage. Foundry and Roll20 keep separate token links and turn records, and nonselected VTT updates cannot overwrite the selected tracker. Passive effects stay out of chat. Foundry 14 roll privacy uses its current chat-mode setting. Adapter portions were checked in a Foundry 14 test world; integrated extension end-to-end and Forge acceptance remain pending.</p>
+            <p>TaleSpire disconnection is quiet: status remains visible and unavailable linking/target controls are disabled without connect popups. With no configured TaleSpire connection, resolved rolls remain local without claiming delivery to the VTT.</p>
+        </section>
+
+        <section>
+            <h2>Shared resources and Correction</h2>
+            <p>Turn currency, granted attacks and feature pools use shared accounting with native DDB counts where exposed. Correction under Rest lists discovered owned resources, changes only edited values, verifies native writes, and includes recent local history. History is excluded from outgoing roll settings; no logs are automatically uploaded. Unknown amounts are not invented. Restricted additional Actions remain separate, and partial feature attack grants can resume within their original turn without paying twice. Resource interpretation remains bounded; this does not automate every special spell or feature rule. Live acceptance is pending.</p>
+        </section>
+        <section>
+            <h2>Compact character header</h2>
+            <p>Right-aligned Manage, WB20 and Share form one padded three-row panel. Rest offers Short Rest or Long Rest and opens DDB’s original rest window without confirming it. A matching-height campaign panel shows Campaign, a tight divider, the name, another divider, then Maps, Game Log and builder icons from left to right without added captions. Boxes follow the selected sheet’s surface, text, accent and decorative frame, including theme changes. Native tablet/mobile controls remain unchanged.</p>
+        </section>
+        <section>
+            <h2>2024 Monk and Warrior of Mercy — testing candidate</h2>
+            <p>Flurry uses one Bonus Action for its complete attack/healing pool. Recognized feature controls depend on possession, not class membership. They use shared native Focus and limited-use accounting without a second initial setup. Native attacks retain the existing attack builder; duplicate Action/Bonus Action Unarmed Strike rows are resolved safely. On-hit Harm and Stunning Strike, deflection, initiative recovery, Evasion and utility controls have automated checks. Passive statistics and selected feats come from DDB without duplicate bonuses. Target saves, conditions and healing to other creatures remain table-resolved. Live acceptance is pending. Other Fighter/subclass references remain queued.</p>
+        </section>
+        <section>
+            <h2>TaleSpire board return connection</h2>
+            <p>Extension version 2.20.132, companion 1.1.1. A separate WB20-owned local helper reads board information back into the DDB sheet: explicit mini links, turn order, picked targets and three-dimensional distance. Turn following starts paused. Existing Roll20 battle data is kept separately. No native mini HP or turn-order writes. This candidate's helper requires Node.js; native live acceptance is pending.</p>
+        </section>
+        <section>
+            <h2>TaleSpire dice details</h2>
+            <p>Extension version 2.20.131 and companion 1.0.1 include WB20's actual die faces and modifiers in TaleSpire's native result breakdown, instead of only the final number. WB20 still handles the roll and all rules; TaleSpire does not roll again. Detailed results are checked against the WB20 total before display. Live acceptance of this display correction is pending.</p>
+        </section>
+        <section>
+            <h2>TaleSpire roll connection</h2>
+            <p>Extension version 2.20.130. Select TaleSpire as the destination and paste the connection copied from the separate WayBeyond20 Symbiote. WB20 rolls once and sends those completed totals into TaleSpire's native result display, retaining formulas and damage types. Private rolls use GM-only chat. No desktop server or DLL mod is needed.</p>
+            <p>This first connection does not synchronize initiative, targets, HP or physical dice animations. Browser handoff is not game acknowledgment; the Symbiote's Recent handoffs confirms receipt. Candidate live validation is separate from automated tests. Published 1.73.2 is unchanged.</p>
+        </section>
         <section>
             <h2>Proficiency and saving-throw synchronization</h2>
             <p>Extension version 2.20.129. Corrects proficiency-label parsing and writes native 2014 skill proficiency/expertise flags and saving-throw bonuses/proficiency, alongside wb20_* macro attributes. No combat or resource changes. Local candidate; live macro retest pending.</p>
@@ -115,7 +223,7 @@
         </section>
         <section>
             <h2>Natural melee attack compatibility</h2>
-            <p>Extension version 2.20.105. The shared Great Weapon Fighting helper tolerates a missing weapon Properties field on natural/unarmed melee actions. Missing properties do not grant weapon eligibility. This corrects the error observed after Opportunity Attack successfully opened Calan's native pane. Live retest follows reload; not published.</p>
+            <p>Extension version 2.20.105. The shared Great Weapon Fighting helper tolerates a missing weapon Properties field on natural/unarmed melee actions. Missing properties do not grant weapon eligibility. This corrects the error observed after Opportunity Attack successfully opened the sample character's native pane. Live retest follows reload; not published.</p>
         </section>
         <section>
             <h2>Default Opportunity Attack and brighter green</h2>

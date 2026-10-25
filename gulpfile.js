@@ -21,6 +21,8 @@ const DNDBEYOND_PAGE_DEPS = [
     "src/dndbeyond/base/base.js",
     "src/dndbeyond/base/hotkeys.js",
     "src/dndbeyond/base/utils.js",
+    "src/dndbeyond/base/attack-workflow.js",
+    "src/dndbeyond/base/attack-workflow-stat-block.js",
     // Second renderer on DDB pages to allow rednering roll to the DOM
     "src/generic-site/renderer.js",
 ];
@@ -32,6 +34,8 @@ const DNDBEYOND_CHARACTER_PAGE_DEPS = [
     "src/dndbeyond/base/base.js",
     "src/dndbeyond/base/hotkeys.js",
     "src/dndbeyond/base/utils.js",
+    "src/dndbeyond/base/attack-workflow.js",
+    "src/dndbeyond/base/attack-workflow-stat-block.js",
     // Second renderer on DDB pages to allow rednering roll to the DOM
     "src/generic-site/renderer.js",
 ];
@@ -42,6 +46,8 @@ const SRC_FILES = {
         "src/common/utils.js",
         "libs/FileSaver.min.js",
         "src/common/settings.js",
+        "src/talespire/bridge.js",
+        "src/talespire/return-client.js",
         "src/extension/background.js"
     ],
     options: [
@@ -141,8 +147,14 @@ const SRC_FILES = {
         "src/dndbeyond/content-scripts/opportunity-attacks.js",
         "src/dndbeyond/content-scripts/quick-list.js",
         "src/dndbeyond/content-scripts/my-target.js",
+        "src/dndbeyond/content-scripts/talespire.js",
         "src/dndbeyond/content-scripts/concentration.js",
         "src/dndbeyond/content-scripts/portent.js",
+        "src/dndbeyond/content-scripts/resources.js",
+        "src/dndbeyond/content-scripts/feature-activations.js",
+        "src/dndbeyond/content-scripts/attack-workflow-character.js",
+        "src/dndbeyond/content-scripts/attack-handoff.js",
+        "src/dndbeyond/content-scripts/header.js",
         "src/dndbeyond/content-scripts/character.js",
     ],
     dndbeyond_source: [

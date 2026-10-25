@@ -123,7 +123,7 @@ function createSandbox({ readDelay = 4, writeDelay = 4, failFirstWrite = false }
         topLevelFunction(settingsSource, "wayBeyond20SettingsOrigin", { optional: true }),
         ...CONTENT_FUNCTIONS.map(name => topLevelFunction(characterSource, name)),
         ...OPTIONAL_CONTENT_FUNCTIONS.map(name => topLevelFunction(characterSource, name, { optional: true })),
-        ...['wb20TargetRecord','wb20TargetEdit','wb20TargetChoose'].map(name=>topLevelFunction(targetSource,name)),
+        ...['wb20TargetRecord','wb20TargetEdit','wb20TargetChoose','wb20AttackBoardKey','wb20TargetObserveAttack'].map(name=>topLevelFunction(targetSource,name)),
         `class TestCharacter {
             constructor() { this._id = 7; this._settings = null; }
             getSetting(key, default_value = "") { return this._settings && this._settings[key] !== undefined ? this._settings[key] : default_value; }
@@ -158,6 +158,33 @@ const stored = ctx => ctx.store["character-7"];
 
 const sections = [];
 const section = (name, body) => sections.push({ name, body });
+
+section('Target: secondary attack observation followed by Undo survives queued saves and reload', async()=>{
+    for (const undoAfterSave of [false,true]) {
+        const ctx=createSandbox({readDelay:20,writeDelay:35});await loadSheet(ctx);
+        run(ctx, `character._settings['waybeyond20-turn-state']={inCombat:true,
+            combatSource:'D&D Beyond Initiative',combatStartedAt:1,
+            action:1,bonusAction:1,reaction:1,selectedTargetKey:'mob',
+            knownTargets:[{tokenId:'mob',name:'Zombie'}],targetRecords:{}};
+            var attackContext={actor:character,targetKey:'mob',boardKey:'roll20',
+                combatSource:'D&D Beyond Initiative',combatStartedAt:1};
+            var attackRoll={total:7,isDiscarded:()=>false,dice:[{faces:20,rolls:[{roll:2}]}]};
+            wb20TargetObserveAttack(attackContext,attackRoll,true);`);
+        if (undoAfterSave) await wait(160);
+        // A native HP/features refresh can enqueue another settings key while
+        // the attack observation and the player's Undo are being persisted.
+        run(ctx, `character.mergeCharacterSettings({'native-hp-refresh':{temp:0}});
+            wb20TargetEdit(r=>r.observations.pop());`);
+        await wait(350);deliverAll(ctx,'reverse');
+        assert.equal(run(ctx,'attackContext.observationStatus'),'recorded');
+        assert.equal(stored(ctx)['waybeyond20-turn-state'].targetRecords.mob.observations.length,0);
+        assert.equal(stored(ctx)['native-hp-refresh'].temp,0);
+        await loadSheet(ctx);
+        const restored=sheet(ctx)['waybeyond20-turn-state'];
+        assert.equal(restored.targetRecords.mob.observations.length,0);
+        assert.deepEqual([restored.action,restored.bonusAction,restored.reaction],[1,1,1]);
+    }
+});
 
 section('Target: both rapid Undo orders persist with delayed storage and reversed broadcasts', async()=>{
     for (const damageFirst of [false,true]) {

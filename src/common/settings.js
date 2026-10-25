@@ -39,6 +39,13 @@ class CriticalRules {
 //                        get: function;
 
 const options_list = {
+    "waybeyond20-secondary-attacks": {
+        "title": "Test secondary attacks",
+        "description": "Use the shared secondary workflow for character-sheet and stat-block attacks. Leave off to keep the existing workflows. Stat blocks retain their own actor, privacy and destination hit handling. Unclaimed native dice keep their current route.",
+        "type": "bool",
+        "default": false,
+        "advanced": true
+    },
     "whisper-type": {
         "short": "Whisper rolls",
         "title": "Whisper rolls to the DM",
@@ -376,6 +383,12 @@ const options_list = {
         // callbacks will be added after the functions are defined
     },
 
+    "talespire-url": {
+        "title": "TaleSpire connection",
+        "description": "Open the WayBeyond20 Symbiote in TaleSpire and paste its copied connection here. Select TaleSpire as the roll destination. WB20 resolves the dice once and sends the same results; accept Chrome's TaleSpireUrlRelay prompt. The separate WB20 local return helper adds mini linking, turn following, targeting and distance. Native mini HP is not changed.",
+        "type": "string",
+        "default": ""
+    },
     "discord-integration": {
         "title": "Discord Integration",
         "description": "You can get rolls sent to Discord by enabling Discord Integration!\n" +
@@ -965,6 +978,24 @@ const character_settings = {
         "type": "bool",
         "default": true
     },
+    "waybeyond20-resource-correction": {
+        "title": "Sheet: Resource Correction",
+        "description": "Show Correction under Rest for owned feature resources and turn currency. Hiding the button does not disable shared accounting.",
+        "type": "bool",
+        "default": true
+    },
+    "waybeyond20-feature-controls": {
+        "title": "Features: Activation Controls",
+        "description": "Show owned feature activation controls using shared resources. Availability depends on the feature, not class membership.",
+        "type": "bool",
+        "default": true
+    },
+    "waybeyond20-feature-on-hit": {
+        "title": "Features: On Hit Choices",
+        "description": "Offer owned Hand of Harm and Stunning Strike choices after a confirmed hit and damage.",
+        "type": "bool",
+        "default": true
+    },
     "musician-rest-reminder": {
         "title": "Feat: Musician Rest Reminder",
         "description": "Show a friendly Musician reminder after a completed rest without automatically spending or assigning anything.",
@@ -1143,6 +1174,9 @@ const WAYBEYOND20_CHARACTER_HELPER_SETTINGS = [
     "waybeyond20-concentration-check-helper",
     "waybeyond20-condition-casting-warning",
     "waybeyond20-lay-on-hands-helper",
+    "waybeyond20-resource-correction",
+    "waybeyond20-feature-controls",
+    "waybeyond20-feature-on-hit",
     "musician-rest-reminder",
     "waybeyond20-combined-actions"
 ];
@@ -1603,6 +1637,7 @@ function createVTTTabSetting(name, short) {
     const dropdown_options = ["All VTT Tabs",
         "Only Roll20 Tabs",
         "Only Foundry VTT Tabs",
+        "TaleSpire",
         "D&D Beyond Dice Roller & Discord"];
 
     if (short) {
@@ -1624,7 +1659,9 @@ function setVTTTabSetting(name, settings) {
     } else if (val.title === null) {
         const vtt = val.vtt || "roll20";
         let choice = "";
-        if (vtt == "dndbeyond") {
+        if (vtt == "talespire") {
+            choice = "TaleSpire";
+        } else if (vtt == "dndbeyond") {
             choice = "D&D Beyond Dice Roller & Discord";
         } else {
             const vtt_name = vtt == "roll20" ? "Roll20" : "Foundry VTT";
@@ -1652,6 +1689,7 @@ function setVTTTabSetting(name, settings) {
                 new_options = ["All VTT Tabs",
                     "Only Roll20 Tabs",
                     "Only Foundry VTT Tabs",
+                    "TaleSpire",
                     "D&D Beyond Dice Roller & Discord",
                     "This " + current_campaign,
                     "This Specific Tab"];
@@ -1667,6 +1705,7 @@ function setVTTTabSetting(name, settings) {
             new_options = ["All VTT Tabs",
                 "Only Roll20 Tabs",
                 "Only Foundry VTT Tabs",
+                "TaleSpire",
                 "D&D Beyond Dice Roller & Discord",
                 campaign + ": " + title];
             if (id != 0) {
@@ -1711,6 +1750,8 @@ function getVTTTabSetting(name) {
         ret = { "id": 0, "title": null, "vtt": "roll20" }
     } else if (value == "Only Foundry VTT Tabs") {
         ret = { "id": 0, "title": null, "vtt": "fvtt" }
+    } else if (value == "TaleSpire") {
+        ret = { "id": 0, "title": null, "vtt": "talespire" }
     } else if (value == "D&D Beyond Dice Roller & Discord") {
         ret = { "id": 0, "title": null, "vtt": "dndbeyond" }
     } else if (value.startsWith("Campaign: ") || value.startsWith("World: ")) {

@@ -64,6 +64,43 @@ const root=path.resolve(__dirname,'..');
         await page.waitForFunction(()=>document.querySelector('.wb20-target-summary').textContent.includes('Initiative: 14'));
         assert.equal(await page.evaluate(()=>state.targetRecords.mob.observations.length),1);
         assert.equal(await page.evaluate(()=>$('.wb20-my-target').data('pointerHeld')),false);
-        console.log('PASS rapid AC/damage Undo in both orders, before/during pointerdown, keyboard, cancellation and saved-state reload. Browser fixture only.');
+        // DDB can replace markup without preserving JS handlers. A matching
+        // signature on cloned markup must not make the panel permanently inert.
+        await page.evaluate(()=>{
+            seed();
+            $('.wb20-target-attacks input').val('16');
+            $('.wb20-target-history input').val('9');
+            $('.wb20-target-history select').val('Radiant');
+            const section=document.querySelector('section');
+            section.replaceWith(section.cloneNode(true));
+            // Native cloneNode resets option selection to its default. Model
+            // the replacement markup's retained selection, then reconcile it.
+            $('.wb20-target-history select').val('Radiant');
+            wb20TargetMount($('section'),state);
+            wb20TargetMount($('section'),state);
+        });
+        assert.deepEqual(await page.evaluate(()=>[
+            $('.wb20-target-attacks input').val(),$('.wb20-target-history input').val(),
+            $('.wb20-target-history select').val(),$('.wb20-target-history').prop('open')]),['16','9','Radiant',true]);
+        await page.getByRole('button',{name:'Undo',exact:true}).click();
+        assert.equal(await page.evaluate(()=>saved.targetRecords.mob.observations.length),0,
+            'Undo still saves after a same-signature markup replacement');
+        const idleRefreshes=await page.evaluate(async()=>{
+            seed();
+            state.currentRoll20Turn={tokenId:'mob',tokenName:'Zombie'};
+            $('section').prepend(wb20BuildTurnCompass(state));
+            wb20TargetMount($('section'),state);
+            let refreshes=0;
+            const observer=new MutationObserver(()=>{
+                if (++refreshes>=12) {observer.disconnect();return;}
+                setTimeout(()=>wb20TargetMount($('section'),state),5);
+            });
+            observer.observe(document.querySelector('section'),{subtree:true,childList:true,characterData:true});
+            wb20TargetMount($('section'),state);
+            await new Promise(resolve=>setTimeout(resolve,120));
+            observer.disconnect();return refreshes;
+        });
+        assert.ok(idleRefreshes<=1,`Unchanged compass must settle; saw ${idleRefreshes} self-triggered refreshes`);
+        console.log('PASS rapid AC/damage Undo, keyboard, cancellation, saved-state reload, cloned panel recovery and idle observer settling. Browser fixture only.');
     } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -17,6 +17,24 @@ const docIsOwner = (doc) => {
     return doc?.owner;
 };
 
+// Foundry 14 replaced the core "rollMode" setting (now null) with "messageMode".
+function wayBeyond20FvttCurrentRollMode() {
+    const publicRoll = (CONST.DICE_ROLL_MODES && CONST.DICE_ROLL_MODES.PUBLIC) || "roll";
+    let legacy = null;
+    try { legacy = game.settings.get("core", "rollMode"); } catch (err) { legacy = null; }
+    if (legacy) return legacy;
+    let mode = null;
+    try { mode = game.settings.get("core", "messageMode"); } catch (err) { mode = null; }
+    return { gm: "gmroll", blind: "blindroll", self: "selfroll" }[mode] || publicRoll;
+}
+
+// Foundry 14 deprecates the rollMode creation option in favour of messageMode.
+function wayBeyond20FvttMessageOptions(rollMode) {
+    if (!fvtt_isNewer(fvttVersion, "14")) return { rollMode };
+    const messageMode = { roll: "public", publicroll: "public", gmroll: "gm", blindroll: "blind", selfroll: "self" }[rollMode];
+    return messageMode ? { messageMode } : {};
+}
+
 class FVTTDisplayer {
     postHTML(request, title, html, character, whisper, play_sound, source, attributes, description, attack_rolls, roll_info, damage_rolls, total_damages, open) {
         const hookName = fvtt_isNewer(fvttVersion, "13") ? 'renderChatMessageHTML' : 'renderChatMessage';
@@ -35,7 +53,9 @@ class FVTTDisplayer {
                 roll_renderer.handleRollRequest(request)
             });
         });
-        return this._postChatMessage(html, character, whisper, play_sound, attack_rolls, damage_rolls);
+        const posted = this._postChatMessage(html, character, whisper, play_sound, attack_rolls, damage_rolls);
+        wayBeyond20FvttResolvedDamage(request, damage_rolls);
+        return posted;
     }
 
     _postChatMessage(message, character, whisper, play_sound = false, attack_rolls, damage_rolls) {
@@ -52,6 +72,9 @@ class FVTTDisplayer {
             data[styleProp] = MESSAGE_STYLES.WHISPER;
             if (rollMode == "blindroll")
                 data["blind"] = true;
+        } else if (rollMode == "selfroll") {
+            data["whisper"] = [game.user?.id || game.user?._id];
+            data[styleProp] = MESSAGE_STYLES.WHISPER;
         } else {
             data[styleProp] = MESSAGE_STYLES.OOC;
         }
@@ -184,7 +207,7 @@ class FVTTDisplayer {
                 data[styleProp] = MESSAGE_STYLES.ROLL;
             }
         }
-        return ChatMessage.create(data, {rollMode});
+        return ChatMessage.create(data, wayBeyond20FvttMessageOptions(rollMode));
     }
 
     _getSpeakerByName(name) {
@@ -198,15 +221,17 @@ class FVTTDisplayer {
     }
 
     _whisperToRollMode(whisper) {
+        // An explicit public mode: Foundry 14 maps the legacy "roll" to the user's current chat mode.
+        const publicRoll = (CONST.DICE_ROLL_MODES && CONST.DICE_ROLL_MODES.PUBLIC) || "roll";
         try {
             return {
-                [WhisperType.NO]: "roll",
-                [WhisperType.HIDE_NAMES]: "roll",
+                [WhisperType.NO]: publicRoll,
+                [WhisperType.HIDE_NAMES]: publicRoll,
                 [WhisperType.YES]: "gmroll",
-                [WhisperType.QUERY]: game.settings.get("core", "rollMode")
+                [WhisperType.QUERY]: wayBeyond20FvttCurrentRollMode()
             }[whisper];
         } catch (err) {
-            return game.settings.get("core", "rollMode");
+            return wayBeyond20FvttCurrentRollMode();
         }
     }
 
@@ -377,7 +402,7 @@ roll_renderer.setSettings(settings);
 function rollInitiative(request, custom_roll_dice = "") {
     roll_renderer.handleRollRequest(request).then((roll) => {
         if (roll && settings["initiative-tracker"])
-            addInitiativeToCombat(roll);
+            addInitiativeToCombat(roll, request);
     });
 }
 
@@ -401,15 +426,16 @@ function popAvatar(request, sendToDiscord=true) {
     }
 }
 
-async function addInitiativeToCombat(roll) {
+async function addInitiativeToCombat(roll, request = null) {
     if (canvas.tokens.controlled.length > 0) {
         if (game.combat) {
             // Known Issue game.combat.scene are not longer set so you can add combatants from other scenes by mistake
             if (!fvtt_isNewer(fvttVersion, "13") && (game.combat.scene?.id != canvas.scene.id)) {
                 ui.notifications.warn("Cannot add initiative to tracker: Encounter was not created for this scene");
             } else {
-                for (let token of canvas.tokens.controlled) {
-                    combatant = game.combat.getCombatantByToken(token.id);
+                const controlled = [...canvas.tokens.controlled];
+                for (let token of controlled) {
+                    const combatant = game.combat.getCombatantByToken(token.id);
                     if (fvtt_isNewer(fvttVersion, "9")) {
                         if (combatant) {
                             await game.combat.updateEmbeddedDocuments("Combatant", [{ "_id": docData(combatant)._id, "initiative": roll.total }]);
@@ -418,13 +444,14 @@ async function addInitiativeToCombat(roll) {
                         }
                     } else {
                         if (combatant) {
-                            idField = combatant._id ? "_id" : "id";
+                            const idField = combatant._id ? "_id" : "id";
                             await game.combat.updateCombatant({ [idField]: combatant[idField], "initiative": roll.total });
                         } else {
                             await game.combat.createCombatant({ "tokenId": token.id, "hidden": docData(token).hidden, "initiative": roll.total });
                         }
                     }
                 }
+                wayBeyond20FvttBindTokens(request?.character?.name, controlled, "initiative");
             }
         } else {
             ui.notifications.warn("Cannot add initiative to tracker: no Encounter has been created yet");
@@ -466,7 +493,7 @@ function handleRenderedRoll(request) {
     if (request.request.type === "initiative" && settings["initiative-tracker"]) {
         const initiative = request.attack_rolls.find((roll) => !roll.discarded);
         if (initiative)
-            addInitiativeToCombat(initiative);
+            addInitiativeToCombat(initiative, request.request);
     }
 }
 
@@ -582,6 +609,233 @@ function updateConditions(request, name, conditions, exhaustion) {
 
 
 
+// DDB owns visible effect badges. Consume passive bookkeeping quietly; do not
+// post chat or write native actor effects without an executable target plan.
+function updateEffects(request, name, effects, concentration) {
+    return;
+}
+
+// ---- WayBeyond20 Foundry return path --------------------------------------
+// Foundry combat, token and resolved-damage observations go back to D&D Beyond
+// through the same envelopes the Roll20 adapter uses (waybeyond20-turn-update,
+// waybeyond20-token-binding, waybeyond20-damage-result), tagged source "Foundry".
+// Everything here is read-only towards the world: no document is created or updated.
+// Updates are driven by Foundry hooks and coalesced; nothing polls.
+
+const WB20_FVTT_ROLL20_UNITS_PER_GRID = 70; // the D&D Beyond distance reader expects Roll20 map units
+
+function wayBeyond20FvttSend(message) {
+    sendCustomEvent("SendMessage", [{ ...message, source: "Foundry" }]);
+}
+
+function wayBeyond20FvttIsGM() {
+    return !!(game.user && game.user.isGM);
+}
+
+function wayBeyond20FvttSceneGrid(scene) {
+    if (!scene) return null;
+    const grid = scene.grid;
+    if (grid && typeof grid === "object")
+        return { size: Number(grid.size), distance: Number(grid.distance), units: String(grid.units || "") };
+    // Foundry 9 and older keep the grid on scene.data
+    const data = scene.data || {};
+    return { size: Number(data.grid), distance: Number(data.gridDistance), units: String(data.gridUnits || "") };
+}
+
+function wayBeyond20FvttCombatantToken(combatant) {
+    if (combatant.token) return combatant.token.document || combatant.token;
+    const tokenId = docData(combatant).tokenId || combatant.tokenId;
+    const sceneId = docData(combatant).sceneId || combatant.sceneId;
+    const scene = sceneId && game.scenes ? game.scenes.get(sceneId) : canvas?.scene;
+    const tokens = scene && (scene.tokens || scene.data?.tokens);
+    return tokenId && tokens && typeof tokens.get === "function" ? tokens.get(tokenId) : null;
+}
+
+function wayBeyond20FvttTokenPosition(token, diagnostic = {}) {
+    const unavailable = reason => { diagnostic.reason = reason; return null; };
+    try {
+        if (!token) return unavailable("Token is not on a loaded scene");
+        // Foundry 14 keeps x/y at the pre-move position until the move animation finishes,
+        // which never happens in a background tab. The saved source is authoritative.
+        const data = token._source || docData(token);
+        if (data.hidden) return unavailable("Token is hidden");
+        const scene = token.parent || token.scene || null;
+        if (!scene || !scene.id) return unavailable("Scene identity has not loaded");
+        const grid = wayBeyond20FvttSceneGrid(scene);
+        const number = v => v !== null && v !== undefined && v !== "" && Number.isFinite(Number(v));
+        if (!grid || !number(grid.size) || grid.size <= 0) return unavailable("Scene grid size is unavailable");
+        if (!number(grid.distance) || grid.distance <= 0) return unavailable("Scene distance scale is unavailable");
+        if (!number(data.x) || !number(data.y)) return unavailable("Token coordinates have not loaded");
+        const width = number(data.width) ? Number(data.width) : 1;
+        const height = number(data.height) ? Number(data.height) : 1;
+        // Token x/y is the top-left corner in pixels; width/height are grid squares.
+        const centerX = Number(data.x) + width * grid.size / 2;
+        const centerY = Number(data.y) + height * grid.size / 2;
+        const toUnits = px => px / grid.size * WB20_FVTT_ROLL20_UNITS_PER_GRID;
+        return { pageId: String(scene.id), x: toUnits(centerX), y: toUnits(centerY),
+            scale: grid.distance, units: grid.units || "units", system: "fvtt" };
+    } catch (err) {
+        return unavailable("Foundry token position could not be read");
+    }
+}
+
+function wayBeyond20FvttCombatantKey(combatant) {
+    const data = docData(combatant);
+    const tokenId = data.tokenId || combatant.tokenId;
+    return String(tokenId || combatant.id || data._id || "");
+}
+
+function wayBeyond20FvttReadTargets(combat) {
+    const isGM = wayBeyond20FvttIsGM();
+    const targets = [];
+    const seen = new Set();
+    for (const combatant of combat.turns || []) {
+        const data = docData(combatant);
+        // Players never learn hidden combatants from WayBeyond20.
+        if (data.hidden && !isGM) continue;
+        const key = wayBeyond20FvttCombatantKey(combatant);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        const token = wayBeyond20FvttCombatantToken(combatant);
+        const tokenName = token ? String(docData(token).name || "") : "";
+        const custom = String(combatant.name || data.name || "");
+        const name = (tokenName || custom).replace(/\s+/g, " ").trim();
+        if (!name) continue;
+        const diagnostic = {};
+        const position = data.hidden ? null : wayBeyond20FvttTokenPosition(token, diagnostic);
+        targets.push({
+            key, tokenId: key, name, tokenName, custom,
+            initiative: data.initiative !== undefined && data.initiative !== null ? String(data.initiative) : "",
+            pageId: position ? position.pageId : String(data.sceneId || ""),
+            relation: "unknown",
+            position,
+            positionStatus: data.hidden ? "Combatant is hidden" : (diagnostic.reason || "")
+        });
+    }
+    return targets;
+}
+
+// null means "not known yet"; it must never be reported as a finished battle.
+function wayBeyond20FvttReadCurrentTurn() {
+    try {
+        if (typeof game === "undefined" || !game || !game.ready) return null;
+        const combat = game.combat;
+        if (!combat) return { active: false, targets: [] };
+        const combatData = docData(combat);
+        const round = Number(combatData.round ?? combat.round ?? 0);
+        const started = combat.started !== undefined ? !!combat.started : round > 0;
+        if (!started) return { active: false, targets: [] };
+        const current = combat.combatant;
+        if (!current) return null;
+        const data = docData(current);
+        const hidden = !!data.hidden && !wayBeyond20FvttIsGM();
+        const key = wayBeyond20FvttCombatantKey(current);
+        const token = hidden ? null : wayBeyond20FvttCombatantToken(current);
+        const turn = Number(combatData.turn ?? combat.turn ?? 0);
+        return {
+            active: true,
+            // A hidden combatant's turn still has to move the turn away from the player.
+            tokenId: hidden ? `hidden:${current.id || data._id || turn}` : key,
+            custom: hidden ? "" : String(current.name || data.name || ""),
+            pr: !hidden && data.initiative !== undefined && data.initiative !== null ? String(data.initiative) : "",
+            pageId: String(data.sceneId || combatData.scene || ""),
+            tokenName: token ? String(docData(token).name || "") : "",
+            turnKey: [combat.id || combatData._id || "", round, turn, current.id || data._id || ""].join("|"),
+            targets: wayBeyond20FvttReadTargets(combat)
+        };
+    } catch (err) {
+        console.warn("WayBeyond20: Unable to read Foundry combat", err);
+        return null;
+    }
+}
+
+let wayBeyond20FvttLastTurnKey = "";
+let wayBeyond20FvttTurnTimer = 0;
+const wayBeyond20FvttHookIds = [];
+
+function wayBeyond20FvttPublishTurn() {
+    wayBeyond20FvttTurnTimer = 0;
+    const current = wayBeyond20FvttReadCurrentTurn();
+    if (!current) return;
+    if (current.active === false) {
+        if (wayBeyond20FvttLastTurnKey === "inactive") return;
+        wayBeyond20FvttLastTurnKey = "inactive";
+        wayBeyond20FvttSend({ action: "waybeyond20-turn-update", current });
+        return;
+    }
+    // Token movement refreshes target positions without being a new turn.
+    const key = JSON.stringify([current.turnKey, current.targets]);
+    if (key === wayBeyond20FvttLastTurnKey) return;
+    wayBeyond20FvttLastTurnKey = key;
+    wayBeyond20FvttSend({ action: "waybeyond20-turn-update", current });
+}
+
+function wayBeyond20FvttScheduleTurn() {
+    if (wayBeyond20FvttTurnTimer) return;
+    wayBeyond20FvttTurnTimer = setTimeout(wayBeyond20FvttPublishTurn, 100);
+}
+
+function wayBeyond20FvttTokenChangeMatters(tokenDoc, changed) {
+    const combat = game.combat;
+    if (!combat || !changed) return false;
+    if (!["x", "y", "width", "height", "hidden", "name"].some(k => k in changed)) return false;
+    return (combat.turns || []).some(c => wayBeyond20FvttCombatantKey(c) === String(tokenDoc.id || docData(tokenDoc)._id));
+}
+
+function wayBeyond20FvttStartCombatObserver() {
+    wayBeyond20FvttStopCombatObserver();
+    const on = (hook, fn) => wayBeyond20FvttHookIds.push([hook, Hooks.on(hook, fn)]);
+    for (const hook of ["createCombat", "updateCombat", "deleteCombat",
+        "createCombatant", "updateCombatant", "deleteCombatant", "canvasReady"])
+        on(hook, wayBeyond20FvttScheduleTurn);
+    on("updateToken", (tokenDoc, changed) => {
+        if (wayBeyond20FvttTokenChangeMatters(tokenDoc, changed)) wayBeyond20FvttScheduleTurn();
+    });
+    wayBeyond20FvttScheduleTurn();
+}
+
+function wayBeyond20FvttStopCombatObserver() {
+    while (wayBeyond20FvttHookIds.length) {
+        const [hook, id] = wayBeyond20FvttHookIds.pop();
+        Hooks.off(hook, id);
+    }
+    if (wayBeyond20FvttTurnTimer) clearTimeout(wayBeyond20FvttTurnTimer);
+    wayBeyond20FvttTurnTimer = 0;
+    wayBeyond20FvttLastTurnKey = "";
+}
+
+// Link the character to the tokens the player controlled when initiative was added.
+function wayBeyond20FvttBindTokens(characterName, tokens, reason) {
+    const ids = (tokens || []).map(t => String(t.id || docData(t)._id || "")).filter(Boolean);
+    if (!characterName || ids.length === 0) return;
+    wayBeyond20FvttSend({ action: "waybeyond20-token-binding", character: { name: characterName },
+        tokenId: ids[0], tokenIds: ids, reason });
+}
+
+// Same award rule as the Roll20 adapter: only Draining Attack style temp-HP intents,
+// counting regular damage only, never healing, versatile or conditional rows.
+function wayBeyond20FvttResolvedDamage(request, damage_rolls) {
+    if (!request || !request.character || !Array.isArray(damage_rolls)) return;
+    // Match the renderer's ownership rule: the sheet continuation owns these
+    // already-managed attacks, including its final combined rider damage.
+    if (request["waybeyond20-await-hit"]) return;
+    const effects = Array.isArray(request.effects) ? request.effects : [];
+    const inferred = effects.some(e => String(e || "").toLowerCase().includes("draining attack")) &&
+        !!request["waybeyond20-unarmed-strike"];
+    if (!request["waybeyond20-temp-hp-on-hit"] && !inferred) return;
+    const totalDamage = damage_rolls.reduce((total, row) => {
+        if (!Array.isArray(row) || row.length < 3) return total;
+        const roll = row[1];
+        const flags = Number(row[2] || 0);
+        if (!roll || typeof roll !== "object") return total;
+        if (flags === DAMAGE_FLAGS.MESSAGE || (flags & (DAMAGE_FLAGS.HEALING | DAMAGE_FLAGS.VERSATILE | DAMAGE_FLAGS.CONDITIONAL))) return total;
+        const amount = Number(roll.total);
+        return Number.isFinite(amount) && amount > 0 ? total + amount : total;
+    }, 0);
+    if (totalDamage > 0)
+        wayBeyond20FvttSend({ action: "waybeyond20-damage-result", character: request.character, totalDamage });
+}
+
 function setSettings(new_settings, url) {
     settings = new_settings;
     extension_url = url;
@@ -623,7 +877,12 @@ registered_events.push(addCustomEventListener("RenderedRoll", handleRenderedRoll
 registered_events.push(addCustomEventListener("NewSettings", setSettings));
 registered_events.push(addCustomEventListener("UpdateHP", updateHP));
 registered_events.push(addCustomEventListener("UpdateConditions", updateConditions));
+registered_events.push(addCustomEventListener("UpdateEffects", updateEffects));
+// Stop WayBeyond20's own hooks before the listeners are removed on reinjection.
+registered_events.push(addCustomEventListener("disconnect", wayBeyond20FvttStopCombatObserver));
 registered_events.push(addCustomEventListener("disconnect", disconnectAllEvents));
 //const alertify = ui.notifications;
 setTitle();
 initializeAlertify();
+if (typeof game !== "undefined" && game && game.ready) wayBeyond20FvttStartCombatObserver();
+else Hooks.once("ready", wayBeyond20FvttStartCombatObserver);

@@ -326,6 +326,29 @@ assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(wayBeyond20ReadTurnO
         assert.equal(await page.getByRole('button',{name:'Select Target',exact:true}).isDisabled(),true);
         await page.getByRole('button',{name:'End Combat',exact:true}).click();
         assert.equal(await page.locator('.wb20-combat-layout').count(),0);
+        // Real Select Target button + TaleSpire return consumer, including a
+        // late settings snapshot and repeated native picks. No live board.
+        await page.addScriptTag({path:path.join(root,'src/dndbeyond/content-scripts/talespire.js')});
+        await page.evaluate(()=>{
+            window.settings={'vtt-tab':{vtt:'talespire'}};window.targetValues={};
+            character.getSetting=(key,fallback)=>targetValues[key]??fallback;
+            character.mergeCharacterSettings=(values,callback)=>{Object.assign(targetValues,structuredClone(values));callback?.();};
+            window.wayBeyond20GetTurnTrackerState=()=>wb20TSGetState();
+            window.wayBeyond20SetTurnTrackerState=(value,callback)=>wb20TSSetState(value,callback);
+            window.wayBeyond20ScheduleActiveEffectBadgeRefresh=()=>{state=wb20TSGetState();wayBeyond20InjectTurnResourceTracker();};
+            window.wayBeyond20TurnTrackerStateEquals=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+            window.targetSnapshot={v:1,campaignId:'campaign',boardId:'board',tracking:true,activeIndex:0,
+                order:[{id:'one',name:'Goblin'},{id:'two',name:'Other'}],creatures:[{id:'one',name:'Goblin'},{id:'two',name:'Other'}],
+                units:{name:'ft',numberPerTile:5},targetId:'one',targetSession:'session',targetRevision:1};
+            wb20TSApplySnapshot(targetSnapshot);window.staleTargetState=structuredClone(wb20TSGetState());
+        });
+        await page.getByRole('button',{name:'Preview next combatant: Other',exact:true}).click();
+        await page.getByRole('button',{name:'Select Target',exact:true}).click();
+        assert.equal(await page.getByLabel('Choose my target',{exact:true}).inputValue(),'ts:campaign|board:two');
+        await page.evaluate(()=>{wb20TSSetState(staleTargetState);wb20TSApplySnapshot(targetSnapshot,true);});
+        assert.equal(await page.getByLabel('Choose my target',{exact:true}).inputValue(),'ts:campaign|board:two');
+        await page.evaluate(()=>wb20TSApplySnapshot({...targetSnapshot,targetRevision:2},true));
+        assert.equal(await page.getByLabel('Choose my target',{exact:true}).inputValue(),'ts:campaign|board:one');
         console.log('PASS My Target: sheet theme instead of OS theme, theme-only refresh retains input, exact AC sequence, undo, distinct token identities, initiative zero, gross damage, persisted selection/notes, duplicate prevention, desktop/mobile layout, unchanged economy and End Combat cleanup. Fixture only.');
     } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

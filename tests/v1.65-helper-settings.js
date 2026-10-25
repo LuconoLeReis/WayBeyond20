@@ -23,6 +23,9 @@ const HELPERS = [
     "waybeyond20-concentration-check-helper",
     "waybeyond20-condition-casting-warning",
     "waybeyond20-lay-on-hands-helper",
+    "waybeyond20-resource-correction",
+    "waybeyond20-feature-controls",
+    "waybeyond20-feature-on-hit",
     "musician-rest-reminder",
     "waybeyond20-combined-actions"
 ];
@@ -290,6 +293,10 @@ async function exerciseHelpers(character, globalSettings) {
 
     return {
         "waybeyond20-combined-actions": calls.combined === 1,
+        // Actual Correction/feature UI suppression is exercised by resource-browser.
+        "waybeyond20-resource-correction": ctx.wayBeyond20CharacterHelperEnabled("waybeyond20-resource-correction"),
+        "waybeyond20-feature-controls": ctx.wayBeyond20CharacterHelperEnabled("waybeyond20-feature-controls"),
+        "waybeyond20-feature-on-hit": ctx.wayBeyond20CharacterHelperEnabled("waybeyond20-feature-on-hit"),
         "waybeyond20-lay-on-hands-helper": calls.layOnHands === 1,
         "musician-rest-reminder": calls.musician === 1,
         "wizard-occultist-intrusion-helper": toolText.includes("INTRUSION d8") && intrusionQueried,

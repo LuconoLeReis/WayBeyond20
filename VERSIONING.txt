@@ -1,5 +1,5 @@
 WAYBEYOND20 VERSION AND COMPATIBILITY POLICY
-Effective October 14, 2026
+Effective October 14, 2026; coding version correction October 21, 2026
 
 Public release labels follow Semantic Versioning 2.0.0:
 https://semver.org/spec/v2.0.0.html
@@ -10,20 +10,22 @@ helper controls, and installation/update behavior. Internal helper functions
 and third-party website markup are not a public API. A fix restoring promised
 behavior is not a new capability.
 
-PATCH: compatible bug fixes. MINOR: compatible additions or deprecations;
-reset patch to zero. MAJOR: incompatible contract changes; reset minor and
-patch to zero and document migration. The highest-impact change controls;
-there is no minimum number of fixes needed for a release.
+MAJOR and MINOR are release numbers. Change them only when selecting and
+publishing the corresponding release, not during coding or candidate tests.
+Between releases, increment PATCH only, including feature coding updates.
+Selecting a major or minor release resets following fields to zero. SemVer
+classification informs that publication decision; it does not automatically
+advance release numbers during development. Use plain MAJOR.MINOR.PATCH.
 
 Chrome's numeric manifest version is a separate monotonically increasing
 build identity, governed by:
 https://developer.chrome.com/docs/extensions/reference/manifest/version
-version_name displays the public label. Current 1.65.16 maps to 2.20.82;
+version_name displays the public label. Candidate 1.73.23 maps to 2.20.155;
 the existing numeric line is retained to avoid a downgrade for installations.
 Both manifests, package.json and package-lock build versions must agree.
 
-Each changed executable test candidate gets a new numeric identity. Internal
-development labels may use -dev.N; public prereleases are not the default.
+Each changed executable test candidate gets a new numeric identity and plain
+PATCH label. Do not add suffixes or additional revision counters.
 Promotion can retain the tested numeric identity only if executable bytes
 are unchanged. Release-only documentation changes are rebuilt and checked.
 

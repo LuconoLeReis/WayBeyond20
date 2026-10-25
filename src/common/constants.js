@@ -16,7 +16,10 @@ const DNDBEYOND_FEATS_URL = "*://*.dndbeyond.com/feats/*";
 // Keep WayBeyond20 update notices inside the extension. The upstream Beyond20
 // changelog describes a different product and should never be presented as
 // WayBeyond20's release information.
-const CHANGELOG_URL = chrome.runtime.getURL("Updates.html");
+// This file is also bundled into VTT page scripts (Foundry), where chrome.runtime does not exist;
+// an unguarded call there aborts the whole page script.
+const CHANGELOG_URL = typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.getURL
+    ? chrome.runtime.getURL("Updates.html") : "";
 const DISCORD_BOT_INVITE_URL = "https://beyond20.kicks-ass.org/invite";
 const DISCORD_BOT_API_URL = "https://beyond20.kicks-ass.org/roll";
 const DISCORD_URL = "*://discord.com/*";

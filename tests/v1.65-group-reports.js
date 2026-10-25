@@ -79,7 +79,7 @@ const CHARACTER_FUNCTIONS = [
     "wayBeyond20IsElementalStrikeParent", "wayBeyond20RollElementalStrikeParent", "wayBeyond20RollPaladinSpecialAction",
     "wayBeyond20SplitDamageFormula", "wayBeyond20NextDamageId", "wayBeyond20AddDamage", "wayBeyond20DamageRowIndex",
     "wayBeyond20NormalizeActionPoolToDamages", "wayBeyond20CommitAfterDispatch", "capitalize",
-    "rollItem", "rollAction", "handleCombatAttackIntegratedDie"
+    "rollItem", "rollAction", "wayBeyond20DDBRollInputAvailable", "handleCombatAttackIntegratedDie"
 ];
 
 // ---- Minimal jQuery stand-in -------------------------------------------------------------
@@ -127,7 +127,7 @@ const PALADIN_SMITE_FUEL = { type: "paladin-smite", label: "Paladin's Smite", le
 function createSandbox({ features = [], settings = {}, smite = null, elementalChoice = null, sendResult = true, dom = () => null, declineSmite = false } = {}) {
     const log = { turnSpends: [], limitedUseSpends: [], slotSpends: [], freeSmiteSpends: 0, dispatched: [],
         sendRollCalls: 0, buildSmiteOptionsCalls: 0, smiteEligibility: [], executed: [], nativeUses: [],
-        turnState: { action: 1, attacksRemaining: 0 } };
+        turnState: { action: 1, attacksRemaining: 0 }, handoffs: [] };
     const character = {
         _id: 111, _name: "Test Paladin", _proficiency: 2, _spell_saves: { Paladin: 12 },
         hasClassFeature: (name, substring) => features.some(feature => substring ? feature.includes(name) : feature === name),
@@ -209,6 +209,9 @@ function createSandbox({ features = [], settings = {}, smite = null, elementalCh
         wayBeyond20GetTrackedSpellEffects: () => [],
         wayBeyond20EffectName: () => "",
         execute: (paneClass, options) => { log.executed.push({ paneClass, options: clone(options) }); },
+        // This VM tests source-control normalization only. The actual handoff,
+        // native parser and observer execute together in attack-handoff-browser.
+        wb20RequestCombatHandoff: (control, options) => { log.handoffs.push(clone(options)); return true; },
         sendRoll: async (char, rollType, fallback, request) => {
             log.sendRollCalls++;
             if (sendResult !== true) return sendResult;
@@ -338,7 +341,7 @@ async function open(name, fn) {
         await rollAction(damageOnly, { damages_only: true });
         assert.deepEqual(damageOnly.log.turnSpends, []);
     });
-    await guard("1c An Actions-tab die click runs whichever pane D&D Beyond opened: a weapon row with its item pane runs rollItem", async () => {
+    await guard("1c Actions-tab die and icon normalize hit-only/full flags into the same handoff", async () => {
         for (const [paneClass, heading] of [["b20-item-pane", "Longsword"], ["b20-action-pane", "Unarmed Strike"]]) {
             const labelText = heading;
             const row = { __element: null };
@@ -350,11 +353,11 @@ async function open(name, fn) {
             const ctx = createSandbox({ dom: selector => selector === `.${paneClass}` ? pane : (selector === detail ? jq([{}]) : null) });
             assert.equal(run(ctx, "handleCombatAttackIntegratedDie")(button), true);
             await new Promise(resolve => setTimeout(resolve, 20));
-            assert.deepEqual(ctx.log.executed, [{ paneClass, options: { force_to_hit_only: true, force_damages_only: false, force_versatile: false } }]);
+            assert.deepEqual(ctx.log.handoffs, [{ force_to_hit_only: true, force_damages_only: false, force_versatile: false }]);
             const icon = { closest: selector => selector === ".ct-combat-attack, .ddbc-combat-attack" ? row : null };
             assert.equal(run(ctx, "handleCombatAttackIntegratedDie")(icon), true);
             await new Promise(resolve => setTimeout(resolve, 20));
-            assert.deepEqual(ctx.log.executed[1], { paneClass, options: { force_to_hit_only: false, force_damages_only: false, force_versatile: false } }, "icon uses the full attack route, not attack-only or damage-only");
+            assert.deepEqual(ctx.log.handoffs[1], { force_to_hit_only: false, force_damages_only: false, force_versatile: false }, "icon uses the full attack route, not attack-only or damage-only");
         }
     });
     await guard("1d Item-pane weapon attack spends one Action after dispatch, as the Actions row does (F-L14)", async () => {
@@ -691,14 +694,14 @@ async function open(name, fn) {
         const { ctx, die } = versatileDamageDie("two");
         run(ctx, "handleCombatAttackIntegratedDie")(die);
         await new Promise(resolve => setTimeout(resolve, 20));
-        assert.deepEqual(ctx.log.executed, [{ paneClass: "b20-item-pane", options: { force_to_hit_only: false, force_damages_only: true, force_versatile: true } }]);
+        assert.deepEqual(ctx.log.handoffs, [{ force_to_hit_only: false, force_damages_only: true, force_versatile: true }]);
     });
     await guard("4h The one-handed damage die on the Actions tab does not force two-handed damage (live: clicking 1d8+2 rolled 1d10 + 2)", async () => {
         const { ctx, die } = versatileDamageDie("one");
         run(ctx, "handleCombatAttackIntegratedDie")(die);
         await new Promise(resolve => setTimeout(resolve, 20));
-        assert.equal(ctx.log.executed.length, 1);
-        assert.equal(ctx.log.executed[0].options.force_versatile, false, "one-handed die");
+        assert.equal(ctx.log.handoffs.length, 1);
+        assert.equal(ctx.log.handoffs[0].force_versatile, false, "one-handed die");
     });
 
     // ---- Report ----------------------------------------------------------------------------

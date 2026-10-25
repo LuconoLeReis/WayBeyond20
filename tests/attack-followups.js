@@ -90,7 +90,7 @@ function sandbox({hit = true, chooseSmite = true, fail = '', smites = true, sava
     vm.createContext(c);
     vm.runInContext(read('src/dndbeyond/content-scripts/attack-followups.js') + '\n' +
         ['sendRollWithCharacter','wayBeyond20DispatchRollWithCharacter','wayBeyond20ApplySavageAttacker',
-            'wayBeyond20DamageRowIndex','wayBeyond20AttackActivationTurnKey',
+            'wayBeyond20DamageRowIndex','wayBeyond20AttackActivationTurnKey','wayBeyond20AttacksPerAttackAction',
             'wayBeyond20CreateAttackActivation','wayBeyond20PerformGrantedAttack'].map(fn).join('\n'), c);
     c.log=log;c.values=values;c.state=state;
     c.attack = (overrides={}) => ({name:'Test weapon',rollAttack:true,rollDamage:true,'to-hit':'+5',
@@ -101,7 +101,35 @@ function sandbox({hit = true, chooseSmite = true, fail = '', smites = true, sava
 }
 const count=(c,event)=>c.log.filter(x=>x===event).length;
 async function test(name, body) {await body();console.log('PASS',name);}
-(async()=>{
+if (require.main === module) (async()=>{
+    await test('Monk Flurry pays once through immediate and deferred damage, then Harm pays only its own Focus',async()=>{
+        for (const deferred of [false,true]) {
+            const c=sandbox({smites:false,draining:true});
+            Object.assign(c.character,{_id:'monk',_class_features:['Monk’s Focus','Hand of Harm','Hand of Healing'],
+                _proficiency:2,getClassLevel:()=>3,getAbility:()=>({mod:'+3'}),
+                mergeCharacterSettings:(values,callback)=>{Object.assign(c.values,values);callback?.();}});
+            vm.runInContext(read('src/dndbeyond/content-scripts/resources.js'),c);
+            c.wb20RegisterResource({name:'Focus Points',max:3,reset:'short'});
+            await c.wb20SetResource('Focus Points',3);
+            vm.runInContext(read('src/dndbeyond/content-scripts/feature-activations.js'),c);
+            c.dndbeyondDiceRoller._prompter.prompt=async title=>{
+                c.log.push('prompt:'+title);return title==='Attack result' ? true : {find:()=>({prop:()=>false})};
+            };
+            const activation=c.wayBeyond20CreateAttackActivation({resource:'bonusAction',attacks:2});
+            await c.sendRollWithCharacter('attack','',c.attack({name:'Unarmed Strike',rollDamage:!deferred,
+                'waybeyond20-smite-eligible':false,'waybeyond20-attack-activation':activation,
+                ...c.wb20FeatureCost({focus:1}),'waybeyond20-unarmed-strike':true}));
+            if(deferred) {
+                assert.equal(c.wb20Resource('Focus Points').remaining,2,'only Flurry paid before damage');
+                await c.wayBeyond20ContinueAttackDamage(c.lastBase['waybeyond20-attack-continuation'].id);
+            }
+            assert.equal(c.wb20Resource('Focus Points').remaining,1,'one Flurry + one Harm, never repeated by damage');
+            assert.equal(count(c,'spend:bonusAction'),1);assert.equal(count(c,'spend:action'),0);
+            assert.equal(activation.remaining,1);assert.equal(count(c,'prompt:Hand of Harm'),1);
+            assert.equal(c.lastDamage['waybeyond20-resource-costs'],undefined);
+            assert.equal(count(c,'thp:10'),1,'damage-based riders include the delivered Harm damage');
+        }
+    });
     await test('granted reaction attack spends once, never again for immediate or deferred damage',async()=>{
         for (const deferred of [false,true]) {
             const c=sandbox({smites:true,draining:true});
@@ -464,3 +492,5 @@ async function test(name, body) {await body();console.log('PASS',name);}
     });
     console.log('Attack follow-up checks passed. No live browser acceptance is implied.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
+module.exports = {sandbox, count, fn};

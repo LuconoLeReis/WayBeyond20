@@ -12,7 +12,7 @@ function wayBeyond20NeedsAttackFollowup(args) {
     // Classify before choosing the continuation, not only later at dispatch.
     // A producer's name or Smite eligibility must not gate an unarmed on-hit rule.
     wayBeyond20NormalizeAttackSemantics(args, args.name);
-    return !!(args["waybeyond20-smite-eligible"] || args["waybeyond20-savage-attacker"]?.mode === "post-result" ||
+    return !!((typeof wb20FeatureNeedsHit === "function" && wb20FeatureNeedsHit(args)) || args["waybeyond20-smite-eligible"] || args["waybeyond20-savage-attacker"]?.mode === "post-result" ||
         (args["waybeyond20-unarmed-strike"] && character.hasRacialTrait("Draining Attack", true) &&
             character.hasRacialTrait("Natural Attack", true)));
 }
@@ -53,7 +53,8 @@ async function wayBeyond20ResolveAttackFollowup(rollType, fallback, args) {
     wayBeyond20ApplyDrainingAttackIntent(args, args.name || fallback);
     const draining = args["waybeyond20-temp-hp-on-hit"];
     args["waybeyond20-followup-phase"] = "base";
-    if (!smiteOptions && savage?.mode !== "post-result" && !draining) {
+    const monk = typeof wb20FeatureNeedsHit === "function" && wb20FeatureNeedsHit(args);
+    if (!smiteOptions && savage?.mode !== "post-result" && !draining && !monk) {
         return sendRollWithCharacter(rollType, fallback, args);
     }
 
@@ -93,13 +94,15 @@ async function wayBeyond20ResolveAttackFollowup(rollType, fallback, args) {
 
     const critical = !!args.rollCritical || resolved.attacks.some(roll => !roll.isDiscarded() && roll.isCriticalHit());
     const pending = { ready: true, owner: character, args, rollType, fallback, critical,
-        whisper: resolved.request?.whisper, savage, draining, smiteOptions };
+        whisper: resolved.request?.whisper, savage, draining, smiteOptions, monk };
     if (args.rollDamage) await wayBeyond20FinishAttackDamage(pending);
     else if (continuation) wayBeyond20PendingAttackDamage.set(continuation.id, pending);
     return true;
 }
 
-async function wayBeyond20FinishAttackDamage(pending) {
+// Default keeps existing callers intact. The secondary lifecycle supplies its own
+// dispatcher so damage/riders reuse these rules without restarting the old entry.
+async function wayBeyond20FinishAttackDamage(pending, dispatch = sendRollWithCharacter) {
     if (pending.owner !== character) return false;
     const { args, rollType, fallback, critical, savage, draining, smiteOptions } = pending;
     const damageArgs = { ...args, rollAttack: false, rollDamage: true, rollCritical: critical,
@@ -107,14 +110,18 @@ async function wayBeyond20FinishAttackDamage(pending) {
     // This is the damage from an already-performed attack, not another attack/action.
     for (const key of ["to-hit", "waybeyond20-turn-resource", "waybeyond20-turn-resources",
         "waybeyond20-limited-use", "waybeyond20-after-dispatch", "waybeyond20-attack-continuation",
-        "waybeyond20-attack-activation"])
+        "waybeyond20-attack-activation", "waybeyond20-resource-costs", "waybeyond20-resource-per-turn", "waybeyond20-resource-gains"])
         delete damageArgs[key];
     if (pending.whisper !== undefined) damageArgs.whisper = pending.whisper;
     let resolved = null;
     damageArgs["waybeyond20-capture-result"] = (request, attacks, damages) => { resolved = { request, damages }; };
-    if (await sendRollWithCharacter(rollType, fallback, damageArgs) !== true || !resolved) return false;
+    if (await dispatch(rollType, fallback, damageArgs) !== true || !resolved) return false;
+    // Delivery can outlive navigation. Later prompts and native HP writes must
+    // still belong to the actor that performed this attack.
+    if (pending.owner !== character) return false;
     if (savage)
         await wayBeyond20ResolveSavageAttacker(resolved.request, resolved.damages, savage);
+    if (pending.owner !== character) return false;
     // Complete weapon damage (including its optional replacement) before displaying
     // on-hit riders. Deferred damage follows this same path when its button is used;
     // it must not spend Smite/CD while still waiting for the weapon damage roll.
@@ -137,10 +144,13 @@ async function wayBeyond20FinishAttackDamage(pending) {
             smite.description = selection.smite.description || "";
             let rolled = [];
             smite["waybeyond20-capture-result"] = (request, attacks, damages) => { rolled = damages; };
-            if (await sendRollWithCharacter("spell-attack", smite.damages[0], smite) === true)
+            if (await dispatch("spell-attack", smite.damages[0], smite) === true)
                 riderDamage.push(...rolled, ...(smite["waybeyond20-elemental-damage"] || []));
         }
     }
+    if (pending.monk && pending.owner === character && typeof wb20FeatureAfterDamage === "function")
+        riderDamage.push(...(await wb20FeatureAfterDamage({...args, rollCritical: critical}, resolved, dispatch) || []));
+    if (pending.owner !== character) return false;
     if (draining) {
         const damage = resolved.damages.concat(riderDamage).reduce((sum, [, roll, flags]) => {
             if (flags & (DAMAGE_FLAGS.HEALING | DAMAGE_FLAGS.VERSATILE | DAMAGE_FLAGS.CONDITIONAL)) return sum;
@@ -154,6 +164,7 @@ async function wayBeyond20FinishAttackDamage(pending) {
 function wayBeyond20ContinueAttackDamage(id) {
     const pending = wayBeyond20PendingAttackDamage.get(id);
     if (!pending?.ready) return Promise.resolve(false);
+    if (pending.workflow) return pending.workflow.continueDamage();
     if (pending.running) return pending.running;
     if (pending.declined) return Promise.resolve(false);
     // Keep the resolved promise: repeated clicks/forwarded callbacks never reroll or spend.
@@ -162,7 +173,7 @@ function wayBeyond20ContinueAttackDamage(id) {
     return pending.running;
 }
 
-async function wayBeyond20AfterDivineSmite(args) {
+async function wayBeyond20AfterDivineSmite(args, dispatch = sendRollWithCharacter) {
     const originalTab = wayBeyond20ActiveCharacterSheetTab();
     try {
         const rider = {
@@ -180,7 +191,7 @@ async function wayBeyond20AfterDivineSmite(args) {
         let rolled = [];
         if (rider.damages?.length)
             rider["waybeyond20-capture-result"] = (request, attacks, damages) => { rolled = damages; };
-        if (await sendRollWithCharacter(rider.damages?.length ? "spell-attack" : "trait", rider.damages?.[0] || 0, rider) === true)
+        if (await dispatch(rider.damages?.length ? "spell-attack" : "trait", rider.damages?.[0] || 0, rider) === true)
             args["waybeyond20-elemental-damage"] = rolled;
     } finally {
         wayBeyond20RestoreCharacterSheetTab(originalTab);

@@ -52,6 +52,9 @@ function wayBeyond20SendCustomMessageToExtension(message) {
 
 function wayBeyond20SendResolvedDamageToDDB(renderedRequest) {
     const originalRequest = renderedRequest && renderedRequest.request ? renderedRequest.request : null;
+    // Managed hit/damage continuations award the complete damage (and riders)
+    // on the originating sheet. Rendering their result is not another award.
+    if (originalRequest?.["waybeyond20-await-hit"]) return;
     const effects = originalRequest && Array.isArray(originalRequest.effects) ? originalRequest.effects : [];
     const inferredIntent = effects.some(effect => String(effect || "").toLowerCase().includes("draining attack")) &&
         !!originalRequest?.["waybeyond20-unarmed-strike"];

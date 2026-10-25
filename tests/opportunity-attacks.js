@@ -76,8 +76,9 @@ function fixture() {
     assert.equal(spell["waybeyond20-turn-resource"].resource, "reaction", "save/card spells pay the replacement Reaction");
     assert.equal(await c.wayBeyond20PerformGrantedAttack(ctx.activation, spell, async () => {dispatches++; return true;}), false);
     assert.equal(dispatches, 1);
-    const illegalBA = c.wayBeyond20CreateAttackActivation({resource: "bonusAction", attacks: 2});
-    assert.equal(await c.wayBeyond20PerformGrantedAttack(illegalBA, {rollAttack: true}, async () => true), false);
+    const advisoryBA = c.wayBeyond20CreateAttackActivation({resource: "bonusAction", attacks: 2});
+    assert.equal(await c.wayBeyond20PerformGrantedAttack(advisoryBA, {rollAttack: true}, async () => true), true,
+        "the shared resource preflight, not a class/producer hard block, owns the off-turn decision");
 
     // Exercise the actual damage helpers, not only the timing parser.
     c = fixture(); ctx = c.context();

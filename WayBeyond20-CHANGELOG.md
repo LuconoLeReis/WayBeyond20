@@ -1,5 +1,359 @@
 # WayBeyond20 Changelog
 
+## v1.73.23 release preparation on 2026-10-25
+
+Numeric identity remains 2.20.155; executable bytes are unchanged from the
+tested development build. Public documentation was reconciled for preparation.
+Standard npm tests, supplemental resource and turn checks, all 22 isolated
+browser files, both builds and compiled syntax checks passed. Live Roll20
+verification exercised a full character attack, confirmed outcome and AC,
+managed damage/Draining, deferred damage/repeat protection and turn reset.
+No new full live Foundry/Forge or TaleSpire acceptance is claimed. The optional
+secondary lifecycle remains default off; full creature and anonymous native
+dice convergence remains incomplete. Prepared, not published.
+
+
+## v1.73.23 - Invalidated input-handler guard, 2026-10-24 (local coding candidate)
+
+Numeric2.20.155; PATCH only, unpublished. Pointer/click/keyboard/context-menu
+capture handlers now return before swallowing an event when their extension
+context is invalidated. The common combat handler uses the same guard for old
+hover/menu callbacks. This prevents an orphaned instance from intercepting input
+intended for a newly loaded instance. Earlier versions' already-orphaned handlers
+still require one sheet refresh; a new guard cannot patch their closed-over code.
+
+Live1.73.22 acceptance: initial unrefreshed-context icon opened its pane without
+preflight. Agent refreshed the sample character's sheet directly, then full icon, Advantage menu
+and hit-only number each reached the correct off-turn preflight. All cancelled;
+no roll, currency, HP, AC or target change. This establishes the .22 handoff on a
+fresh sheet and supports stale context as a contributor; it does not retrospectively
+prove .21 would have passed with a refresh or identify every earlier failure.
+
+A two-instance browser regression invalidates the first registered context while
+its listeners remain attached, then installs the active instance. Prior installer
+swallows the active input (red); guarded installer routes full/numeric/keyboard/
+context-menu input once to the active instance (green). Direct orphan hover/menu
+entry is rejected before row handling. Existing handoff and icon suites retained.
+
+## v1.73.22 - Owned attack-pane request, 2026-10-24 (local coding candidate)
+
+Numeric2.20.154; PATCH only, unpublished. The1.73.21 icon repair did not pass its
+live preflight check. Combat icons, numeric dice, hover shortcuts and menu/keyboard
+activation now normalize their intent into one owned pane request. The normal
+document observer resumes that request only when the existing native property
+parser finds attack data. It then calls the existing execute/builders and shared
+attack lifecycle. Combat no longer depends on shared quick-roll flags, a fixed
+50ms continuation, or the missing ct-available-actions CSS class.
+
+The request is claimed before execution, may rebind a uniquely equivalent React
+row, and cancels on stale identity/route/path/turn/disconnection or unrelated user
+input. New intent replaces an unperformed request; one bounded expiry prevents
+later accidental activation. No polling, resource logic or second attack engine
+was added. Non-combat legacy quick rolls retain their existing machinery.
+
+The real parser/observer fixture fails against1.73.21 (executes before delayed
+properties arrive) and passes the new request. Item/action/spell executor choice,
+full/hit/damage/versatile flags, mutation churn, row replacement, stale/cancel,
+supersession and expiry are covered. VM flag-normalization tests now mock the UI
+handoff boundary explicitly; actual pane behavior is tested in the browser suite.
+Disconnection also safely cancels a pending request when the observer argument is
+absent. Live verification is deferred at Bill's instruction; no reload requested.
+
+## v1.73.21 - Full-attack icon pane handoff, 2026-10-24 (local coding candidate)
+
+Numeric2.20.153; PATCH only, unpublished. Full-attack icons now queue their
+existing executor after the outer click completes. Previously pointer-down could
+open a pane which native outside-click dismissal removed before its continuation.
+The shared right-click menu and keyboard activation use the same guarded icon
+handoff. Numeric dice retain their interception. Character/connected-row/name
+guards remain, and no second attack/rule executor is added.
+
+The browser regression composes a native listener registered before the extension,
+synchronous delegated pane opening and the real observer/executor. Previous
+installer fails; deferred entry passes normal click, explicit menu mode, keyboard,
+single routing and changed-character/disconnected-caller cancellation. the sample character's
+1.73.20 detail-pane chain and both legacy/modern Zombie shared-entry rolls passed
+live; the1.73.20 icon remained inconsistent. This repair still requires live check.
+
+## v1.73.20 - Secondary stat-block attack entry, 2026-10-24 (local coding candidate)
+
+Numeric2.20.152; PATCH only, unpublished. The default-off secondary attack setting
+now covers stat-block and Extras attack requests through the same lifecycle as
+character attacks. Fresh stat-block parsing, form riders, custom dice, hotkeys,
+critical arrays, actor identity and privacy still come from their existing modules.
+Explicit local context retains destination-owned hit handling and no inferred
+parent target/currency owner. Display-only trait cards do not start attacks.
+Anonymous native dice remain unmigrated. This is an incremental entry migration,
+not completed feature/resource/AC parity for creatures. Ancestors remain available.
+
+Offline tests compose actual Monster/MonsterExtras producers, shared lifecycle and
+real sendRoll. Seven actor/form configurations match ancestor outgoing requests;
+repeated operation, stale actor/destination, privacy cancel and transport failure
+checks prevent extra dispatch. Live character Fangs on1.73.19 passed attack14,
+confirmed test Hit/AC<=14, damage5 and THP5 with both cards visible in Roll20;
+THP0/AC??/currencies restored and refresh verified. Stat-block live acceptance
+requires loading this candidate; automated comparisons do not establish it.
+
+Shared sendRoll accepts an optional local ownership guard and checks it again
+after privacy/advantage queries. Character dispatch and the stat-block adapter
+both supply their current-context check. It is never serialized. A composed
+regression using the previous transport sends after a destination change (red);
+the repair prevents that send and the character's Action spend (green).
+
+## v1.73.19 - Header Manage forwarding and control recovery, 2026-10-24 (local coding candidate)
+
+Numeric2.20.151; PATCH only, unpublished. Manage previously clicked its hidden
+native control synchronously, letting the outer proxy click dismiss the native
+pane immediately. It now shares Rest's deferred, path/connection-guarded native
+forwarding helper. Isolated outside-click regression fails before and passes
+after. Live old-build Manage failed; Short Rest and Long Rest opened correctly
+without confirming either. Copied injected Manage/Rest boxes are recognized by
+nonserialized listener markers and rebuilt, including Correction. Native controls
+stay in their original parents; selected sheet styles and layout remain unchanged.
+Header tests cover theme, keyboard, fresh native controls, copied injected boxes,
+repeated reconciliation, both rests, Correction and changed-character rejection.
+Remaining live checks await Chrome releasing its extension-UI automation block.
+
+## v1.73.18 - Shared damage award ownership, 2026-10-23 (local coding candidate)
+
+Numeric2.20.150; PATCH only, unpublished. Roll20 and Foundry return handlers now
+honor waybeyond20-await-hit, the same ownership flag honored by the shared
+renderer. The sheet continuation owns the complete damage and rider total; its
+rendered VTT card must not infer another Draining Attack award from effect text.
+A composed regression runs the real classifier, workflow and both return handlers:
+it produced two extra callbacks before correction and zero afterward. Unmanaged
+destination-resolved requests still return damage. No change to feature eligibility,
+roll destination, counters or hit decisions. Live acceptance awaits extension reload.
+
+## v1.73.17 - Stop Combat observer loop and recover replaced target controls, 2026-10-23 (local coding candidate)
+
+Numeric2.20.149; PATCH only, unpublished. Combat tooltip refresh previously called
+jQuery.text on unchanged content, replacing its text node and waking the document
+observer, which scheduled the next refresh. A real-browser observer test reproduced
+12 bounded self-triggered refreshes before correction; it settles after comparing
+the text before writing. TaleSpire distance text uses the same guard.
+ The target panel now recognizes copied
+markup whose render signature survived but whose handlers did not. It rebuilds
+the controls and preserves attack/damage drafts, damage type and disclosure.
+Same-signature clone regression fails before and passes after. Normal reconciliation,
+rapid Undo, keyboard and theme checks remain covered. This fixes a demonstrated
+lifecycle weakness; exact cause of the first live Undo failure is still unproven.
+The full-row shortcut handoff failure remains open. No attack-route promotion.
+
+## v1.73.16 - Settings button survives header replacement, 2026-10-23 (local coding candidate)
+
+Numeric2.20.148; PATCH only, unpublished. Sheet Settings clicks use a namespaced
+delegated document handler, scoped to desktop/tablet/mobile headers. Previously,
+the handler lived on the original group while the injector skipped setup if an
+icon remained; cloned/replaced header markup could retain the icon without the
+handler. Regression reproduced red before and passes after. Repeated observer
+updates do not duplicate opens; creature controls keep their own handler.
+Ordinary Quick -> Full settings, Advanced, close/reopen and compact-header checks
+pass in isolated browsers. This is a confirmed lifecycle defect, not proof of the
+exact cause of every reported live failure. No settings/resource migration.
+
+## v1.73.15 - Secondary character attack workflow, 2026-10-23 (local coding candidate)
+
+Numeric2.20.147; PATCH only, unpublished. Advanced option "Test secondary character
+attacks" defaults OFF. Existing character workflow stays available; creature
+stat blocks and unclaimed native digital dice keep their current routes.
+
+Opt-in workflow owns actor/caller/destination/target context, serialized hit
+choices, immediate/deferred damage and once-only continuations. Shared damage,
+Smite, Elemental and feature modules accept its dispatcher without re-entering
+the old attack entry. Shared native resource/grant helpers remain authoritative.
+Hit/Miss/Skip are distinct; the selected kept attack result controls criticals.
+Definite non-natural-1/20 results update the captured target's AC history without
+changing selection. Actor, combat/source and destination guards prevent delayed
+work being applied to a newly selected character/board. Requests keep existing
+privacy and destination protocols; diagnostic context is not serialized.
+
+Automated and isolated-browser evidence is recorded separately. Live DDB/VTT
+acceptance is still required before promoting a caller or removing old routes.
+
+## v1.73.14 - Foundry registration trust stays on its origin, 2026-10-23 (coding update)
+
+Numeric2.20.146; PATCH. Ian's review of 1.73.13: onTabsUpdated refreshed the cached tab
+snapshot (title and URL), and the live query then compared the new URL with itself, so
+a one-time-activated tab that moved to another Foundry origin and changed title kept
+receiving rolls. Registrations now carry a fixed wb20TrustedOrigin separate from the
+refreshable title/URL; a refresh that crosses origins drops the registration. Composed
+onTabsUpdated -> query -> send test added; same-origin renames still route.
+
+## v1.73.13 - Foundry destinations are live tabs only, 2026-10-23 (coding update)
+
+Numeric2.20.145; PATCH. Ian's review of 1.73.12: the live-tab helper returned cached
+registrations whose tab id still existed, so a tab that navigated away from Foundry could
+still receive a roll (and report found). Destinations are now only freshly validated live
+Foundry tabs, the cache is replaced with them, and a registration vouches only for the
+origin it was made on. Tests cover empty cache, renamed world, same-id navigation, closed
+tab, activation on its own vs a new origin, and Roll20 limits.
+
+## v1.73.12 - Foundry routing survives the idle service worker, 2026-10-23 (coding update)
+
+Numeric2.20.144; PATCH. The MV3 service worker sleeps after ~30 s idle and loses the
+in-memory fvtt_tabs list; Foundry content scripts keep running but sendMessageToFVTT
+found no tabs until a re-registration, so rolls returned "Virtual Table Top Not Found"
+and native spell casts "could not complete". sendMessageToFVTT now queries live tabs
+(registered tabs plus permitted Foundry-titled tabs, with a fresh permission read),
+as sendMessageToRoll20 already did. Found live (Mira, the sample character, Foundry 14.369).
+Regression in tests/fvtt-lifecycle.js.
+
+## v1.73.11 - rolls reach the selected Foundry world, 2026-10-23 (coding update)
+
+Numeric2.20.143; PATCH. background.js stored a Foundry tab snapshot at registration,
+before WB20 appends the world name to its title, and never updated it; filterVTTTab
+compares that title with the selected "This World", so every roll failed with "Virtual
+Table Top Not Found" while a specific Foundry world was selected. addFVTTTab now replaces
+the snapshot and onTabsUpdated refreshes it on title changes. Found live (Mira, the sample character,
+Chult After Hours, Foundry 14.369). Regression in tests/fvtt-lifecycle.js.
+
+## v1.73.10 - Correction attack pools and target selection, 2026-10-22 (coding update)
+
+Numeric 2.20.142; PATCH only, unpublished. Correction names the standard pool
+"# of Attacks (standard)" and shows its feature-derived maximum. Haste attack
+actions and current feature grants remain separate pools with their own maxima.
+A sheet target choice takes precedence over the existing TaleSpire pick event,
+including after a stale settings snapshot; a new explicit board pick still works.
+Focused automated/browser regressions cover these paths; live acceptance pending.
+
+## v1.73.9 - VTT takes over after a sheet initiative roll, 2026-10-22 (coding update)
+
+Numeric2.20.141; PATCH. 1.73.7 source guard ignored VTT turn reports whenever any
+other combatSource was active, including WB20's local "D&D Beyond Initiative" combat
+started by rolling initiative on the sheet, so Roll20/Foundry turns were ignored after
+the usual initiative roll. Guard now blocks only another VTT (Roll20/Foundry/TaleSpire).
+Found live on Foundry 14.369 (Mira). Regression in tests/fvtt-lifecycle.js.
+
+## v1.73.8 - Foundry page script loads, 2026-10-22 (coding update)
+
+Numeric2.20.140; PATCH. src/common/constants.js computed CHANGELOG_URL with
+chrome.runtime.getURL at load; constants.js is in the Foundry page-world bundle, where
+chrome.runtime is undefined, so fvtt_script threw before registering anything (present
+since the v1.62 fork; Roll20 page bundle excludes constants.js). Guarded; background
+behaviour unchanged. Regression in tests/fvtt-lifecycle.js (red on old code). Mira, found
+live on Foundry 14.369 during integrated testing. No publication.
+
+## v1.73.7 - Foundry return integration and quiet disconnection, 2026-10-21 (coding update)
+
+Numeric2.20.139; PATCH only per Bill's release-only MAJOR/MINOR policy. WB20-0072 adapter
+by Mira with shared receiver integration by Ian. Unshipped1.74.0 label corrected before Dev.
+Foundry combat hooks (no polling) feed the existing waybeyond20-turn-update envelope tagged
+source Foundry; token binding on initiative; Draining-style damage return; quiet effects-update
+consumer; hook teardown on reinjection; relay allowlist. Hidden combatants never reach
+players; hidden token positions never exported. Foundry 14: positions read from the saved
+source (x/y lag until the move animation finishes in background tabs); roll privacy uses
+core.messageMode (core.rollMode is null) and explicit public mode; self rolls whisper to
+self. tests/fvtt-lifecycle.js. Live v14.369 checks in 12. No publication.
+Shared receiver honors Foundry source, isolates Foundry bindings/turn state from Roll20,
+preserves counters on destination switching and rejects nonselected source updates.
+Offline TaleSpire status/controls stay quiet; unconfigured roll output falls back locally
+without claiming VTT delivery. Tests cover offline poll/pick/link and board isolation.
+
+## v1.73.6 - shared resources and Correction, 2026-10-21 (coding update)
+
+Numeric2.20.138. WB20-0081: one resource interface for turn currency, feature
+counters, numeric pools, slots, turn uses and granted attacks. Shared dispatch
+checks costs, serializes activations and commits after performance; cancellation
+and failure commit nothing. Native ownership stays exact. Correction edits only
+changed amounts, verifies native saves, checks stale snapshots and keeps30local
+history entries excluded from outgoing character settings. No remote upload.
+Feature consumers moved from monk.js to feature-activations.js: no class-level
+permission gates, separate Focus ledger or first-use setup. Formula inputs may
+still reference the class level specified by a feature. Existing native pools
+win; unknown counts are not guessed. Partial Flurry grants persist/resume only
+within their original turn, with costs and Mercy replacements retained.
+Native duplicate Unarmed Strike Action/Bonus rows resolved safely. Simple live
+additional-Action wording grants separate currency retaining Magic exclusions;
+uninterpreted restrictions are not converted to unrestricted Actions. Ordinary
+Attack actions, Extra Attack, feature grants and one-attack Haste stay separate.
+Default-on presentation switches do not disable shared processing. Correction
+and feature prompts follow native themes. Campaign icons centered and native
+white-path overrides corrected for light themes. Automated only until live gate.
+Not a universal rule interpreter or implementation of all supplied subclasses.
+No publication, public ZIP, tag or commit.
+
+## v1.73.5 - native-themed, right-aligned header refinement, 2026-10-21 (coding update)
+
+Numeric2.20.137; PATCH only. Shared sheet-theme sampling supplies surface,
+foreground, accent and decorative frame, including attribute-only theme changes.
+Campaign/name have tight dividers; bottom icons are Maps left, Game Log center,
+builder right, without visible captions or moving native React controls.
+Header controls right-align, retaining a bounded TaleSpire fallback column.
+No rest completion, gameplay/resource change or publication.
+
+## v1.73.4 - compact desktop character header, 2026-10-21 (coding update)
+
+Numeric2.20.136; patch-only coding revision per Bill's version rule. One visual
+Manage/WB20/Share panel; Rest menu forwards only to native Short/Long Rest pane
+openers. Stacked campaign/Maps VTT/Game Log panel matches its height; dedicated
+TaleSpire status column. Native React nodes stay in their parents; redraws
+re-resolve current controls. Existing WB20 click/hover, rest confirmation and
+small-screen native controls preserved. Keyboard/Escape/outside-click support.
+No class, VTT, battle or resource behavior added; no publication.
+
+## v1.73.3 - unpublished coding update; numbering correction, 2026-10-21
+
+Numeric2.20.135. Bill clarified that MAJOR/MINOR change only for publication;
+between releases all coding updates increment PATCH. Last published1.73.2;
+premature unpublished1.74.x/1.75.x/1.76.x labels are superseded, not releases.
+Their entries below describe historical work under the labels used at the
+time. No published Git tag, asset, release or download is changed. Current work
+includes TaleSpire and Monk/Mercy candidates with their documented live gates;
+broader Monk/Fighter references are queued, not implemented. Feature work is
+paused while correcting metadata. No new feature scope added by this correction.
+
+## v1.76.1 - Disciplined Survivor death saves, 2026-10-21 (local candidate)
+
+Numeric2.20.134. PATCH after1.76.0 local Dev sync: the existing manually built
+death-save roll now includes revised Monk14+ proficiency once; remembered
+failed-save rerolls retain death-save type. No native character/battle changes.
+
+## v1.76.0 - 2024 Monk / Mercy controls, 2026-10-21 (local candidate)
+
+Numeric2.20.133. MINOR; patch reset. Revised-Monk-only activation handlers,
+native-pane Flurry/Bonus Unarmed Strike grants, Mercy healing replacements,
+post-hit Harm/Stunning, Empowered Strikes, explicit WB20 Focus pool, once-per-
+turn/rest use ledgers, confirmed-rest recovery and initiative recovery.
+Deflection reduction/redirect calculator, Evasion calculator, failed-save
+reroll and utility controls. Passive/character-building stats stay DDB-owned.
+No duplicated proficiency/ASI/AC/speed bonuses. No automatic enemy saves,
+other-creature HP/conditions, carried-mini movement or learned condition expiry.
+WB20 Focus is separate from native DDB Focus. Live Monk acceptance pending.
+Fighter/subclass references received; not implemented. TaleSpire checklist
+interrupted by new class scope; native snapshot received but zero exposed minis,
+so mini linking/initiative/distance remain unaccepted. Not published.
+
+## v1.75.0 - TaleSpire board return feed, 2026-10-21 (local candidate)
+
+Extension2.20.132 / companion1.1.0. MINOR, patch reset. WB20-owned authenticated
+loopback helper, explicit mini-ID link scoped by campaign, native initiative
+read feed, board target picker, 3D distance with sub-board checks. Separate
+TaleSpire per-board counters/notes preserve Roll20 state. First observation,
+duplicate, reconnect, pause and board switch do not reset spent counters.
+Explicit turn-following toggle: saved queue is not assumed active combat.
+No native HP/turn-order/movement/ownership writes. Helper currently requires
+Node.js and runs locally only. Live acceptance and distribution packaging pending.
+
+## v1.74.1 - TaleSpire dice detail display, 2026-10-21 (local candidate)
+
+Extension version 2.20.131; companion 1.0.1. PATCH correction to the result
+handoff: preserve actual supported die faces and modifiers in TaleSpire's
+native result breakdown instead of sending only the final number. WB20 still
+resolves all rules and dice once. No native physics reroll. Retain exact
+total/formula fallback for unsupported roll structures; validate detailed
+arithmetic against the resolved total before display. Live acceptance pending.
+
+## v1.74.0 - TaleSpire result connection, 2026-10-21 (local candidate)
+
+Extension version 2.20.130. MINOR for an optional new destination; patch resets.
+Uses official Symbiote URL messages and native result display, without a local
+server or DLL. WB20 resolves once, preserving its ordinary follow-ups and
+resource path. Private rolls use GM-only chat; no public result API for whispers.
+Separate companion installation, copied native connection prefix, bounded
+validated payloads and replay suppression. No HP/initiative/target/3D dice sync.
+Automated checks and live acceptance are recorded separately; not published.
+
 ## v1.73.2 - Proficiency and saving-throw sync, 2026-10-21 (local candidate)
 
 Extension version 2.20.129. PATCH. Recognizes DDB's accessible proficiency
@@ -100,8 +454,8 @@ against the text bounds for Swarm of Quippers names. Missing distance now gives
 the concrete input failure, including map scale, coordinates, layer or token
 identity. This does not claim the live numeric distance failure is fixed.
 Live 1.71.0 Select Target, Viewing/return and unchanged173.78px height passed.
-Calan and every enemy in this test initiative order were GM-layer tokens.
-Approved temporary Calan Tokens-layer self test still showed unavailable;
+the sample character and every enemy in this test initiative order were GM-layer tokens.
+Approved temporary the sample character Tokens-layer self test still showed unavailable;
 there is an additional unresolved cause. No numeric distance acceptance yet.
 
 ## v1.71.0 - Compass targeting and distance, 2026-10-20 (not published)
@@ -156,7 +510,7 @@ inside the same themed frame, with on-demand Damage & history. Removed forced
 Combat rerenders; theme-only refresh retains unfinished input. Local regression
 checks desktop single-row controls, target placement, 320-1200px widths, Haste,
 long target names, AC/damage persistence and End Combat cleanup. Live compact
-layout awaits reload. Previous 1.69.1 native theme verified live on Calan.
+layout awaits reload. Previous 1.69.1 native theme verified live on the sample character.
 
 ## v1.69.1 - My Target sheet theme, 2026-10-20 (not published)
 
@@ -165,7 +519,7 @@ frame instead of following OS dark mode independently. Select-menu surfaces
 match the sheet. Decorative edges have a safe inset; theme-only updates retain
 focused inputs. Local light/dark theme and responsive layout regression passed.
 Live theme acceptance awaits reload. Fresh battle names and initiatives passed
-live on 1.69.0: Zombie 1 = 18, Calan = 10.17. No counters or turns changed.
+live on 1.69.0: Zombie 1 = 18, the sample character = 10.17. No counters or turns changed.
 
 ## v1.69.0 - Typed formula parts and My Target, 2026-10-20 (not published)
 
@@ -198,7 +552,7 @@ acceptance. Custom damage type is a result label, not automatic HP application.
 
 ## v1.67.4 - Empty native sidebar guard, 2026-10-20 (not published)
 
-Extension version 2.20.111. Inspection of Calan's closed sidebar showed a
+Extension version 2.20.111. Inspection of the sample character's closed sidebar showed a
 full-width, zero-height portal retained in the DOM. jQuery :visible treats its
 width as visible, so the broad portal guard blocked description loading.
 Guard the visible native sidebar header instead. Native-shaped zero-height
@@ -349,7 +703,7 @@ Hit Die choices do not become sortable attack damage or numeric range.
 
 ## v1.66.7 - Native action-label typography, 2026-10-19 (not published)
 
-Extension version2.20.96. Calan's live computed styles confirm native labels
+Extension version2.20.96. the sample character's live computed styles confirm native labels
 use Roboto Condensed14px/400 with14px line height; Blood and Bone inherited
 Roboto13px/400 and added Inspiration usedRoboto13px/700. Match the native
 label's computed family/size/weight/line-height/letter-spacing, without copying
@@ -377,7 +731,7 @@ attack. When both native entries exist, link the original rules from that
 attack's Notes and omit the empty feature shortcut. Preserve native label,
 range, to-hit, damage, black border, handlers and sort values. Keep the feature
 shortcut if its attack is absent. No changes to attack execution or accounting.
-1.66.4 columns and compact Sort verified live on Calan; this merge is a new
+1.66.4 columns and compact Sort verified live on the sample character; this merge is a new
 correction with separate reload acceptance.
 
 ## v1.66.4 - Shared feature rows and compact Sort, 2026-10-19 (not published)

@@ -286,25 +286,65 @@ function sendMessageToRoll20(request, limit = null, failure = null) {
     }
 }
 
+// The MV3 service worker sleeps when idle and loses fvtt_tabs, while the Foundry content
+// scripts keep running. Like the Roll20 route, ask Chrome for the live tabs on every send:
+// registered tabs (with their current titles) plus permitted tabs titled as Foundry.
+function wayBeyond20WithFVTTTabs(callback) {
+    // A just-woken worker has not reloaded its permission list yet, so read it fresh.
+    chrome.permissions.getAll(permissions => {
+        if (permissions) currentPermissions = permissions;
+        wayBeyond20QueryFVTTTabs(callback);
+    });
+}
+
+function wayBeyond20QueryFVTTTabs(callback) {
+    chrome.tabs.query({}, (tabs) => {
+        const live = [];
+        for (const tab of tabs || []) {
+            if (!tab || !tab.title || !isFVTT(tab.title) || !tab.url) continue;
+            const origin = wayBeyond20UrlOrigin(tab.url);
+            // A registration (for example a one-time activation) speaks only for the origin it was
+            // trusted for; a tab on any other origin needs its own host permission.
+            const registered = fvtt_tabs.find(t => t.id === tab.id);
+            const trusted = registered && (registered.wb20TrustedOrigin || wayBeyond20UrlOrigin(registered.url));
+            if (trusted && trusted === origin) live.push({ ...tab, wb20TrustedOrigin: trusted });
+            else if (wayBeyond20HasHostPermission(tab.url)) live.push({ ...tab, wb20TrustedOrigin: origin });
+        }
+        // Only freshly validated tabs are destinations; stale registrations are dropped.
+        fvtt_tabs = live.slice();
+        callback(live);
+    });
+}
+
+function wayBeyond20HasHostPermission(url) {
+    try {
+        const origin = `${new URL(url).protocol}//${new URL(url).hostname}/*`;
+        return !!(currentPermissions && currentPermissions.origins &&
+            currentPermissions.origins.some(pattern => urlMatches(origin, pattern)));
+    } catch (err) {
+        return false;
+    }
+}
+
 function sendMessageToFVTT(request, limit, failure = null) {
     const targetRequest = wayBeyond20PrepareRequestForTarget(request, "fvtt");
-    if (limit) {
-        const vtt = limit.vtt || "fvtt"
-        if (vtt == "fvtt") {
-            let found = filterVTTTab(targetRequest, limit, fvtt_tabs, fvttTitle)
+    if (limit && (limit.vtt || "fvtt") != "fvtt") {
+        if (failure) failure(true);
+        return;
+    }
+    wayBeyond20WithFVTTTabs(tabs => {
+        if (limit) {
+            const found = filterVTTTab(targetRequest, limit, tabs, fvttTitle)
             if (failure)
                 failure(!found)
-        } else {
-            failure(true)
+            return;
         }
-    } else {
         if (failure)
-            failure(fvtt_tabs.length == 0)
-        if (fvtt_tabs.length == 0) return;
-        for (let tab of fvtt_tabs) {
+            failure(tabs.length == 0)
+        for (let tab of tabs) {
             sendMessageWithLog(tab.id, targetRequest)
         }
-    }
+    });
 }
 
 function sendMessageToCustomSites(request, limit, failure = null) {
@@ -336,9 +376,26 @@ function isFVTTTabAdded(tab) {
     return !!fvtt_tabs.find(t => t.id === tab.id);
 }
 
+function wayBeyond20UrlOrigin(url) {
+    try { return new URL(url).origin; } catch (err) { return null; }
+}
+
 function addFVTTTab(tab) {
-    if (isFVTTTabAdded(tab)) return;
-    fvtt_tabs.push(tab);
+    // Foundry's title gains the world name after WB20 loads ("World • Foundry Virtual Tabletop").
+    // Keep the newest title/URL snapshot so "send rolls to this World" can match it, but keep the
+    // origin the registration was trusted for separate: a refresh that crosses to another origin
+    // ends the registration instead of moving its trust.
+    const index = fvtt_tabs.findIndex(t => t.id === tab.id);
+    if (index >= 0) {
+        const trusted = fvtt_tabs[index].wb20TrustedOrigin || wayBeyond20UrlOrigin(fvtt_tabs[index].url);
+        if (trusted && tab.url && wayBeyond20UrlOrigin(tab.url) !== trusted) {
+            fvtt_tabs.splice(index, 1);
+            return;
+        }
+        fvtt_tabs[index] = { ...tab, wb20TrustedOrigin: trusted || wayBeyond20UrlOrigin(tab.url) };
+        return;
+    }
+    fvtt_tabs.push({ ...tab, wb20TrustedOrigin: wayBeyond20UrlOrigin(tab.url) });
     console.log("Added ", tab.id, " to fvtt tabs.");
 }
 
@@ -460,7 +517,15 @@ const forwardedActions = [
 ];
 
 function onMessage(request, sender, sendResponse) {
+    if (['wb20-talespire-state','wb20-talespire-pick'].includes(request.action)) {
+        wb20TaleSpireReturnMessage(request,sender,sendResponse);
+        return true;
+    }
     console.log("Received message: ", request)
+    if (settings['vtt-tab']?.vtt === 'talespire' && forwardedActions.includes(request.action)) {
+        wayBeyond20SendTaleSpire(request, sender, sendResponse);
+        return true;
+    }
     if (request.action === "character-core-update") {
         // Core sheet data belongs only in Roll20, not Foundry, Discord or a
         // generic custom endpoint. No open Roll20 game is a quiet no-op.
@@ -504,9 +569,11 @@ function onMessage(request, sender, sendResponse) {
         sendMessageToBeyond(request);
         sendResponse({ "success": true, "request": request });
     } else if (request.action == "waybeyond20-token-binding") {
+        if (settings['vtt-tab']?.vtt === 'talespire') {sendResponse({success:true}); return;}
         sendMessageToBeyond(request);
         sendResponse({ "success": true, "request": request });
     } else if (request.action == "waybeyond20-turn-update") {
+        if (settings['vtt-tab']?.vtt === 'talespire') {sendResponse({success:true}); return;}
         sendMessageToBeyond(request);
         sendResponse({ "success": true, "request": request });
     } else if (request.action == "waybeyond20-debug-log") {
@@ -629,6 +696,7 @@ async function executeScripts(tabs, js_files, callback, frame_id = 0) {
 }
 
 function onTabsUpdated(id, changes, tab) {
+    if (changes.title && isFVTTTabAdded(tab) && isFVTT(tab.title)) addFVTTTab(tab);
     if (isFVTTTabAdded(tab) &&
         ((changes.url && !urlMatches(changes.url, FVTT_URL)) ||
          (changes["status"] == "loading"))) {

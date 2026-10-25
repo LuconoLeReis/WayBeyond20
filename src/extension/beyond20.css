@@ -1198,6 +1198,119 @@ span.dice-roll.beyond20-tooltip-content {
 .waybeyond20-portent-settings input[type="number"] { width: 70px; float: right; }
 .waybeyond20-portent-query button { margin: 4px; padding: 8px 14px; }
 
+/* Three compact, aligned rows inside the existing 100px desktop header.
+   No React-owned controls are reparented; tablet/mobile keep their native UI. */
+@media (min-width: 1200px) {
+    .ct-character-header-desktop.wb20-compact-header {
+        display: grid;
+        grid-template-columns: minmax(170px,1fr) 0px 86px 64px 185px minmax(0,max-content);
+        grid-template-rows: repeat(3,26px);
+        column-gap: 10px; row-gap: 0; align-content: center; align-items: stretch;
+    }
+    .ct-character-header-desktop.wb20-compact-header.waybeyond20-header-with-portent {
+        grid-template-columns: minmax(170px,1fr) 128px 86px 64px 185px minmax(0,max-content);
+    }
+    .wb20-compact-header > .ct-character-header-desktop__group-tidbits { grid-column: 1; grid-row: 1 / 4; min-width: 0; }
+    .wb20-compact-header > .waybeyond20-portent { grid-column: 2; grid-row: 1 / 4; margin: 0; align-self: center; }
+    .wb20-compact-header .ddbc-character-tidbits__menu-callout { display: none; }
+    .wb20-compact-header > .ct-character-header-desktop__group--gap { display: none; }
+    .wb20-compact-header > .ct-character-header-desktop__group--beyond20-hotkeys { position: relative; grid-column: 3; grid-row: 2; align-self: start; width: 0; height: 0; z-index: 101; }
+    .wb20-compact-header .beyond20-hotkeys-list { top: 26px; left: 0; }
+    .wb20-compact-header > .wb20-header-manage,
+    .wb20-compact-header > .ct-character-header-desktop__group--beyond20,
+    .wb20-compact-header > .ct-character-header-desktop__group--share {
+        grid-column: 3; margin: 0; padding: 0 4px; min-width: 0; width: auto;
+        border-left: 1px solid var(--wb20-header-border,currentColor);
+        border-right: 1px solid var(--wb20-header-border,currentColor);
+        box-sizing: border-box;
+        color: var(--wb20-header-ink,inherit); background-color: var(--wb20-header-surface,transparent);
+        background-image: var(--wb20-header-frame,none); background-size: 100% 78px; background-repeat: no-repeat;
+    }
+    .wb20-compact-header > .wb20-header-manage { grid-row: 1; border-top: 1px solid var(--wb20-header-border,currentColor); border-radius: 4px 4px 0 0; }
+    .wb20-compact-header > .ct-character-header-desktop__group--beyond20 { grid-row: 2; background-position: 0 -26px; }
+    .wb20-compact-header > .ct-character-header-desktop__group--share { grid-row: 3; background-position: 0 -52px; border-bottom: 1px solid var(--wb20-header-border,currentColor); border-radius: 0 0 4px 4px; }
+    .wb20-compact-header .wb20-header-manage button,
+    .wb20-compact-header > .ct-character-header-desktop__group--beyond20 > div,
+    .wb20-compact-header > .ct-character-header-desktop__group--share > div {
+        display: flex; align-items: center; justify-content: center; gap: 5px;
+        width: 100%; height: 100%; min-width: 0; margin: 0; padding: 3px 5px;
+        border: 0; border-radius: 0; background: transparent; color: inherit;
+        font: inherit; font-size: 11px; line-height: 18px; box-sizing: border-box; cursor: pointer;
+    }
+    .wb20-compact-header .ct-beyond20-settings { width: 15px; height: 15px; }
+    .wb20-compact-header .ct-character-header-desktop__button-icon { width: 13px; height: 14px; margin: 0; }
+    .wb20-compact-header .ct-character-header-desktop__button-label { margin: 0; font-size: 11px; }
+    .wb20-compact-header > .ct-character-header-desktop__group--short-rest,
+    .wb20-compact-header > .ct-character-header-desktop__group--long-rest { display: none; }
+    .wb20-compact-header > .wb20-header-rest { grid-column: 4; grid-row: 1 / 4; position: relative; align-self: center; }
+    .wb20-compact-header > .wb20-header-rest,
+    .wb20-compact-header > [data-wb20-header-role="campaign"] { color: var(--wb20-header-ink,inherit); }
+    .wb20-header-rest > button { width: 100%; }
+    .wb20-compact-header .wb20-header-rest button {
+        color: inherit; font: inherit; font-size: 12px; line-height: 20px; padding: 4px 10px;
+        background: var(--wb20-header-surface,Canvas); border: 1px solid var(--wb20-header-border,currentColor); border-radius: 3px; cursor: pointer;
+    }
+    .wb20-header-rest-menu:not([hidden]) { display: flex; flex-direction: column; }
+    .wb20-header-rest-menu {
+        position: absolute; z-index: 100; top: calc(100% + 5px); left: 0; width: 130px;
+        padding: 5px; gap: 4px; border: 1px solid var(--wb20-header-border,currentColor); border-radius: 4px;
+        background-color: var(--wb20-header-surface,Canvas); color: var(--wb20-header-ink,CanvasText); box-shadow: 0 4px 12px #0006;
+    }
+    .wb20-compact-header > [data-wb20-header-role="campaign"] {
+        grid-column: 5; grid-row: 1 / 4; display: grid; grid-template-columns: repeat(3,minmax(0,1fr));
+        grid-template-rows: 26px 26px minmax(0,1fr); gap: 0;
+        min-width: 0; padding: 0 6px; border: 1px solid var(--wb20-header-border,currentColor); border-radius: 4px; box-sizing: border-box;
+        background-color: var(--wb20-header-surface,Canvas);
+        background-image: var(--wb20-header-frame,none); background-size: 100% 100%; background-repeat: no-repeat;
+    }
+    [data-wb20-header-role="campaign"] > * { min-width: 0; width: 100%; height: auto; }
+    [data-wb20-header-role="campaign"] [data-testid="campaign-summary"] {
+        grid-column: 1 / 4; grid-row: 1 / 3; display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 0;
+        width: 100%; min-width: 0; padding: 0; border: 0; font-size: 10px; white-space: nowrap; background: transparent;
+    }
+    [data-wb20-header-role="campaign"] [data-testid="campaign-summary"] > span { text-align: center; line-height: 22px; border-bottom: 1px solid var(--wb20-header-border,currentColor); }
+    [data-wb20-header-role="campaign"] [data-testid="campaign-summary"] > span:first-child { font-size: 0; }
+    [data-wb20-header-role="campaign"] [data-testid="campaign-summary"] > span:first-child::after { content: "Campaign"; font-size: 10px; }
+    [data-wb20-header-role="campaign"] [data-testid="campaign-summary"] > span:last-child { font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+    [data-wb20-header-role="campaign"] > :nth-child(2) { grid-column: 1; grid-row: 3; }
+    [data-wb20-header-role="campaign"] > :nth-child(3) { grid-column: 2; grid-row: 3; }
+    [data-wb20-header-role="campaign"] > :nth-child(2),
+    [data-wb20-header-role="campaign"] > :nth-child(3),
+    [data-wb20-header-role="campaign"] > :nth-child(3) > span { display:flex; align-items:center; justify-content:center; height:100%; width:100%; }
+    [data-wb20-header-role="campaign"] a,
+    [data-wb20-header-role="campaign"] [aria-roledescription="Game Log"] {
+        display: flex; align-items: center; justify-content: center; gap: 5px; width: 100%; height: 100%;
+        color: inherit; text-decoration: none; font: inherit; font-size: 11px; padding: 0; border: 0; background: transparent;
+    }
+    [data-wb20-header-role="campaign"] [class*="campaignButtonGroup"],
+    [data-wb20-header-role="campaign"] [class*="campaignButton__"] { border: 0; background: transparent; padding: 0; width: auto; height: auto; }
+    [data-wb20-header-role="campaign"] [class*="campaignButtonGroup"] { display:flex; align-items:center; justify-content:center; width:100%; height:100%; }
+    .ct-character-header-desktop.wb20-compact-header [data-wb20-header-role="campaign"] svg path,
+    .ct-character-header-desktop.wb20-compact-header > .ct-character-header-desktop__group--builder svg path { fill:var(--wb20-header-border,currentColor); }
+    [data-wb20-header-role="campaign"] svg { width: 12px; height: 12px; }
+    .wb20-compact-header > .ct-character-header-desktop__group--builder { grid-column: 5; grid-row: 3; align-self: center; justify-self: end; width: 57px; margin: 0 7px 0 0; transform: none; z-index: 1; color: var(--wb20-header-ink,inherit); }
+    .wb20-compact-header > .ct-character-header-desktop__group--builder a { display: flex; align-items: center; justify-content: center; }
+    .wb20-compact-header > .ct-character-header-desktop__group--builder svg { width: 18px; height: 18px; fill: currentColor; }
+    .wb20-compact-header > .wb20-ts-status { grid-column: 6; grid-row: 1 / 4; align-self: center; margin: 0; min-width: 0; width: clamp(180px,22vw,260px); display: flex; flex-wrap: wrap; gap: 5px; }
+    .wb20-compact-header .wb20-ts-label { flex-basis: 100%; white-space: normal; overflow-wrap: anywhere; }
+    .wb20-compact-header button:hover, .wb20-compact-header [role="button"]:hover { background-color: #8882; }
+    .wb20-compact-header button:focus-visible, .wb20-compact-header [role="button"]:focus-visible,
+    .wb20-compact-header a:focus-visible { outline: 2px solid var(--wb20-header-border,currentColor); outline-offset: 1px; }
+    .wb20-compact-header > .wb20-header-rest { display:flex; flex-direction:column; gap:6px; }
+    .wb20-compact-header .wb20-resource-correction-button { font-size:10px; padding:3px 4px; }
+}
+
+.wb20-resource-correction { max-height:65vh; overflow:auto; padding:8px 12px; }
+.wb20-resource-correction > label { display:grid; grid-template-columns:minmax(120px,1fr) 70px 48px; align-items:center; gap:8px; margin:8px 0; }
+.wb20-resource-dialog .ajs-header,.wb20-resource-dialog .ajs-footer,.wb20-resource-dialog .ajs-body { background:transparent; color:inherit; }
+.wb20-attack-outcome label { display:block; margin:0.5em 0; }
+.wb20-attack-outcome select { margin-left:0.5em; }
+.wb20-resource-dialog input,.wb20-resource-dialog select,.wb20-resource-dialog button { background:var(--wb20-sheet-surface,Canvas); color:inherit; border:1px solid var(--wb20-sheet-accent,currentColor); border-radius:3px; }
+.wb20-resource-dialog button:focus-visible,.wb20-resource-dialog input:focus-visible { outline:2px solid var(--wb20-sheet-accent,currentColor); }
+@media (max-width: 1199px) {
+    .wb20-header-manage, .wb20-header-rest, .wb20-header-caption { display: none; }
+}
+
 .waybeyond20-combat-source {
     font-size: 12px;
     opacity: 0.75;
