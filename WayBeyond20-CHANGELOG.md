@@ -1,5 +1,19 @@
 # WayBeyond20 Changelog
 
+## v1.73.23 stable release on 2026-10-25
+
+Project-owner-authorized publication of the verified coding candidate. Numeric
+version remains 2.20.155. Executable/runtime bytes are unchanged from the live
+tested development build; release documentation was promoted and rebuilt.
+Live Roll20 verification covered two real character capability sets, attack/hit/
+AC/Draining, immediate and deferred damage, repeat protection, turn reset,
+Flurry/native Focus/Hand of Harm and restoration. All 33 verification commands
+passed, including the standard suite, eight supplemental commands, all 22
+isolated browser files and both builds; 72 compiled JavaScript syntax checks
+passed. Scope limits are stated in README and release notes. Earlier entries
+below describe historical development candidates and their evidence at the time.
+
+
 ## v1.73.23 release preparation on 2026-10-25
 
 Numeric identity remains 2.20.155; executable bytes are unchanged from the

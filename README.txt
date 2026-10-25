@@ -1,8 +1,8 @@
 WAYBEYOND20 v1.73.23
 ===================
 
-Release preparation: October 25, 2026. Chrome numeric version: 2.20.155.
-This candidate is prepared for review. It has not been published.
+Release: October 25, 2026. Chrome numeric version: 2.20.155.
+Stable release authorized by the project owner after the verification below.
 
 WayBeyond20 connects D&D Beyond character sheets to Roll20, Foundry VTT,
 Discord and supported local/TaleSpire pathways. It is a modified distribution
@@ -33,7 +33,7 @@ WHAT CHANGED SINCE 1.73.2
 VERIFICATION
 ------------
 
-On October 25 the candidate passed the standard npm suite, supplemental
+On October 25 the release build passed the standard npm suite, supplemental
 resource/turn/distance tests, all 22 isolated browser test files, both builds
 and compiled JavaScript syntax checks. These isolated tests use fixtures;
 they are not substitutes for every supported live tabletop environment.
@@ -49,7 +49,7 @@ rolls. The local turn counter advances when a real test turn is observed.
 Experimental: Test secondary character attacks remains OFF by default.
 An existing user's explicit saved setting is preserved. Creature feature,
 resource and target parity, and attribution of anonymous native dice, are
-not complete. Do not treat this candidate as a finished universal executor.
+not complete. Do not treat this release as a finished universal executor.
 
 INSTALLING IN CHROME
 -------------------
@@ -111,7 +111,8 @@ been accepted live. English rules parsing and external DDB markup remain
 dependencies. Missing or ambiguous data must be reviewed rather than invented.
 
 Source, version history and known limitations are described in Updates.html
-and the corresponding release source. GitHub's automatic source ZIP is not
+and the corresponding release source at
+https://github.com/LuconoLeReis/WayBeyond20/releases/tag/v1.73.23. GitHub's automatic source ZIP is not
 the installable Chrome package; use the separately named Chrome ZIP.
 
 TROUBLESHOOTING
