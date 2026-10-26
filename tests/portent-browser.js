@@ -179,6 +179,26 @@ const root = path.resolve(__dirname, "..");
         await page.waitForFunction(()=>JSON.stringify(values['waybeyond20-portent']) !== beforeReroll);
         assert.equal(await page.evaluate(()=>values['waybeyond20-portent'].dice.every(die=>!die.used)),true);
         assert.equal(await page.evaluate(()=>values['waybeyond20-portent'].selected),null);
+        await page.evaluate(()=>{
+            values['waybeyond20-portent']={dice:[{id:'external',value:12,used:false}],selected:'external'};
+            wayBeyond20InjectPortent();
+            window.rollsBeforeExternalUse=dispatches.length;
+        });
+        const external=page.getByRole('button',{name:'Portent 12',exact:true});
+        await external.click({button:'right'});
+        await page.getByRole('button',{name:'Cancel',exact:true}).click();
+        await page.locator('.alertify:not(.ajs-hidden)').waitFor({state:'hidden'});
+        assert.equal(await external.isDisabled(),false);
+        assert.equal(await page.evaluate(()=>values['waybeyond20-portent'].selected),'external');
+        await external.click({button:'right'});
+        await page.getByRole('button',{name:'Use Portent',exact:true}).click();
+        const spent=page.getByRole('button',{name:'Portent 12, spent',exact:true});
+        await spent.waitFor();
+        assert.equal(await spent.isDisabled(),true);
+        assert.match(await spent.evaluate(el=>getComputedStyle(el).textDecorationLine),/line-through/);
+        assert.equal(await page.evaluate(()=>values['waybeyond20-portent'].selected),null);
+        assert.equal(await page.evaluate(()=>dispatches.length===rollsBeforeExternalUse),true);
+        assert.equal(await page.evaluate(()=>window.nameClicks),0,'right-click never opens the native sheet sidebar');
         assert.deepEqual(errors,[]);
         console.log("PASS Chromium fixture: select/deselect, No, Cancel, Yes, one spend, settings, native theme light/dark and narrow layout. Real jQuery and Alertify. Not live DDB acceptance.");
     } finally { await browser.close(); }

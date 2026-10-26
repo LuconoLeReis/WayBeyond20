@@ -61,6 +61,37 @@ async function wayBeyond20RefreshPortentForRest(owner, restType) {
     });
 }
 
+// Manual table adjudication shares the same pool and turn lock as self rolls.
+// It records a use only; it does not roll dice or edit another creature's sheet.
+async function wayBeyond20UsePortentOnOtherRoll(owner, dieId) {
+    if (!wayBeyond20HasPortent(owner) || owner !== character) return false;
+    const turn = wayBeyond20PortentTurnKey();
+    return wayBeyond20PortentLock(owner, async () => {
+        if (owner !== character || turn !== wayBeyond20PortentTurnKey()) return false;
+        const state = wayBeyond20PortentState(owner);
+        const die = state.dice.find(item => item.id === dieId && !item.used);
+        if (!die) return false;
+        if (turn && state.lastTurn === turn) {
+            alertify.warning("Portent has already been used this turn. Start the next turn in the combat tracker before using another.");
+            return false;
+        }
+        const confirmed = await dndbeyondDiceRoller._prompter.prompt("Use Portent on Another Creature",
+            `<form class="wb20-feature-prompt"><p>Use Portent <strong>${die.value}</strong> to replace another creature's attack roll, saving throw, or ability check?</p>` +
+            `<p>Confirm to mark this die spent. Apply ${die.value} as the d20 result at the table, keeping that creature's modifiers. This does not change their sheet or send another roll.</p></form>`,
+            "Use Portent", "Cancel");
+        if (!confirmed || owner !== character || turn !== wayBeyond20PortentTurnKey()) return false;
+        // A rest/reroll or another writer may have replaced this pool while open.
+        const current = wayBeyond20PortentState(owner);
+        const currentDie = current.dice.find(item => item.id === dieId && !item.used);
+        if (!currentDie || (turn && current.lastTurn === turn)) return false;
+        currentDie.used = true;
+        if (current.selected === dieId) current.selected = null;
+        current.lastTurn = turn;
+        await wayBeyond20SavePortent(owner, current);
+        return true;
+    });
+}
+
 async function wayBeyond20ForceRerollPortent(owner) {
     if (!wayBeyond20HasPortent(owner)) return false;
     const confirmed=await dndbeyondDiceRoller._prompter.prompt("Reroll Portent",
@@ -312,7 +343,7 @@ function wayBeyond20InjectPortent() {
         const button = document.createElement("button"); button.type = "button"; button.textContent = String(die.value); button.disabled = die.used;
         button.setAttribute("aria-label", `Portent ${die.value}${die.used ? ", spent" : ""}`);
         button.setAttribute("aria-pressed", String(state.selected === die.id));
-        button.title = die.used ? "Spent until your next Long Rest" : "Select for the next d20 test; click again to deselect";
+        button.title = die.used ? "Spent until your next Long Rest" : "Click to select for your next d20 test; right-click to use on another creature's roll";
         button.addEventListener("click", event => {
             event.stopPropagation();
             wayBeyond20PortentLock(owner, async () => {
@@ -321,6 +352,11 @@ function wayBeyond20InjectPortent() {
                 current.selected = current.selected === die.id ? null : die.id;
                 await wayBeyond20SavePortent(owner, current);
             });
+        });
+        button.addEventListener("contextmenu", event => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!die.used) wayBeyond20UsePortentOnOtherRoll(owner, die.id);
         });
         dice.append(button);
     }
@@ -334,5 +370,5 @@ function wayBeyond20InjectPortent() {
     const reroll=document.createElement("button");reroll.type="button";reroll.textContent="Reroll";
     reroll.setAttribute("aria-label","Reroll Portent");reroll.title="Replace current Portent dice with fresh rolls";
     reroll.addEventListener("click",()=>wayBeyond20ForceRerollPortent(owner));panel.append(reroll);
-    panel.title = "Portent: choose before rolling, once per turn. Dice refresh after a completed Long Rest. Other creatures' rolls are adjudicated at the table.";
+    panel.title = "Portent: choose before rolling, once per turn. Dice refresh after a completed Long Rest. Right-click a die to record its use on another creature's roll.";
 }

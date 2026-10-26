@@ -205,5 +205,42 @@ function setup() {
         assert.equal(await t.c.wayBeyond20PortentDispatch(t.owner,t.request(),async()=>true),false);
         assert.equal(t.c.wayBeyond20PortentEscape('<img onerror="x">'),"&lt;img onerror=&quot;x&quot;&gt;");
     });
+    await test("other creature use requires confirmation and spends only the chosen die", async () => {
+        const t=setup(); t.choice(null);
+        const before=JSON.stringify(t.values['waybeyond20-portent']);
+        assert.equal(await t.c.wayBeyond20UsePortentOnOtherRoll(t.owner,'a'),false);
+        assert.equal(JSON.stringify(t.values['waybeyond20-portent']),before);
+        t.choice('confirm');
+        assert.equal(await t.c.wayBeyond20UsePortentOnOtherRoll(t.owner,'a'),true);
+        assert.equal(t.values['waybeyond20-portent'].dice[0].used,true);
+        assert.equal(t.values['waybeyond20-portent'].dice[1].used,false);
+        assert.equal(t.values['waybeyond20-portent'].selected,null);
+        assert.equal(t.results.length,0,'no new roll or remote modification');
+        assert.equal(await t.c.wayBeyond20UsePortentOnOtherRoll(t.owner,'a'),false);
+    });
+    await test("other creature use shares the once-per-turn guard with normal Portent", async () => {
+        const t=setup();
+        t.c.wayBeyond20GetTurnTrackerState=()=>({inCombat:true,combatStartedAt:9,localTurnNumber:1});
+        assert.equal(await t.c.wayBeyond20UsePortentOnOtherRoll(t.owner,'b'),true);
+        assert.equal(t.values['waybeyond20-portent'].selected,'a','another selection remains selected');
+        assert.equal(await t.c.wayBeyond20PortentDispatch(t.owner,t.request(),async()=>true),false);
+        assert.equal(t.values['waybeyond20-portent'].dice[0].used,false);
+        assert.equal(await t.c.wayBeyond20UsePortentOnOtherRoll(t.owner,'a'),false);
+    });
+    await test("stale owner, turn and replaced dice cannot be spent from an open confirmation", async () => {
+        for (const mutation of [t=>{t.c.character={};},
+            t=>{t.c.wayBeyond20GetTurnTrackerState=()=>({inCombat:true,localTurnNumber:2});},
+            t=>{t.values['waybeyond20-portent'].dice[0].id='new-rest-die';}]) {
+            const t=setup();
+            t.c.dndbeyondDiceRoller._prompter.prompt=async()=>{mutation(t); return {};};
+            assert.equal(await t.c.wayBeyond20UsePortentOnOtherRoll(t.owner,'a'),false);
+            assert.equal(t.values['waybeyond20-portent'].dice[0].used,false);
+        }
+        const t=setup();
+        assert.deepEqual(Array.from(await Promise.all([
+            t.c.wayBeyond20UsePortentOnOtherRoll(t.owner,'a'),
+            t.c.wayBeyond20UsePortentOnOtherRoll(t.owner,'a')])),[true,false]);
+        assert.equal(t.prompts.length,1,'duplicate right-click cannot spend twice');
+    });
     console.log(`Portent: ${passed} checks passed. Live sheet/VTT acceptance is separate.`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
