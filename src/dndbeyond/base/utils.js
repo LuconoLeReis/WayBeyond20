@@ -699,10 +699,12 @@ async function sendRoll(character, rollType, fallback, args, isCurrent = null) {
         wayBeyond20NotifyDispatchFailure("Extension context invalidated.");
         return false;
     }
-    if (character.getGlobalSetting("vtt-tab", null)?.vtt === "talespire" &&
-        !character.getGlobalSetting("talespire-url", "").trim()) {
-        wayBeyond20NotifyDispatchFailure("Paste the connection from the WayBeyond20 TaleSpire Symbiote into WB20 settings first.");
-        return false;
+    // TaleSpire is a delivery destination, never permission to perform an attack.
+    // Preserve the selected destination; the same resolved result can be shown
+    // locally if its handoff is unavailable. No target or mini is required.
+    if (character.getGlobalSetting("vtt-tab", null)?.vtt === "talespire") {
+        req["waybeyond20-talespire-local-fallback"] = true;
+        req["waybeyond20-local-only"] = !character.getGlobalSetting("talespire-url", "").trim();
     }
     if (character.getGlobalSetting("vtt-tab", null)?.vtt === "talespire" ||
         req["waybeyond20-portent-value"] !== undefined || typeof args["waybeyond20-capture-result"] === "function" ||

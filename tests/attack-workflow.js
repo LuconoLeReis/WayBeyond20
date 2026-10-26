@@ -37,6 +37,18 @@ const d20 = (total, natural=total-5, discarded=false) => ({total,
     dice:[{faces:20,rolls:[{roll:natural}]}],isDiscarded:()=>discarded,isCriticalHit:()=>natural===20});
 async function test(name, run) { await run(); console.log('PASS', name); }
 (async () => {
+    await test('TaleSpire attack without a selected target still runs the shared attack and rider lifecycle', async () => {
+        const c = candidate({smites:false, draining:true});
+        c.character.getGlobalSetting = (key, fallback) => key === 'vtt-tab' ? {vtt:'talespire'} : fallback;
+        c.wayBeyond20GetTurnTrackerState = () => ({inCombat:true, combatSource:'TaleSpire',
+            selectedTargetKey:null, knownTargets:[], currentRoll20Turn:{isThisCharactersTurn:true}});
+        const op = c.wb20CreateCharacterAttackWorkflow('attack', '', c.attack(), 'test:untargeted-talespire');
+        assert.equal(await op.run(), true);
+        assert.equal(count(c,'send:base'), 1);
+        assert.equal(count(c,'send:damage'), 1);
+        assert.equal(count(c,'spend:action'), 1);
+        assert.equal(count(c,'thp:5'), 1, 'Draining Attack remains in the common lifecycle');
+    });
     await test('candidate character path matches ancestor prompts, rolls, spends and riders', async () => {
         for (const options of [{}, {hit:false}, {chooseSmite:false}, {fail:'base'}, {fail:'damage'},
             {smites:false,draining:true}, {smites:false,draining:false}, {smites:true,draining:true},

@@ -56,7 +56,7 @@ function createSandbox({ runtime = "ok", digitalDice = false, rendererSends = tr
             if (runtime === "throw") throw new Error("Extension context invalidated.");
             log.runtimeSends.push(message);
             setTimeout(() => {
-                if (runtime === "last-error") {
+                if (runtime === "last-error" || runtime === "talespire-last-error") {
                     chromeRuntime.lastError = { message: "Could not establish connection. Receiving end does not exist." };
                     callback(undefined);
                     chromeRuntime.lastError = undefined;
@@ -142,7 +142,7 @@ function createSandbox({ runtime = "ok", digitalDice = false, rendererSends = tr
         ...CHARACTER_FUNCTIONS.map(name => topLevelFunction(characterSource, name)),
         ...OPTIONAL_CHARACTER_FUNCTIONS.map(name => topLevelFunction(characterSource, name, { optional: true }))
     ].join("\n"), Object.assign(context, { displayerHolder: displayer }));
-    if (runtime.startsWith('talespire')) displayer.value.postHTML = () => log.localDisplays.push('talespire-result');
+    if (runtime.startsWith('talespire')) displayer.value.postHTML = (...args) => log.localDisplays.push({request: args[0], html: args[2], whisper: args[4], attacks: args[9]});
     return context;
 }
 
@@ -235,14 +235,25 @@ section("TaleSpire forces resolved output once and preserves post-dispatch resou
     assert.deepEqual(success.log.turnSpends, ['action', 'bonusAction']);
     assert.deepEqual(success.log.limitedUseSpends, ['Channel Divinity']);
     assert.deepEqual(success.log.slotSpends, [1]);
-    for (const options of [{runtime: 'talespire-failed'}, {runtime: 'talespire-ok', talespireConnection: false}]) {
-        const failed = createSandbox(options);
-        assert.equal(await run(failed, 'sendRollWithCharacter')('attack', '1d8 + 3', fullRequest(failed)), false);
+    for (const options of [{runtime: 'talespire-failed'}, {runtime: 'talespire-last-error'},
+        {runtime: 'talespire-ok', talespireConnection: false}]) {
+        const local = createSandbox(options);
+        assert.equal(await run(local, 'sendRollWithCharacter')('attack', '1d8 + 3', fullRequest(local)), true);
         await settle();
-        assertNothingCommitted(failed.log, 'TaleSpire failed or unconfigured');
-        if (!options.talespireConnection && options.talespireConnection !== undefined)
-            assert.equal(failed.log.rendered.length, 0, 'missing connection does not roll');
+        assert.equal(local.log.rendered.length, 1, 'unavailable TaleSpire resolves exactly once without a target');
+        assert.equal(local.log.localDisplays.length, 1, 'the completed result remains available on the sheet');
+        assert.deepEqual(local.log.turnSpends, ['action', 'bonusAction'], 'accepted local attack pays once');
+        assert.deepEqual(local.log.limitedUseSpends, ['Channel Divinity']);
+        assert.deepEqual(local.log.slotSpends, [1]);
+        assert.deepEqual(local.log.errors, [], 'no connection nag blocks the attack');
+        assert.equal(local.log.runtimeSends.length, options.talespireConnection === false ? 0 : 1,
+            'no disconnected send or transport retry');
     }
+    const privateLocal = createSandbox({runtime: 'talespire-ok', talespireConnection: false});
+    assert.equal(await run(privateLocal, 'sendRoll')(privateLocal.character, 'attack', '1d20+5',
+        {name: 'Private untargeted attack', whisper: 1}), true);
+    assert.equal(privateLocal.log.localDisplays[0].request.whisper, 1, 'local fallback preserves privacy');
+    assert.equal(privateLocal.log.runtimeSends.length, 0, 'private local result is never forwarded');
 });
 
 section("6. Digital dice: the renderer's later send decides the outcome", async () => {

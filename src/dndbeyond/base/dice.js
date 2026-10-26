@@ -64,9 +64,26 @@ class DNDBDisplayer {
             wayBeyond20RollDeliveries.delete(request);
             delivery.invoked = true;
         }
+        if (request["waybeyond20-local-only"]) {
+            // Nothing is forwarded, including private rolls. Display only on the
+            // originating sheet, using the result already resolved by the renderer.
+            this.postHTML(request, title, html, character, whisper, play_sound, source, attributes, description,
+                attack_rolls, roll_info, damage_rolls, total_damages, open);
+            if (delivery) delivery.resolve({ok: true, local: true});
+            return;
+        }
         const req = await this.sendMessageToDOM(request, title, html, character, whisper, play_sound, source, attributes, description, attack_rolls, roll_info, damage_rolls, total_damages, open);
         console.log("Sending message: ", req);
         const outcome = await wayBeyond20SendRuntimeMessage(req);
+        if (!outcome.ok && request["waybeyond20-talespire-local-fallback"]) {
+            // A failed protocol/message handoff must not discard a completed roll
+            // or invite a second roll and duplicate resource spending.
+            this.postHTML(request, title, html, character, whisper, play_sound, source, attributes, description,
+                attack_rolls, roll_info, damage_rolls, total_damages, open);
+            console.warn("WayBeyond20: TaleSpire handoff unavailable; the completed roll is displayed on this sheet.", outcome.error);
+            if (delivery) delivery.resolve({ok: true, local: true});
+            return;
+        }
         if (outcome.ok) beyond20SendMessageFailure(character, outcome.response);
         else if (!delivery) wayBeyond20NotifyDispatchFailure(outcome.error);
         if (outcome.ok && outcome.response?.success && outcome.response.vtt?.includes('talespire'))
