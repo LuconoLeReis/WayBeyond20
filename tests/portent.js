@@ -154,6 +154,16 @@ function setup() {
         await t.c.wayBeyond20RefreshPortentForRest(t.owner,"long");
         assert.equal(t.values["waybeyond20-portent"].dice.length,3);
     });
+    await test("force reroll requires confirmation and replaces only this character's Portent pool", async () => {
+        const t=setup();const before=JSON.stringify(t.values);t.choice(null);
+        assert.equal(await t.c.wayBeyond20ForceRerollPortent(t.owner),false);
+        assert.equal(JSON.stringify(t.values),before);
+        t.choice("yes");assert.equal(await t.c.wayBeyond20ForceRerollPortent(t.owner),true);
+        const pool=t.values['waybeyond20-portent'];assert.equal(pool.dice.length,2);assert.equal(pool.selected,null);
+        assert.ok(pool.dice.every(die=>!die.used && die.id !== 'a' && die.id !== 'b'));
+        t.c.character={_id:'other'};const saved=JSON.stringify(t.values);
+        assert.equal(await t.c.wayBeyond20ForceRerollPortent(t.owner),false);assert.equal(JSON.stringify(t.values),saved);
+    });
     await test("simultaneous rolls serialize and cannot reuse the same selected die", async () => {
         const t=setup(); let replaced=0;
         await Promise.all([1,2].map(()=>{const req=t.request();return t.c.wayBeyond20PortentDispatch(t.owner,req,async()=>{if(req.d20)replaced++; await Promise.resolve();return true;});}));

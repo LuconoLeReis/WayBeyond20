@@ -7,7 +7,7 @@ const wb20ResourceDefinitions = new WeakMap();
 const wb20NativeResourceSnapshots = new WeakMap();
 
 function wb20ResourceId(name) {
-    return String(name || "").replace(/[’']/g, "").replace(/[^a-z0-9]+/gi, " ").trim().toLowerCase();
+    return String(name || "").replace(/[â€™']/g, "").replace(/[^a-z0-9]+/gi, " ").trim().toLowerCase();
 }
 
 function wb20OwnedFeatures(owner = character) {
@@ -441,8 +441,8 @@ async function wb20CorrectResources() {
         const esc=value=>String(value ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
         const entries=[...pools].filter(([,pool])=>pool.remaining !== null || pool.kind === "local");
         const rows=entries.map(([id,pool],i)=>`<label>${esc(pool.name)} <input name="resource-${i}" type="number" min="0" ${pool.max === null || pool.uncapped ? '' : `max="${pool.max}"`} value="${pool.remaining ?? ''}" placeholder="Unknown" aria-label="${esc(pool.name)} remaining"><span>${pool.max === null ? '' : '/ '+pool.max}</span></label>`).join("");
-        const history=wb20ResourceStore(owner).history.slice().reverse().map(entry=>`<li>${esc(new Date(entry.at).toLocaleTimeString())} · ${esc(entry.name)}: ${entry.before ?? '?'} → ${entry.after} · ${esc(entry.reason)}</li>`).join("");
-        const form=await dndbeyondDiceRoller._prompter.prompt("Correction",`<form class="wb20-resource-correction"><p>Remaining resources. Only changed values will be saved.</p>${rows || '<p>No feature resources are currently exposed on this sheet.</p>'}<details><summary>Recent resource history · local only</summary><ol>${history || '<li>No recorded changes.</li>'}</ol></details></form>`,"Save corrections","Cancel");
+        const history=wb20ResourceStore(owner).history.slice().reverse().map(entry=>`<li>${esc(new Date(entry.at).toLocaleTimeString())} Â· ${esc(entry.name)}: ${entry.before ?? '?'} â†’ ${entry.after} Â· ${esc(entry.reason)}</li>`).join("");
+        const form=await dndbeyondDiceRoller._prompter.prompt("Correction",`<form class="wb20-resource-correction"><p>Remaining resources. Only changed values will be saved.</p>${rows || '<p>No feature resources are currently exposed on this sheet.</p>'}<details><summary>Recent resource history Â· local only</summary><ol>${history || '<li>No recorded changes.</li>'}</ol></details></form>`,"Save corrections","Cancel");
         if (!form || owner !== character || turn !== wayBeyond20AttackActivationTurnKey()) return;
         const updates=[];
         for (let i=0;i<entries.length;i++) {
@@ -475,6 +475,7 @@ function wb20ThemeResourcePrompt(dialog) {
     if (!dialog || typeof wayBeyond20ApplySheetTheme !== "function") return;
     wayBeyond20ApplySheetTheme(dialog);
     dialog.classList.add("wb20-resource-dialog");
+    dialog.style.backgroundColor="var(--wb20-sheet-surface,Canvas)";
 }
 
 function wb20FeatureAttackCount() {

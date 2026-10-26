@@ -1,3 +1,7 @@
+## 1.73.27 / 2.20.159 — Portent and theme repair, October 25, 2026
+
+Explicit Portent reroll with confirmation/cancel, independent completed-rest refresh, expired-context guards, themed header silhouette/hover and prompt readability, encoding-safe settings gear. Unit/browser tests and owner-reported Portent functionality are distinct from complete remote-player acceptance. Dice-tray and Musician party-management work excluded.
+
 ## 1.73.25 / 2.20.157 — October 25, 2026
 
 Owner-authorized release of queued attacks and the themed Action menu. Explicit Attack sends one source-aware card; automatic weapon purchases add no duplicate card. Attack outcome uses direct Hit/Miss/Skip-Cancel controls; one total is plain text and critical damage remains driven by the selected roll. Automated verification and live menu/display inspection are distinct from complete live acceptance. No battlefield, movement-path or tactical-advice feature is included.

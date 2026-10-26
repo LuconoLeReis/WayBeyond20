@@ -1,14 +1,25 @@
-WAYBEYOND20 v1.73.25
+WAYBEYOND20 v1.73.27
 ===================
 
-Release: October 25, 2026. Chrome numeric version: 2.20.157.
+Release: October 25, 2026. Chrome numeric version: 2.20.159.
 Stable release authorized by the project owner after the verification below.
 
 WayBeyond20 connects D&D Beyond character sheets to Roll20, Foundry VTT,
 Discord and supported local/TaleSpire pathways. It is a modified distribution
 of Beyond20. Required GPL and MIT attribution and licenses are included.
 
-WHAT CHANGED IN 1.73.25
+WHAT CHANGED IN 1.73.27
+-----------------------
+- Portent now has an explicit Reroll control. Confirming replaces only its dice;
+  cancellation preserves them. Completed Long Rest refresh is isolated from
+  unrelated cleanup failures, and invalidated extension instances cannot claim
+  rest events. No extra rest is required to use Reroll.
+- The settings gear uses an encoding-safe label.
+- Compact header panels retain the frame silhouette, hover styles are consistent,
+  and feature-rule popouts use readable sheet-derived text and opaque surfaces.
+- The dice-tray prototype and new Musician party controls are not included.
+
+PREVIOUS CHANGES IN 1.73.25
 -----------------------
 - Combat shows queued attacks / attacks per standard Attack action, with a tooltip.
 - The themed Action menu offers eleven choices. Extra Actions remain Actions

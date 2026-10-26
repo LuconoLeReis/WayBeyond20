@@ -47,6 +47,7 @@ function wb20HeaderTheme(header) {
     const properties = {
         "--wb20-header-ink": sample.style.color,
         "--wb20-header-surface": sample.style.getPropertyValue("--wb20-sheet-surface"),
+        "--wb20-header-panel-surface": sample.style.backgroundImage && sample.style.backgroundImage !== "none" ? "transparent" : sample.style.getPropertyValue("--wb20-sheet-surface"),
         "--wb20-header-border": sample.style.getPropertyValue("--wb20-sheet-accent"),
         "--wb20-header-frame": sample.style.backgroundImage || "none",
         "--wb20-header-radius": sample.style.borderRadius || "4px"

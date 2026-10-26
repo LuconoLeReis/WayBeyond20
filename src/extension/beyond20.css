@@ -109,7 +109,7 @@
     display: block; width: 100%; text-align: left; background: transparent; color: inherit;
     border: 0; padding: 7px 8px; cursor: pointer; font: inherit;
 }
-.wb20-action-sort-menu button[aria-pressed="true"]::before { content: "✓ "; }
+.wb20-action-sort-menu button[aria-pressed="true"]::before { content: "âœ“ "; }
 .wb20-action-sort-menu button:hover, .wb20-action-sort-menu button:focus-visible { background: #e8eef8; }
 .wb20-inspire-icon, .wb20-feature-option-icon {
     display: inline-flex; align-items: center; justify-content: center;
@@ -1223,7 +1223,7 @@ span.dice-roll.beyond20-tooltip-content {
         border-left: 1px solid var(--wb20-header-border,currentColor);
         border-right: 1px solid var(--wb20-header-border,currentColor);
         box-sizing: border-box;
-        color: var(--wb20-header-ink,inherit); background-color: var(--wb20-header-surface,transparent);
+        color: var(--wb20-header-ink,inherit); background-color: var(--wb20-header-panel-surface,var(--wb20-header-surface,transparent));
         background-image: var(--wb20-header-frame,none); background-size: 100% 78px; background-repeat: no-repeat;
     }
     .wb20-compact-header > .wb20-header-manage { grid-row: 1; border-top: 1px solid var(--wb20-header-border,currentColor); border-radius: 4px 4px 0 0; }
@@ -1260,7 +1260,7 @@ span.dice-roll.beyond20-tooltip-content {
         grid-column: 5; grid-row: 1 / 4; display: grid; grid-template-columns: repeat(3,minmax(0,1fr));
         grid-template-rows: 26px 26px minmax(0,1fr); gap: 0;
         min-width: 0; padding: 0 6px; border: 1px solid var(--wb20-header-border,currentColor); border-radius: 4px; box-sizing: border-box;
-        background-color: var(--wb20-header-surface,Canvas);
+        background-color: var(--wb20-header-panel-surface,var(--wb20-header-surface,Canvas));
         background-image: var(--wb20-header-frame,none); background-size: 100% 100%; background-repeat: no-repeat;
     }
     [data-wb20-header-role="campaign"] > * { min-width: 0; width: 100%; height: auto; }
@@ -1836,4 +1836,29 @@ span.dice-roll.beyond20-tooltip-content {
 .waybeyond20-lay-on-hands-step:disabled {
     opacity: 0.35;
     cursor: default;
+}
+
+/* Native header rules must not turn compact controls black on hover. */
+.wb20-compact-header .wb20-header-manage button,
+.wb20-compact-header .ct-character-header-desktop__button,
+.wb20-compact-header [data-wb20-header-role="campaign"] [class*="campaignButton"],
+.wb20-compact-header [data-wb20-header-role="campaign"] [data-testid="campaign-summary"] {
+    background-color:transparent !important; color:var(--wb20-header-ink,inherit) !important;
+}
+.wb20-compact-header .wb20-header-rest > button,
+.wb20-compact-header .wb20-header-rest .wb20-header-correction {
+    color:var(--wb20-header-ink,inherit) !important; background-color:var(--wb20-header-surface,Canvas) !important;
+}
+.wb20-compact-header .wb20-header-manage button:hover,
+.wb20-compact-header .ct-character-header-desktop__button:hover,
+.wb20-compact-header [data-wb20-header-role="campaign"] [role="button"]:hover,
+.wb20-compact-header [data-wb20-header-role="campaign"] a:hover,
+.wb20-compact-header .wb20-header-rest > button:hover {
+    background-color:color-mix(in srgb,var(--wb20-header-border,currentColor) 12%,var(--wb20-header-surface,Canvas)) !important;
+    color:var(--wb20-header-ink,inherit) !important;
+}
+.wb20-resource-dialog .ajs-header,.wb20-resource-dialog .ajs-footer,.wb20-resource-dialog .ajs-body,
+.wb20-resource-dialog .ajs-content,.wb20-resource-dialog .ajs-content p,.wb20-resource-dialog .ajs-content label,
+.wb20-resource-dialog .ajs-content strong,.wb20-resource-dialog .ajs-content h3 {
+    color:inherit !important; background-color:transparent !important;
 }

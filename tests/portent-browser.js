@@ -7,6 +7,8 @@ const root = path.resolve(__dirname, "..");
     const browser = await chromium.launch({channel: "chrome", headless: true});
     try {
         const page = await browser.newPage({viewport:{width:1200,height:800}});
+        await page.route('https://wb20-portent.test/**',route=>route.fulfill({body:'<html></html>',contentType:'text/html'}));
+        await page.goto('https://wb20-portent.test/');
         const errors=[];page.on("pageerror",error=>errors.push(error.message));
         await page.setContent(`<html><head></head><body><main style="margin:24px">
             <div class="ct-character-header-desktop" style="height:100px;display:flex;align-items:center">
@@ -168,6 +170,15 @@ const root = path.resolve(__dirname, "..");
             wayBeyond20ShowMusicianRestReminder("short");
         });
         assert.equal(await page.locator('.alertify:not(.ajs-hidden)').count(),0);
+        await page.evaluate(()=>window.beforeReroll=JSON.stringify(values['waybeyond20-portent']));
+        await page.locator('.waybeyond20-portent').getByRole('button',{name:'Reroll Portent',exact:true}).click();
+        await page.getByRole('button',{name:'Cancel',exact:true}).click();
+        assert.equal(await page.evaluate(()=>JSON.stringify(values['waybeyond20-portent'])),await page.evaluate(()=>beforeReroll));
+        await page.locator('.waybeyond20-portent').getByRole('button',{name:'Reroll Portent',exact:true}).click();
+        await page.locator('.alertify:not(.ajs-hidden)').getByRole('button',{name:'Reroll Portent',exact:true}).click();
+        await page.waitForFunction(()=>JSON.stringify(values['waybeyond20-portent']) !== beforeReroll);
+        assert.equal(await page.evaluate(()=>values['waybeyond20-portent'].dice.every(die=>!die.used)),true);
+        assert.equal(await page.evaluate(()=>values['waybeyond20-portent'].selected),null);
         assert.deepEqual(errors,[]);
         console.log("PASS Chromium fixture: select/deselect, No, Cancel, Yes, one spend, settings, native theme light/dark and narrow layout. Real jQuery and Alertify. Not live DDB acceptance.");
     } finally { await browser.close(); }

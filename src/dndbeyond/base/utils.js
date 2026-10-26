@@ -905,12 +905,14 @@ function getRollTypeButtonClass(character) {
 }
 
 function getBadgeIconFromClass(rolltype_class, size="20") {
+    if (typeof chrome === "undefined" || !chrome.runtime?.getURL) return "";
     const type = rolltype_class.replace("beyond20-roll-type-", "") || "normal";
     return chrome.runtime.getURL(`images/icons/badges/${type}${size}.png`);
 }
 
 var last_character_used = null;
 function updateRollTypeButtonClasses(character) {
+    if (typeof chrome !== "undefined" && !chrome.runtime?.getURL) return;
     const button_roll_type_classes = "beyond20-roll-type-double beyond20-roll-type-query beyond20-roll-type-thrice beyond20-roll-type-advantage beyond20-roll-type-disadvantage beyond20-roll-type-super-advantage beyond20-roll-type-super-disadvantage";
     const rolltype_class = getRollTypeButtonClass(character || last_character_used);
     if (character)

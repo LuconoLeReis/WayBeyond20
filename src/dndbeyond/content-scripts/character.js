@@ -4653,6 +4653,9 @@ function wayBeyond20InstallLongRestTracker() {
     }
 
     const listener = event => {
+        // An invalidated extension context must not claim the shared rest event
+        // before the active instance can process it after an extension reload.
+        if (typeof chrome !== "undefined" && !chrome.runtime?.id) return;
         const control = event.target && event.target.closest ? event.target.closest("button,[role='button']") : null;
         if (!control || wayBeyond20LongRestResetPending) return;
         const label = String(control.textContent || control.getAttribute("aria-label") || "")
@@ -4704,6 +4707,11 @@ function wayBeyond20InstallLongRestTracker() {
         });
         setTimeout(() => {
             if (character !== restOwner) { wayBeyond20LongRestResetPending = false; return; }
+            // Portent refresh must not be skipped if an unrelated resource or
+            // effect helper fails later in the completed-rest cleanup.
+            if (typeof wayBeyond20RefreshPortentForRest === "function")
+                wayBeyond20RefreshPortentForRest(restOwner, restType).catch(error => console.warn("WayBeyond20: Portent rest refresh failed", error));
+            try {
             if (character) character.updateInfo();
             wayBeyond20EndCombat(true);
             if (restType === "long" && character) character.mergeCharacterSettings({"waybeyond20-paladin-smite-used": false});
@@ -4711,12 +4719,11 @@ function wayBeyond20InstallLongRestTracker() {
             if (restType === "long") wayBeyond20ResetHitDice("long-rest");
             wayBeyond20ExpireEffectsForRest(restType);
             wayBeyond20RestWizardResources(restType);
-            if (typeof wayBeyond20RefreshPortentForRest === "function")
-                wayBeyond20RefreshPortentForRest(character, restType).catch(error => console.warn("WayBeyond20: Portent rest refresh failed", error));
             if (typeof wb20FeatureRest === "function")
                 wb20FeatureRest(character, restType).catch(error => console.warn("WayBeyond20: Monk rest refresh failed", error));
             wayBeyond20ShowMusicianRestReminder(restType);
-            wayBeyond20LongRestResetPending = false;
+            } catch (error) { console.warn("WayBeyond20: completed-rest cleanup failed",error); }
+            finally { wayBeyond20LongRestResetPending = false; }
         }, 750);
     };
 

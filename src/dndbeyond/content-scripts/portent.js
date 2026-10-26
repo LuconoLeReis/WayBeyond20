@@ -61,6 +61,15 @@ async function wayBeyond20RefreshPortentForRest(owner, restType) {
     });
 }
 
+async function wayBeyond20ForceRerollPortent(owner) {
+    if (!wayBeyond20HasPortent(owner)) return false;
+    const confirmed=await dndbeyondDiceRoller._prompter.prompt("Reroll Portent",
+        '<form class="wb20-feature-prompt"><p>Replace all current Portent dice with fresh rolls? This clears spent dice and the selected die. It does not take a rest or restore any other resource.</p></form>',"Reroll Portent","Cancel");
+    if (!confirmed || owner !== character) return false;
+    await wayBeyond20RefreshPortentForRest(owner,"long");
+    return true;
+}
+
 function wayBeyond20PortentCategory(req) {
     if (["attack", "spell-attack"].includes(req.type))
         return req.rollAttack !== false && req["to-hit"] !== undefined ? "attack" : null;
@@ -217,7 +226,8 @@ function wayBeyond20ApplySheetTheme(node) {
         document.querySelector('.ct-ability-summary,.ddbc-ability-summary');
     if (!native) return;
     const style = getComputedStyle(native);
-    node.style.color = style.color;
+    const ink=native.querySelector(".ct-saving-throws-summary__ability-modifier,.ddbc-saving-throws-summary__ability-modifier,.ct-signed-number,.ddbc-signed-number");
+    node.style.color = ink ? getComputedStyle(ink).color : style.color;
     node.style.backgroundColor = style.backgroundColor !== "rgba(0, 0, 0, 0)" ? style.backgroundColor : "var(--ttui-color-surface, Canvas)";
     node.style.borderColor = style.borderColor;
     node.style.borderRadius = style.borderRadius;
@@ -318,8 +328,11 @@ function wayBeyond20InjectPortent() {
         const setup = document.createElement("button"); setup.type = "button"; setup.textContent = "Set today's dice";
         setup.addEventListener("click", () => wayBeyond20InitializePortent(owner)); dice.append(setup);
     }
-    const settingsButton = document.createElement("button"); settingsButton.type = "button"; settingsButton.className = "waybeyond20-portent-settings-button"; settingsButton.textContent = "⚙";
+    const settingsButton = document.createElement("button"); settingsButton.type = "button"; settingsButton.className = "waybeyond20-portent-settings-button"; settingsButton.textContent = "\u2699";
     settingsButton.setAttribute("aria-label", "Portent Settings"); settingsButton.title = "Portent Settings";
     settingsButton.addEventListener("click", () => wayBeyond20PortentSettings(owner)); panel.append(settingsButton);
+    const reroll=document.createElement("button");reroll.type="button";reroll.textContent="Reroll";
+    reroll.setAttribute("aria-label","Reroll Portent");reroll.title="Replace current Portent dice with fresh rolls";
+    reroll.addEventListener("click",()=>wayBeyond20ForceRerollPortent(owner));panel.append(reroll);
     panel.title = "Portent: choose before rolling, once per turn. Dice refresh after a completed Long Rest. Other creatures' rolls are adjudicated at the table.";
 }
